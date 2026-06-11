@@ -139,6 +139,7 @@ pv_mvp/
 ├── README.md
 ├── requirements.txt
 ├── run.py
+├── start.cmd
 ├── start.ps1
 ├── pv_system.db
 └── passport_PV1.md
@@ -165,6 +166,7 @@ pv_mvp/
 | `requirements.txt` | Python-зависимости. |
 | `.env.example` | Пример переменных окружения. |
 | `run.py` | Альтернативный запуск Uvicorn. |
+| `start.cmd` | Windows-обертка для запуска при отключенном выполнении PowerShell-сценариев; вызывает `start.ps1` с `-ExecutionPolicy Bypass` только для текущего процесса. |
 | `start.ps1` | Windows-скрипт запуска из папки проекта: освобождает порт `8000`, при необходимости готовит `.venv`, устанавливает зависимости и запускает сайт на `http://127.0.0.1:8000/`. |
 
 ## 6. Технологический стек
@@ -465,8 +467,10 @@ python run.py
 Windows-запуск из папки проекта с автоматическим освобождением порта `8000`:
 
 ```powershell
-.\start.ps1
+.\start.cmd
 ```
+
+Если политика PowerShell разрешает запуск `.ps1`, можно использовать `.\start.ps1`. Если выполнение сценариев отключено, нужно запускать `.\start.cmd`.
 
 ## 15. Переменные окружения
 
@@ -510,10 +514,10 @@ uvicorn app.main:app --reload
 Упрощенный запуск на Windows:
 
 ```powershell
-.\start.ps1
+.\start.cmd
 ```
 
-Скрипт запускается из папки `pv_mvp`, закрывает процесс, занимающий порт `8000`, устанавливает зависимости из `requirements.txt` и стартует Uvicorn на `http://127.0.0.1:8000/`.
+Скрипт запускается из папки проекта, закрывает процесс, занимающий порт `8000`, устанавливает зависимости из `requirements.txt` и стартует Uvicorn на `http://127.0.0.1:8000/`. `start.cmd` нужен для систем, где прямой запуск `.ps1` заблокирован execution policy.
 
 Открыть сайт:
 
@@ -661,6 +665,7 @@ DATABASE_URL=postgresql+psycopg://user:password@host:5432/pv_system
 | 2026-06-11 | 0.1 / project passport | Создан `passport_PV1.md` как главный паспорт проекта с архитектурой, таблицами, endpoints, roadmap и правилами обновления. | Codex по запросу пользователя |
 | 2026-06-11 | 0.2 / UI localization and branding | Добавлены RU/EN интерфейс с русским языком по умолчанию, переключатель языка, общий Jinja i18n helper, cookie языка, логотип ARS PharmRussia и стили по брендбуку. | Codex по запросу пользователя |
 | 2026-06-11 | 0.2 / Windows start script | Добавлен `start.ps1` для запуска сайта из папки проекта на `http://127.0.0.1:8000/` с автоматическим закрытием процесса, занимающего порт `8000`. | Codex по запросу пользователя |
+| 2026-06-11 | 0.2 / Windows execution policy wrapper | Добавлен `start.cmd`, который запускает `start.ps1` с `-ExecutionPolicy Bypass` для случаев, когда прямой запуск PowerShell-сценариев отключен системой. | Codex по запросу пользователя |
 
 ## 23. Open questions
 

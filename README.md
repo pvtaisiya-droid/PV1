@@ -43,10 +43,10 @@ python run.py
 Windows one-command start from the project folder:
 
 ```powershell
-.\start.ps1
+.\start.cmd
 ```
 
-The script frees port `8000` if it is already in use, installs dependencies, and starts the site at `http://127.0.0.1:8000/`.
+Use `.\start.cmd` when PowerShell script execution is disabled. It runs `start.ps1` with a process-only execution-policy bypass, frees port `8000` if it is already in use, installs dependencies, and starts the site at `http://127.0.0.1:8000/`.
 
 ## Create Seed Data
 
