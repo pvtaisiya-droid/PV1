@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}{{ _('Cases') }} - {{ _('PV MVP') }}{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+        <h1 class="h3 mb-1">{{ _('Cases') }}</h1>
+        <div class="text-secondary small">{{ cases|length }} {{ _('records') }}</div>
+    </div>
+    <div class="d-flex gap-2">
+        <a class="btn btn-outline-secondary btn-sm icon-button" href="/api/cases/export.csv"><i data-lucide="download"></i><span>{{ _('CSV') }}</span></a>
+        <a class="btn btn-primary btn-sm icon-button" href="/cases/new"><i data-lucide="plus"></i><span>{{ _('New case') }}</span></a>
+    </div>
+</div>
+
+<section class="surface">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead>
+            <tr>
+                <th>{{ _('Case no.') }}</th>
+                <th>{{ _('Received') }}</th>
+                <th>{{ _('Partner') }}</th>
+                <th>{{ _('Seriousness') }}</th>
+                <th>{{ _('Status') }}</th>
+                <th>{{ _('Due') }}</th>
+                <th></th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for case in cases %}
+            <tr>
+                <td class="fw-medium">{{ case.case_number }}</td>
+                <td>{{ case.initial_received_date or "" }}</td>
+                <td>{{ case.partner.partner_name if case.partner else "" }}</td>
+                <td>{{ _(case.seriousness) }}</td>
+                <td><span class="status-pill">{{ _(case.workflow_status) }}</span></td>
+                <td>{{ case.due_date or "" }}</td>
+                <td class="text-end"><a class="btn btn-outline-primary btn-sm icon-button" href="/cases/{{ case.id }}"><i data-lucide="eye"></i><span>{{ _('View') }}</span></a></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="text-secondary">{{ _('No cases yet.') }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

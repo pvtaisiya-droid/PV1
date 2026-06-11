@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}{{ _('Safety Reports') }} - {{ _('PV MVP') }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h1 class="h3 mb-1">{{ _('Safety Reports') }}</h1>
+        <div class="text-secondary small">{{ reports|length }} {{ _('records') }}</div>
+    </div>
+</div>
+
+<section class="surface mb-4">
+    <h2 class="h6 section-title">{{ _('New Safety Report') }}</h2>
+    <form class="row g-3" method="post" action="/safety-reports">
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Source') }}</label>
+            <select class="form-select" name="source_type">
+                <option value="email" selected>{{ _('email') }}</option>
+                <option value="phone">{{ _('phone') }}</option>
+                <option value="literature">{{ _('literature') }}</option>
+                <option value="partner">{{ _('partner') }}</option>
+                <option value="web">{{ _('web') }}</option>
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Partner') }}</label>
+            <select class="form-select" name="partner_id">
+                <option value="">{{ _('None') }}</option>
+                {% for partner in partners %}
+                <option value="{{ partner.id }}">{{ partner.partner_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Reporter') }}</label>
+            <input class="form-control" name="reporter_name">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Email') }}</label>
+            <input class="form-control" type="email" name="reporter_email">
+        </div>
+        <div class="col-md-1">
+            <label class="form-label">{{ _('Country') }}</label>
+            <input class="form-control text-uppercase" name="reporter_country_code" maxlength="2">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Subject') }}</label>
+            <input class="form-control" name="raw_subject">
+        </div>
+        <div class="col-12">
+            <label class="form-label">{{ _('Raw text') }}</label>
+            <textarea class="form-control" name="raw_text" rows="3"></textarea>
+        </div>
+        <div class="col-12">
+            <button class="btn btn-primary icon-button" type="submit"><i data-lucide="plus"></i><span>{{ _('Create report') }}</span></button>
+        </div>
+    </form>
+</section>
+
+<section class="surface">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead>
+            <tr>
+                <th>{{ _('Report no.') }}</th>
+                <th>{{ _('Received') }}</th>
+                <th>{{ _('Source') }}</th>
+                <th>{{ _('Partner') }}</th>
+                <th>{{ _('Triage') }}</th>
+                <th>{{ _('Valid ICSR') }}</th>
+                <th></th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for report in reports %}
+            <tr>
+                <td class="fw-medium">{{ report.safety_report_number }}</td>
+                <td>{{ report.received_date or "" }}</td>
+                <td>{{ _(report.source_type) }}</td>
+                <td>{{ report.partner.partner_name if report.partner else "" }}</td>
+                <td><span class="status-pill">{{ _(report.triage_status) }}</span></td>
+                <td>{% if report.is_valid_icsr %}<span class="badge text-bg-success">{{ _('Yes') }}</span>{% else %}<span class="text-secondary">{{ _('No') }}</span>{% endif %}</td>
+                <td class="text-end"><a class="btn btn-outline-primary btn-sm icon-button" href="/safety-reports/{{ report.id }}"><i data-lucide="eye"></i><span>{{ _('View') }}</span></a></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="text-secondary">{{ _('No safety reports yet.') }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

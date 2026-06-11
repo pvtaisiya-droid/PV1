@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}{{ _('New Case') }} - {{ _('PV MVP') }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h1 class="h3 mb-1">{{ _('New Case') }}</h1>
+        <div class="text-secondary small">{{ _('Manual ICSR entry') }}</div>
+    </div>
+    <a class="btn btn-outline-secondary btn-sm icon-button" href="/cases"><i data-lucide="arrow-left"></i><span>{{ _('Back') }}</span></a>
+</div>
+
+<section class="surface">
+    <form class="row g-3" method="post" action="/cases">
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Case number') }}</label>
+            <input class="form-control" name="case_number" placeholder="{{ _('Auto if blank') }}">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Worldwide ID') }}</label>
+            <input class="form-control" name="worldwide_case_id">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Safety report') }}</label>
+            <select class="form-select" name="safety_report_id">
+                <option value="">{{ _('None') }}</option>
+                {% for report in reports %}
+                <option value="{{ report.id }}">{{ report.safety_report_number }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Partner') }}</label>
+            <select class="form-select" name="partner_id">
+                <option value="">{{ _('None') }}</option>
+                {% for partner in partners %}
+                <option value="{{ partner.id }}">{{ partner.partner_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Case type') }}</label>
+            <input class="form-control" name="case_type" value="spontaneous">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Report type') }}</label>
+            <input class="form-control" name="report_type">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Initial received') }}</label>
+            <input class="form-control" type="date" name="initial_received_date">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Latest received') }}</label>
+            <input class="form-control" type="date" name="latest_received_date">
+        </div>
+        <div class="col-md-1">
+            <label class="form-label">{{ _('Country') }}</label>
+            <input class="form-control text-uppercase" name="country_of_occurrence" maxlength="2">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Seriousness') }}</label>
+            <select class="form-select" name="seriousness">
+                <option value="non-serious" selected>{{ _('non-serious') }}</option>
+                <option value="serious">{{ _('serious') }}</option>
+                <option value="unknown">{{ _('unknown') }}</option>
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Workflow status') }}</label>
+            <select class="form-select" name="workflow_status">
+                <option value="new">{{ _('new') }}</option>
+                <option value="data_entry">{{ _('data_entry') }}</option>
+                <option value="medical_review">{{ _('medical_review') }}</option>
+                <option value="qc">{{ _('qc') }}</option>
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Due date') }}</label>
+            <input class="form-control" type="date" name="due_date">
+        </div>
+        <div class="col-12">
+            <label class="form-label">{{ _('Narrative') }}</label>
+            <textarea class="form-control" name="narrative" rows="4"></textarea>
+        </div>
+        <div class="col-12">
+            <button class="btn btn-primary icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Create case') }}</span></button>
+        </div>
+    </form>
+</section>
+{% endblock %}

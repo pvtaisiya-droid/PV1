@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+{% block title %}{{ case.case_number }} - {{ _('PV MVP') }}{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+        <h1 class="h3 mb-1">{{ case.case_number }}</h1>
+        <div class="text-secondary small">{{ _('Version') }} {{ case.case_version }} / {{ _(case.workflow_status) }}</div>
+    </div>
+    <a class="btn btn-outline-secondary btn-sm icon-button" href="/cases"><i data-lucide="arrow-left"></i><span>{{ _('Back') }}</span></a>
+</div>
+
+<ul class="nav nav-tabs mb-3" id="caseTabs" role="tablist">
+    <li class="nav-item" role="presentation"><button class="nav-link active" id="overview-tab" data-bs-toggle="tab" data-bs-target="#overview" type="button" role="tab">{{ _('Overview') }}</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" id="entry-tab" data-bs-toggle="tab" data-bs-target="#entry" type="button" role="tab">{{ _('Data Entry') }}</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" id="followup-tab" data-bs-toggle="tab" data-bs-target="#followup" type="button" role="tab">{{ _('Follow-up') }}</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" id="submission-tab" data-bs-toggle="tab" data-bs-target="#submission" type="button" role="tab">{{ _('Submissions') }}</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" id="audit-tab" data-bs-toggle="tab" data-bs-target="#audit" type="button" role="tab">{{ _('Audit') }}</button></li>
+</ul>
+
+<div class="tab-content">
+    <div class="tab-pane fade show active" id="overview" role="tabpanel" aria-labelledby="overview-tab" tabindex="0">
+        <div class="row g-4">
+            <div class="col-lg-8">
+                <section class="surface">
+                    <h2 class="h6 section-title">{{ _('Case Metadata') }}</h2>
+                    <dl class="row compact-dl">
+                        <dt class="col-sm-3">{{ _('Worldwide ID') }}</dt><dd class="col-sm-9">{{ case.worldwide_case_id or "" }}</dd>
+                        <dt class="col-sm-3">{{ _('Safety report') }}</dt><dd class="col-sm-9">{{ case.safety_report.safety_report_number if case.safety_report else "" }}</dd>
+                        <dt class="col-sm-3">{{ _('Partner') }}</dt><dd class="col-sm-9">{{ case.partner.partner_name if case.partner else "" }}</dd>
+                        <dt class="col-sm-3">{{ _('Received') }}</dt><dd class="col-sm-9">{{ case.initial_received_date or "" }}</dd>
+                        <dt class="col-sm-3">{{ _('Country') }}</dt><dd class="col-sm-9">{{ case.country_of_occurrence or "" }}</dd>
+                        <dt class="col-sm-3">{{ _('Seriousness') }}</dt><dd class="col-sm-9">{{ _(case.seriousness) }}</dd>
+                        <dt class="col-sm-3">{{ _('Due date') }}</dt><dd class="col-sm-9">{{ case.due_date or "" }}</dd>
+                    </dl>
+                    <div class="raw-text">{{ case.narrative or "" }}</div>
+                </section>
+            </div>
+            <div class="col-lg-4">
+                <section class="surface">
+                    <h2 class="h6 section-title">{{ _('Change Workflow Status') }}</h2>
+                    <form class="row g-3" method="post" action="/cases/{{ case.id }}/status">
+                        <div class="col-12">
+                            <label class="form-label">{{ _('Status') }}</label>
+                            <select class="form-select" name="workflow_status">
+                                {% for status in ["new", "triage", "data_entry", "medical_review", "qc", "ready_for_submission", "submitted", "closed", "reopened"] %}
+                                <option value="{{ status }}" {% if case.workflow_status == status %}selected{% endif %}>{{ _(status) }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">{{ _('Reason') }}</label>
+                            <input class="form-control" name="change_reason">
+                        </div>
+                        <div class="col-12">
+                            <button class="btn btn-primary icon-button" type="submit"><i data-lucide="refresh-cw"></i><span>{{ _('Update') }}</span></button>
+                        </div>
+                    </form>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <div class="tab-pane fade" id="entry" role="tabpanel" aria-labelledby="entry-tab" tabindex="0">
+        <div class="row g-4">
+            <div class="col-lg-4">
+                <section class="surface h-100">
+                    <h2 class="h6 section-title">{{ _('Add Patient') }}</h2>
+                    <form class="row g-3" method="post" action="/cases/{{ case.id }}/patients">
+                        <div class="col-md-6"><label class="form-label">{{ _('Initials') }}</label><input class="form-control" name="patient_initials"></div>
+                        <div class="col-md-6"><label class="form-label">{{ _('Identifier') }}</label><input class="form-control" name="patient_identifier"></div>
+                        <div class="col-md-6"><label class="form-label">{{ _('Sex') }}</label><select class="form-select" name="sex"><option value="">{{ _('unknown') }}</option><option value="female">{{ _('female') }}</option><option value="male">{{ _('male') }}</option><option value="other">{{ _('other') }}</option></select></div>
+                        <div class="col-md-3"><label class="form-label">{{ _('Age') }}</label><input class="form-control" type="number" step="0.1" name="age_value"></div>
+                        <div class="col-md-3"><label class="form-label">{{ _('Unit') }}</label><input class="form-control" name="age_unit" value="years"></div>
+                        <div class="col-md-6"><label class="form-label">{{ _('Weight kg') }}</label><input class="form-control" type="number" step="0.1" name="weight_kg"></div>
+                        <div class="col-md-6"><label class="form-label">{{ _('Height cm') }}</label><input class="form-control" type="number" step="0.1" name="height_cm"></div>
+                        <div class="col-12"><label class="form-label">{{ _('Pregnancy') }}</label><input class="form-control" name="pregnancy_status"></div>
+                        <div class="col-12"><label class="form-label">{{ _('Medical history') }}</label><textarea class="form-control" rows="2" name="medical_history_text"></textarea></div>
+                        <div class="col-12"><button class="btn btn-outline-primary w-100 icon-button" type="submit"><i data-lucide="plus"></i><span>{{ _('Add Patient') }}</span></button></div>
+                    </form>
+                </section>
+            </div>
+
+            <div class="col-lg-4">
+                <section class="surface h-100">
+                    <h2 class="h6 section-title">{{ _('Add Case Product') }}</h2>
+                    <form class="row g-3" method="post" action="/cases/{{ case.id }}/products">
+                        <div class="col-12">
+                            <label class="form-label">{{ _('Product') }}</label>
+                            <select class="form-select" name="product_id">
+                                <option value="">{{ _('Free text') }}</option>
+                                {% for product in products %}
+                                <option value="{{ product.id }}">{{ product.product_name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12"><label class="form-label">{{ _('Reported name') }}</label><input class="form-control" name="reported_product_name"></div>
+                        <div class="col-12"><label class="form-label">{{ _('Active substance') }}</label><input class="form-control" name="active_substance_text"></div>
+                        <div class="col-md-6"><label class="form-label">{{ _('Role') }}</label><select class="form-select" name="drug_role"><option value="suspect">{{ _('suspect') }}</option><option value="concomitant">{{ _('concomitant') }}</option><option value="interacting">{{ _('interacting') }}</option><option value="treatment">{{ _('treatment') }}</option><option value="unknown">{{ _('unknown') }}</option></select></div>
+                        <div class="col-md-3"><label class="form-label">{{ _('Dose') }}</label><input class="form-control" name="dose_value"></div>
+                        <div class="col-md-3"><label class="form-label">{{ _('Unit') }}</label><input class="form-control" name="dose_unit"></div>
+                        <div class="col-md-6"><label class="form-label">{{ _('Route') }}</label><input class="form-control" name="route"></div>
+                        <div class="col-md-6"><label class="form-label">{{ _('Frequency') }}</label><input class="form-control" name="frequency"></div>
+                        <div class="col-12"><button class="btn btn-outline-primary w-100 icon-button" type="submit"><i data-lucide="plus"></i><span>{{ _('Add Product') }}</span></button></div>
+                    </form>
+                </section>
+            </div>
+
+            <div class="col-lg-4">
+                <section class="surface h-100">
+                    <h2 class="h6 section-title">{{ _('Add Reaction') }}</h2>
+                    <form class="row g-3" method="post" action="/cases/{{ case.id }}/reactions">
+                        <div class="col-12"><label class="form-label">{{ _('Reported term') }}</label><input class="form-control" name="reported_term" required></div>
+                        <div class="col-12"><label class="form-label">{{ _('Verbatim') }}</label><input class="form-control" name="verbatim_term"></div>
+                        <div class="col-md-6"><label class="form-label">{{ _('MedDRA PT code') }}</label><input class="form-control" name="meddra_pt_code"></div>
+                        <div class="col-md-6"><label class="form-label">{{ _('MedDRA PT name') }}</label><input class="form-control" name="meddra_pt_name"></div>
+                        <div class="col-12"><label class="form-label">{{ _('Outcome') }}</label><input class="form-control" name="outcome"></div>
+                        <div class="col-12"><label class="form-check"><input class="form-check-input" type="checkbox" name="is_serious" value="true"> {{ _('Serious') }}</label></div>
+                        <div class="col-12 small-check-grid">
+                            <label class="form-check"><input class="form-check-input" type="checkbox" name="seriousness_death" value="true"> {{ _('Death') }}</label>
+                            <label class="form-check"><input class="form-check-input" type="checkbox" name="seriousness_life_threatening" value="true"> {{ _('Life threatening') }}</label>
+                            <label class="form-check"><input class="form-check-input" type="checkbox" name="seriousness_hospitalization" value="true"> {{ _('Hospitalization') }}</label>
+                            <label class="form-check"><input class="form-check-input" type="checkbox" name="seriousness_disability" value="true"> {{ _('Disability') }}</label>
+                            <label class="form-check"><input class="form-check-input" type="checkbox" name="seriousness_congenital_anomaly" value="true"> {{ _('Congenital anomaly') }}</label>
+                            <label class="form-check"><input class="form-check-input" type="checkbox" name="seriousness_other_medically_important" value="true"> {{ _('Other medically important') }}</label>
+                        </div>
+                        <div class="col-12"><button class="btn btn-outline-primary w-100 icon-button" type="submit"><i data-lucide="plus"></i><span>{{ _('Add Reaction') }}</span></button></div>
+                    </form>
+                </section>
+            </div>
+        </div>
+
+        <div class="row g-4 mt-1">
+            <div class="col-lg-4">
+                <section class="surface">
+                    <h2 class="h6 section-title">{{ _('Patients') }}</h2>
+                    <table class="table table-sm"><tbody>{% for patient in case.patients %}<tr><td>{{ patient.patient_initials or patient.patient_identifier or _('Patient') }}</td><td>{{ _(patient.sex) }}</td><td>{{ patient.age_value or "" }} {{ patient.age_unit or "" }}</td></tr>{% else %}<tr><td class="text-secondary">{{ _('No patients.') }}</td></tr>{% endfor %}</tbody></table>
+                </section>
+            </div>
+            <div class="col-lg-4">
+                <section class="surface">
+                    <h2 class="h6 section-title">{{ _('Products') }}</h2>
+                    <table class="table table-sm"><tbody>{% for product in case.case_products %}<tr><td>{{ product.reported_product_name or "" }}</td><td>{{ _(product.drug_role) }}</td><td>{{ product.dose_value or "" }} {{ product.dose_unit or "" }}</td></tr>{% else %}<tr><td class="text-secondary">{{ _('No products.') }}</td></tr>{% endfor %}</tbody></table>
+                </section>
+            </div>
+            <div class="col-lg-4">
+                <section class="surface">
+                    <h2 class="h6 section-title">{{ _('Reactions') }}</h2>
+                    <table class="table table-sm"><tbody>{% for reaction in case.reactions %}<tr><td>{{ reaction.reported_term }}</td><td>{{ reaction.outcome or "" }}</td><td>{% if reaction.is_serious %}{{ _('Serious') }}{% else %}{{ _('Non-serious') }}{% endif %}</td></tr>{% else %}<tr><td class="text-secondary">{{ _('No reactions.') }}</td></tr>{% endfor %}</tbody></table>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <div class="tab-pane fade" id="followup" role="tabpanel" aria-labelledby="followup-tab" tabindex="0">
+        <div class="row g-4">
+            <div class="col-lg-4">
+                <section class="surface">
+                    <h2 class="h6 section-title">{{ _('Add Follow-up') }}</h2>
+                    <form class="row g-3" method="post" action="/cases/{{ case.id }}/followups">
+                        <div class="col-12"><label class="form-label">{{ _('Received date') }}</label><input class="form-control" type="date" name="received_date"></div>
+                        <div class="col-12"><label class="form-label">{{ _('Source') }}</label><input class="form-control" name="source_type"></div>
+                        <div class="col-12"><label class="form-label">{{ _('Description') }}</label><textarea class="form-control" rows="4" name="description"></textarea></div>
+                        <div class="col-12"><label class="form-check"><input class="form-check-input" type="checkbox" name="significant_new_information" value="true"> {{ _('Significant new information') }}</label></div>
+                        <div class="col-12"><button class="btn btn-outline-primary w-100 icon-button" type="submit"><i data-lucide="plus"></i><span>{{ _('Add Follow-up') }}</span></button></div>
+                    </form>
+                </section>
+            </div>
+            <div class="col-lg-8">
+                <section class="surface">
+                    <h2 class="h6 section-title">{{ _('Follow-ups') }}</h2>
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle">
+                            <thead><tr><th>{{ _('No.') }}</th><th>{{ _('Received') }}</th><th>{{ _('Source') }}</th><th>{{ _('Description') }}</th></tr></thead>
+                            <tbody>{% for item in case.followups %}<tr><td>{{ item.follow_up_number }}</td><td>{{ item.received_date or "" }}</td><td>{{ _(item.source_type) }}</td><td>{{ item.description or "" }}</td></tr>{% else %}<tr><td colspan="4" class="text-secondary">{{ _('No follow-ups.') }}</td></tr>{% endfor %}</tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <div class="tab-pane fade" id="submission" role="tabpanel" aria-labelledby="submission-tab" tabindex="0">
+        <div class="row g-4">
+            <div class="col-lg-4">
+                <section class="surface">
+                    <h2 class="h6 section-title">{{ _('Create Submission') }}</h2>
+                    <form class="row g-3" method="post" action="/cases/{{ case.id }}/submissions">
+                        <div class="col-12">
+                            <label class="form-label">{{ _('Recipient partner') }}</label>
+                            <select class="form-select" name="recipient_partner_id">
+                                <option value="">{{ _('None') }}</option>
+                                {% for partner in partners %}
+                                <option value="{{ partner.id }}">{{ partner.partner_name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6"><label class="form-label">{{ _('Type') }}</label><input class="form-control" name="submission_type" value="icsr"></div>
+                        <div class="col-md-6"><label class="form-label">{{ _('Format') }}</label><input class="form-control" name="submission_format" value="email"></div>
+                        <div class="col-md-6"><label class="form-label">{{ _('Status') }}</label><input class="form-control" name="submission_status" value="planned"></div>
+                        <div class="col-md-6"><label class="form-label">{{ _('Due date') }}</label><input class="form-control" type="date" name="due_date"></div>
+                        <div class="col-12"><button class="btn btn-outline-primary w-100 icon-button" type="submit"><i data-lucide="send"></i><span>{{ _('Create Submission') }}</span></button></div>
+                    </form>
+                </section>
+            </div>
+            <div class="col-lg-8">
+                <section class="surface">
+                    <h2 class="h6 section-title">{{ _('Submissions') }}</h2>
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle">
+                            <thead><tr><th>{{ _('No.') }}</th><th>{{ _('Recipient') }}</th><th>{{ _('Status') }}</th><th>{{ _('Due') }}</th><th>{{ _('Submitted') }}</th></tr></thead>
+                            <tbody>{% for submission in case.submissions %}<tr><td>{{ submission.submission_number }}</td><td>{{ submission.recipient_partner.partner_name if submission.recipient_partner else _(submission.recipient_type) }}</td><td><span class="status-pill">{{ _(submission.submission_status) }}</span></td><td>{{ submission.due_date or "" }}</td><td>{{ submission.submitted_at or "" }}</td></tr>{% else %}<tr><td colspan="5" class="text-secondary">{{ _('No submissions.') }}</td></tr>{% endfor %}</tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <div class="tab-pane fade" id="audit" role="tabpanel" aria-labelledby="audit-tab" tabindex="0">
+        <section class="surface">
+            <h2 class="h6 section-title">{{ _('Audit Trail') }}</h2>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                    <thead><tr><th>{{ _('Timestamp') }}</th><th>{{ _('Action') }}</th><th>{{ _('Entity') }}</th><th>{{ _('Field') }}</th><th>{{ _('Old') }}</th><th>{{ _('New') }}</th><th>{{ _('User') }}</th></tr></thead>
+                    <tbody>
+                    {% for entry in case.audit_entries|sort(attribute="timestamp", reverse=true) %}
+                    <tr>
+                        <td>{{ entry.timestamp }}</td>
+                        <td>{{ _(entry.action) }}</td>
+                        <td>{{ _(entry.entity_type) }}</td>
+                        <td>{{ entry.field_name or "" }}</td>
+                        <td>{{ entry.old_value or "" }}</td>
+                        <td>{{ entry.new_value or "" }}</td>
+                        <td>{{ entry.user.email if entry.user else "" }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="7" class="text-secondary">{{ _('No audit entries.') }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+</div>
+{% endblock %}

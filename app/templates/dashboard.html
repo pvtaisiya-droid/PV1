@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}{{ _('Dashboard') }} - {{ _('PV MVP') }}{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+        <h1 class="h3 mb-1">{{ _('Dashboard') }}</h1>
+        <div class="text-secondary small">{{ _('Operational overview') }}</div>
+    </div>
+    <div class="d-flex gap-2">
+        <a class="btn btn-primary btn-sm icon-button" href="/safety-reports"><i data-lucide="inbox"></i><span>{{ _('Reports') }}</span></a>
+        <a class="btn btn-outline-primary btn-sm icon-button" href="/cases"><i data-lucide="folder-open"></i><span>{{ _('Cases') }}</span></a>
+    </div>
+</div>
+
+<div class="metric-grid">
+    <a class="metric-card" href="/safety-reports">
+        <span>{{ _('Total safety reports') }}</span>
+        <strong>{{ stats.total_safety_reports }}</strong>
+    </a>
+    <a class="metric-card warning" href="/safety-reports">
+        <span>{{ _('Reports awaiting triage') }}</span>
+        <strong>{{ stats.reports_awaiting_triage }}</strong>
+    </a>
+    <a class="metric-card" href="/cases">
+        <span>{{ _('Total cases') }}</span>
+        <strong>{{ stats.total_cases }}</strong>
+    </a>
+    <a class="metric-card" href="/cases">
+        <span>{{ _('Open cases') }}</span>
+        <strong>{{ stats.open_cases }}</strong>
+    </a>
+    <a class="metric-card danger" href="/cases">
+        <span>{{ _('Serious cases') }}</span>
+        <strong>{{ stats.serious_cases }}</strong>
+    </a>
+    <a class="metric-card" href="/submissions">
+        <span>{{ _('Submissions due') }}</span>
+        <strong>{{ stats.submissions_due }}</strong>
+    </a>
+    <a class="metric-card danger" href="/submissions">
+        <span>{{ _('Overdue submissions') }}</span>
+        <strong>{{ stats.overdue_submissions }}</strong>
+    </a>
+</div>
+{% endblock %}

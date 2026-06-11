@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}{{ _('Submissions') }} - {{ _('PV MVP') }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h1 class="h3 mb-1">{{ _('Submissions') }}</h1>
+        <div class="text-secondary small">{{ submissions|length }} {{ _('records') }}</div>
+    </div>
+</div>
+
+<section class="surface mb-4">
+    <h2 class="h6 section-title">{{ _('Create Submission') }}</h2>
+    <form class="row g-3" method="post" action="/submissions">
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Case') }}</label>
+            <select class="form-select" name="case_id" required>
+                {% for case in cases %}
+                <option value="{{ case.id }}">{{ case.case_number }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Recipient partner') }}</label>
+            <select class="form-select" name="recipient_partner_id">
+                <option value="">{{ _('None') }}</option>
+                {% for partner in partners %}
+                <option value="{{ partner.id }}">{{ partner.partner_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2"><label class="form-label">{{ _('Type') }}</label><input class="form-control" name="submission_type" value="icsr"></div>
+        <div class="col-md-2"><label class="form-label">{{ _('Format') }}</label><input class="form-control" name="submission_format" value="email"></div>
+        <div class="col-md-1"><label class="form-label">{{ _('Status') }}</label><input class="form-control" name="submission_status" value="planned"></div>
+        <div class="col-md-1"><label class="form-label">{{ _('Due') }}</label><input class="form-control" type="date" name="due_date"></div>
+        <div class="col-12">
+            <button class="btn btn-primary icon-button" type="submit"><i data-lucide="send"></i><span>{{ _('Create') }}</span></button>
+        </div>
+    </form>
+</section>
+
+<section class="surface">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead><tr><th>{{ _('No.') }}</th><th>{{ _('Object') }}</th><th>{{ _('Case') }}</th><th>{{ _('Recipient') }}</th><th>{{ _('Status') }}</th><th>{{ _('Due') }}</th><th>{{ _('Submitted') }}</th><th></th></tr></thead>
+            <tbody>
+            {% for submission in submissions %}
+            <tr>
+                <td class="fw-medium">{{ submission.submission_number }}</td>
+                <td>{{ _(submission.submission_object_type) }}</td>
+                <td>{{ submission.case.case_number if submission.case else "" }}</td>
+                <td>{{ submission.recipient_partner.partner_name if submission.recipient_partner else submission.recipient_type }}</td>
+                <td><span class="status-pill">{{ _(submission.submission_status) }}</span></td>
+                <td>{{ submission.due_date or "" }}</td>
+                <td>{{ submission.submitted_at or "" }}</td>
+                <td>
+                    <form class="d-flex gap-2" method="post" action="/submissions/{{ submission.id }}/status">
+                        <select class="form-select form-select-sm" name="submission_status">
+                            {% for status in ["planned", "ready", "submitted", "acknowledged", "failed", "cancelled"] %}
+                            <option value="{{ status }}" {% if submission.submission_status == status %}selected{% endif %}>{{ _(status) }}</option>
+                            {% endfor %}
+                        </select>
+                        <button class="btn btn-outline-primary btn-sm icon-only" type="submit" title="{{ _('Save status') }}"><i data-lucide="save"></i></button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="8" class="text-secondary">{{ _('No submissions yet.') }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}
