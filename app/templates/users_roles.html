@@ -14,6 +14,9 @@
 {% if error %}
 <div class="alert alert-danger py-2" role="alert">{{ _(error) }}</div>
 {% endif %}
+{% if validation %}
+<div class="alert alert-warning py-2" role="alert">{{ _(validation) }}</div>
+{% endif %}
 
 <section class="surface mb-4">
     <h2 class="h6 section-title">{{ _('Create user') }}</h2>
@@ -41,6 +44,38 @@
 </section>
 
 <section class="surface mb-4">
+    <h2 class="h6 section-title">{{ _('Filters') }}</h2>
+    <form class="row g-2 align-items-end" method="get" action="/users-roles">
+        <div class="col-md-4">
+            <label class="form-label">{{ _('Search') }}</label>
+            <input class="form-control" name="search" value="{{ filters.search }}" placeholder="{{ _('Email') }} / {{ _('Full name') }} / {{ _('Role') }}">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Role') }}</label>
+            <select class="form-select" name="role_id">
+                <option value="">{{ _('All') }}</option>
+                {% for role in roles %}
+                <option value="{{ role.id }}" {% if filters.role_id == role.id %}selected{% endif %}>{{ _(role.role_name) }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Status') }}</label>
+            <select class="form-select" name="status_filter">
+                <option value="">{{ _('All') }}</option>
+                <option value="active" {% if filters.status_filter == "active" %}selected{% endif %}>{{ _('Active') }}</option>
+                <option value="inactive" {% if filters.status_filter == "inactive" %}selected{% endif %}>{{ _('Inactive') }}</option>
+                <option value="archived" {% if filters.status_filter == "archived" %}selected{% endif %}>{{ _('Archived') }}</option>
+            </select>
+        </div>
+        <div class="col-md-3 d-flex flex-wrap gap-2">
+            <button class="btn btn-primary icon-button" type="submit"><i data-lucide="search"></i><span>{{ _('Search') }}</span></button>
+            <a class="btn btn-outline-secondary icon-button" href="/users-roles"><i data-lucide="x"></i><span>{{ _('Cancel') }}</span></a>
+        </div>
+    </form>
+</section>
+
+<section class="surface mb-4" id="users">
     <h2 class="h6 section-title">{{ _('Active users') }}</h2>
     <div class="table-responsive">
         <table class="table table-hover align-middle">
@@ -87,6 +122,7 @@
                     </form>
                 </td>
                 <td>
+                    <button class="btn btn-outline-primary btn-sm icon-only me-1" type="button" data-bs-toggle="collapse" data-bs-target="#user-edit-{{ user.id }}" title="{{ _('Edit') }}"><i data-lucide="pencil"></i></button>
                     {% if has_permission('soft_delete') and current_user() and user.id != current_user().id %}
                     <form class="d-flex gap-2" method="post" action="/users-roles/users/{{ user.id }}/archive">
                         <input class="form-control form-control-sm" name="delete_reason" placeholder="{{ _('Delete reason') }}">
@@ -97,15 +133,33 @@
                     {% endif %}
                 </td>
             </tr>
+            <tr class="collapse" id="user-edit-{{ user.id }}">
+                <td colspan="4">
+                    <form class="row g-2 align-items-end" method="post" action="/users-roles/users/{{ user.id }}/edit">
+                        <div class="col-md-4">
+                            <label class="form-label">{{ _('Email') }}</label>
+                            <input class="form-control form-control-sm" type="email" name="email" value="{{ user.email }}" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">{{ _('Full name') }}</label>
+                            <input class="form-control form-control-sm" name="full_name" value="{{ user.full_name or '' }}">
+                        </div>
+                        <div class="col-md-4 d-flex gap-2">
+                            <button class="btn btn-primary btn-sm icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Save') }}</span></button>
+                            <button class="btn btn-outline-secondary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#user-edit-{{ user.id }}" title="{{ _('Cancel') }}"><i data-lucide="x"></i></button>
+                        </div>
+                    </form>
+                </td>
+            </tr>
             {% else %}
-            <tr><td colspan="4" class="text-secondary">{{ _('No users yet.') }}</td></tr>
+            <tr><td colspan="4" class="text-secondary">{% if filters.active and total_count %}{{ _('No records match the filters.') }}{% else %}{{ _('No users yet.') }}{% endif %}</td></tr>
             {% endfor %}
             </tbody>
         </table>
     </div>
 </section>
 
-<section class="surface">
+<section class="surface" id="roles">
     <h2 class="h6 section-title">{{ _('Role permissions') }}</h2>
     <div class="table-responsive">
         <table class="table table-sm align-middle permission-table">

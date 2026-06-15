@@ -12,10 +12,69 @@
         <a class="btn btn-outline-secondary btn-sm icon-button" href="/api/cases/export.csv"><i data-lucide="download"></i><span>{{ _('CSV') }}</span></a>
         {% endif %}
         {% if has_permission('create') %}
-        <a class="btn btn-primary btn-sm icon-button" href="/cases/new"><i data-lucide="plus"></i><span>{{ _('New case') }}</span></a>
+        <a class="btn btn-primary btn-sm icon-button" href="/cases/new"><i data-lucide="plus"></i><span>{{ _('Add') }}</span></a>
         {% endif %}
     </div>
 </div>
+
+{% if message %}
+<div class="alert alert-success py-2" role="status">{{ _(message) }}</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-danger py-2" role="alert">{{ _(error) }}</div>
+{% endif %}
+{% if validation %}
+<div class="alert alert-warning py-2" role="alert">{{ _(validation) }}</div>
+{% endif %}
+
+<section class="surface mb-4">
+    <h2 class="h6 section-title">{{ _('Filters') }}</h2>
+    <form class="row g-2 align-items-end" method="get" action="/cases">
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Search') }}</label>
+            <input class="form-control" name="search" value="{{ filters.search }}" placeholder="{{ _('Case no.') }} / {{ _('Product') }} / {{ _('Event') }}">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Status') }}</label>
+            <select class="form-select" name="status_filter">
+                <option value="">{{ _('All') }}</option>
+                {% for status in status_options %}
+                <option value="{{ status }}" {% if filters.status_filter == status %}selected{% endif %}>{{ _(status) }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Partner') }}</label>
+            <select class="form-select" name="partner_id">
+                <option value="">{{ _('All') }}</option>
+                {% for partner in partners %}
+                <option value="{{ partner.id }}" {% if filters.partner_id == partner.id %}selected{% endif %}>{{ partner.partner_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Product') }}</label>
+            <select class="form-select" name="product_id">
+                <option value="">{{ _('All') }}</option>
+                {% for product in products %}
+                <option value="{{ product.id }}" {% if filters.product_id == product.id %}selected{% endif %}>{{ product.product_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-1">
+            <label class="form-label">{{ _('Date from') }}</label>
+            <input class="form-control" type="date" name="date_from" value="{{ filters.date_from }}">
+        </div>
+        <div class="col-md-1">
+            <label class="form-label">{{ _('Date to') }}</label>
+            <input class="form-control" type="date" name="date_to" value="{{ filters.date_to }}">
+        </div>
+        <div class="col-md-1 d-flex gap-2">
+            <button class="btn btn-primary icon-only" type="submit" title="{{ _('Search') }}"><i data-lucide="search"></i></button>
+            <a class="btn btn-outline-secondary icon-only" href="/cases" title="{{ _('Cancel') }}"><i data-lucide="x"></i></a>
+        </div>
+    </form>
+</section>
 
 <section class="surface">
     <div class="table-responsive">
@@ -28,7 +87,7 @@
                 <th>{{ _('Seriousness') }}</th>
                 <th>{{ _('Status') }}</th>
                 <th>{{ _('Due') }}</th>
-                <th></th>
+                <th>{{ _('Actions') }}</th>
             </tr>
             </thead>
             <tbody>
@@ -40,10 +99,22 @@
                 <td>{{ _(case.seriousness) }}</td>
                 <td><span class="status-pill">{{ _(case.workflow_status) }}</span></td>
                 <td>{{ case.due_date or "" }}</td>
-                <td class="text-end"><a class="btn btn-outline-primary btn-sm icon-button" href="/cases/{{ case.id }}"><i data-lucide="eye"></i><span>{{ _('View') }}</span></a></td>
+                <td>
+                    <div class="d-flex flex-wrap justify-content-end gap-1">
+                        <a class="btn btn-outline-primary btn-sm icon-only" href="/cases/{{ case.id }}" title="{{ _('View') }}"><i data-lucide="eye"></i></a>
+                        {% if has_permission('edit') %}
+                        <a class="btn btn-outline-secondary btn-sm icon-only" href="/cases/{{ case.id }}#entry" title="{{ _('Edit') }}"><i data-lucide="pencil"></i></a>
+                        {% endif %}
+                        {% if has_permission('soft_delete') %}
+                        <form method="post" action="/cases/{{ case.id }}/delete">
+                            <button class="btn btn-outline-danger btn-sm icon-only" type="submit" title="{{ _('Delete') }}"><i data-lucide="trash-2"></i></button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </td>
             </tr>
             {% else %}
-            <tr><td colspan="7" class="text-secondary">{{ _('No cases yet.') }}</td></tr>
+            <tr><td colspan="7" class="text-secondary">{% if filters.active and total_count %}{{ _('No records match the filters.') }}{% else %}{{ _('No cases yet.') }}{% endif %}</td></tr>
             {% endfor %}
             </tbody>
         </table>

@@ -1,24 +1,96 @@
+from datetime import date
+
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, Response
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import crud, schemas
 from app.auth import require_permission
 from app.database import get_db
 from app.templating import templates
+from app.ui_helpers import active_filters, contains_search, in_date_range, redirect_with_message
 
 
 router = APIRouter()
+CASE_STATUS_OPTIONS = [
+    "new",
+    "triage",
+    "data_entry",
+    "medical_review",
+    "qc",
+    "ready_for_submission",
+    "submitted",
+    "closed",
+    "reopened",
+]
 
 
 @router.get("/cases", response_class=HTMLResponse)
-def cases_page(request: Request, db: Session = Depends(get_db)):
+def cases_page(
+    request: Request,
+    search: str | None = None,
+    status_filter: str | None = None,
+    partner_id: str | None = None,
+    product_id: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    db: Session = Depends(get_db),
+):
+    all_cases = crud.list_cases(db)
+    cases = [
+        case
+        for case in all_cases
+        if contains_search(
+            search,
+            case.case_number,
+            case.worldwide_case_id,
+            case.narrative,
+            case.partner.partner_name if case.partner else "",
+            ", ".join(
+                row.reported_product_name or (row.product.product_name if row.product else "")
+                for row in case.case_products
+            ),
+            ", ".join(reaction.reported_term for reaction in case.reactions),
+        )
+        and (not status_filter or case.workflow_status == status_filter)
+        and (not partner_id or case.partner_id == partner_id)
+        and (
+            not product_id
+            or any(row.product_id == product_id for row in case.case_products)
+        )
+        and in_date_range(case.initial_received_date, date_from, date_to)
+    ]
+    filters = {
+        "search": search or "",
+        "status_filter": status_filter or "",
+        "partner_id": partner_id or "",
+        "product_id": product_id or "",
+        "date_from": date_from or "",
+        "date_to": date_to or "",
+        "active": active_filters(
+            search=search,
+            status_filter=status_filter,
+            partner_id=partner_id,
+            product_id=product_id,
+            date_from=date_from,
+            date_to=date_to,
+        ),
+    }
     return templates.TemplateResponse(
         request,
         "cases.html",
         {
             "request": request,
-            "cases": crud.list_cases(db),
+            "cases": cases,
+            "partners": crud.list_partners(db),
+            "products": crud.list_products(db),
+            "status_options": CASE_STATUS_OPTIONS,
+            "filters": filters,
+            "total_count": len(all_cases),
+            "message": request.query_params.get("message"),
+            "error": request.query_params.get("error"),
+            "validation": request.query_params.get("validation"),
             "active_page": "cases",
         },
     )
@@ -37,6 +109,9 @@ def new_case_page(request: Request, db: Session = Depends(get_db)):
             "request": request,
             "partners": crud.list_partners(db),
             "reports": crud.list_safety_reports(db),
+            "message": request.query_params.get("message"),
+            "error": request.query_params.get("error"),
+            "validation": request.query_params.get("validation"),
             "active_page": "cases",
         },
     )
@@ -59,25 +134,29 @@ def create_case_form(
     due_date: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
-    case = crud.create_case(
-        db,
-        schemas.CaseCreate(
-            case_number=case_number,
-            worldwide_case_id=worldwide_case_id,
-            safety_report_id=safety_report_id,
-            partner_id=partner_id,
-            case_type=case_type,
-            report_type=report_type,
-            initial_received_date=initial_received_date or None,
-            latest_received_date=latest_received_date or None,
-            country_of_occurrence=country_of_occurrence,
-            seriousness=seriousness,
-            narrative=narrative,
-            workflow_status=workflow_status,
-            due_date=due_date or None,
-        ),
-    )
-    return RedirectResponse(f"/cases/{case.id}", status_code=status.HTTP_303_SEE_OTHER)
+    try:
+        case = crud.create_case(
+            db,
+            schemas.CaseCreate(
+                case_number=case_number,
+                worldwide_case_id=worldwide_case_id,
+                safety_report_id=safety_report_id,
+                partner_id=partner_id,
+                case_type=case_type,
+                report_type=report_type,
+                initial_received_date=initial_received_date or None,
+                latest_received_date=latest_received_date or None,
+                country_of_occurrence=country_of_occurrence,
+                seriousness=seriousness,
+                narrative=narrative,
+                workflow_status=workflow_status,
+                due_date=due_date or None,
+            ),
+        )
+    except IntegrityError:
+        db.rollback()
+        return redirect_with_message("/cases/new", error="Case could not be saved.")
+    return redirect_with_message(f"/cases/{case.id}", message="Case saved.")
 
 
 @router.get("/cases/{case_id}", response_class=HTMLResponse)
@@ -93,6 +172,9 @@ def case_detail(case_id: str, request: Request, db: Session = Depends(get_db)):
             "case": case,
             "products": crud.list_products(db),
             "partners": crud.list_partners(db),
+            "message": request.query_params.get("message"),
+            "error": request.query_params.get("error"),
+            "validation": request.query_params.get("validation"),
             "active_page": "cases",
         },
     )
@@ -113,7 +195,27 @@ def change_case_status_form(
         case,
         schemas.CaseStatusUpdate(workflow_status=workflow_status, change_reason=change_reason),
     )
-    return RedirectResponse(f"/cases/{case_id}", status_code=status.HTTP_303_SEE_OTHER)
+    return redirect_with_message(f"/cases/{case_id}", message="Case saved.")
+
+
+@router.post("/cases/{case_id}/delete", dependencies=[Depends(require_permission("soft_delete"))])
+def delete_case_form(
+    case_id: str,
+    request: Request,
+    delete_reason: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    case = crud.get_case(db, case_id)
+    if not case:
+        return redirect_with_message("/cases", error="Case not found.")
+    current_user = getattr(request.state, "current_user", None)
+    crud.delete_case(
+        db,
+        case,
+        deleted_by_user_id=current_user.id if current_user else None,
+        delete_reason=delete_reason,
+    )
+    return redirect_with_message("/cases", message="Case deleted.")
 
 
 @router.post("/cases/{case_id}/patients", dependencies=[Depends(require_permission("create"))])
@@ -148,7 +250,7 @@ def add_patient_form(
             medical_history_text=medical_history_text,
         ),
     )
-    return RedirectResponse(f"/cases/{case_id}", status_code=status.HTTP_303_SEE_OTHER)
+    return redirect_with_message(f"/cases/{case_id}", message="Patient saved.")
 
 
 @router.post("/cases/{case_id}/products", dependencies=[Depends(require_permission("create"))])
@@ -181,7 +283,7 @@ def add_case_product_form(
             frequency=frequency,
         ),
     )
-    return RedirectResponse(f"/cases/{case_id}", status_code=status.HTTP_303_SEE_OTHER)
+    return redirect_with_message(f"/cases/{case_id}", message="Product saved.")
 
 
 @router.post("/cases/{case_id}/reactions", dependencies=[Depends(require_permission("create"))])
@@ -222,7 +324,7 @@ def add_reaction_form(
             seriousness_other_medically_important=seriousness_other_medically_important,
         ),
     )
-    return RedirectResponse(f"/cases/{case_id}", status_code=status.HTTP_303_SEE_OTHER)
+    return redirect_with_message(f"/cases/{case_id}", message="Reaction saved.")
 
 
 @router.post("/cases/{case_id}/followups", dependencies=[Depends(require_permission("create"))])
@@ -247,7 +349,7 @@ def add_followup_form(
             significant_new_information=significant_new_information,
         ),
     )
-    return RedirectResponse(f"/cases/{case_id}", status_code=status.HTTP_303_SEE_OTHER)
+    return redirect_with_message(f"/cases/{case_id}", message="Follow-up saved.")
 
 
 @router.post("/cases/{case_id}/submissions", dependencies=[Depends(require_permission("create"))])
@@ -276,7 +378,7 @@ def add_submission_form(
             due_date=due_date or None,
         ),
     )
-    return RedirectResponse(f"/cases/{case_id}", status_code=status.HTTP_303_SEE_OTHER)
+    return redirect_with_message(f"/cases/{case_id}", message="Submission saved.")
 
 
 @router.get("/api/cases/export.csv", dependencies=[Depends(require_permission("export"))])

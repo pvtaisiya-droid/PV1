@@ -9,6 +9,48 @@
     </div>
 </div>
 
+{% if message %}
+<div class="alert alert-success py-2" role="status">{{ _(message) }}</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-danger py-2" role="alert">{{ _(error) }}</div>
+{% endif %}
+{% if validation %}
+<div class="alert alert-warning py-2" role="alert">{{ _(validation) }}</div>
+{% endif %}
+
+<section class="surface mb-4">
+    <h2 class="h6 section-title">{{ _('Filters') }}</h2>
+    <form class="row g-2 align-items-end" method="get" action="/products">
+        <div class="col-md-4">
+            <label class="form-label">{{ _('Search') }}</label>
+            <input class="form-control" name="search" value="{{ filters.search }}" placeholder="{{ _('Code') }} / {{ _('Name') }} / {{ _('Substances') }}">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">{{ _('MAH partner') }}</label>
+            <select class="form-select" name="partner_id">
+                <option value="">{{ _('All') }}</option>
+                {% for partner in partners %}
+                <option value="{{ partner.id }}" {% if filters.partner_id == partner.id %}selected{% endif %}>{{ partner.partner_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Status') }}</label>
+            <select class="form-select" name="status_filter">
+                <option value="">{{ _('All') }}</option>
+                {% for status in status_options %}
+                <option value="{{ status }}" {% if filters.status_filter == status %}selected{% endif %}>{{ _(status) }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-3 d-flex flex-wrap gap-2">
+            <button class="btn btn-primary icon-button" type="submit"><i data-lucide="search"></i><span>{{ _('Search') }}</span></button>
+            <a class="btn btn-outline-secondary icon-button" href="/products"><i data-lucide="x"></i><span>{{ _('Cancel') }}</span></a>
+        </div>
+    </form>
+</section>
+
 {% if has_permission('create') or has_permission('manage_reference_data') %}
 <section class="surface mb-4">
     <h2 class="h6 section-title">{{ _('Add Product') }}</h2>
@@ -78,7 +120,10 @@
                 <th>{{ _('Strength') }}</th>
                 <th>{{ _('Route') }}</th>
                 <th>{{ _('Substances') }}</th>
+                <th>{{ _('MAH partner') }}</th>
+                <th>{{ _('Status') }}</th>
                 <th>{{ _('Auth country') }}</th>
+                <th>{{ _('Actions') }}</th>
             </tr>
             </thead>
             <tbody>
@@ -93,10 +138,95 @@
                     <span class="badge text-bg-light">{{ link.substance.substance_name }}</span>
                     {% endfor %}
                 </td>
+                <td>{{ product.mah_partner.partner_name if product.mah_partner else "" }}</td>
+                <td><span class="status-pill">{{ _(product.authorization_status) if product.authorization_status else _('None') }}</span></td>
                 <td>{{ product.authorization_country_code or "" }}</td>
+                <td>
+                    <div class="d-flex flex-wrap gap-1">
+                        <button class="btn btn-outline-secondary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#product-view-{{ product.id }}" title="{{ _('View') }}"><i data-lucide="eye"></i></button>
+                        {% if has_permission('edit') or has_permission('manage_reference_data') %}
+                        <button class="btn btn-outline-primary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#product-edit-{{ product.id }}" title="{{ _('Edit') }}"><i data-lucide="pencil"></i></button>
+                        {% endif %}
+                        {% if has_permission('soft_delete') or has_permission('manage_reference_data') %}
+                        <form method="post" action="/products/{{ product.id }}/delete">
+                            <button class="btn btn-outline-danger btn-sm icon-only" type="submit" title="{{ _('Delete') }}"><i data-lucide="trash-2"></i></button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </td>
             </tr>
+            <tr class="collapse" id="product-view-{{ product.id }}">
+                <td colspan="9">
+                    <div class="row g-2 small">
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Authorization no.') }}</span><div>{{ product.authorization_number or "" }}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Dosage form') }}</span><div>{{ product.dosage_form or "" }}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Company') }}</span><div>{% if product.is_company_product %}{{ _('Yes') }}{% else %}{{ _('No') }}{% endif %}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Updated') }}</span><div>{{ product.updated_at }}</div></div>
+                    </div>
+                </td>
+            </tr>
+            {% if has_permission('edit') or has_permission('manage_reference_data') %}
+            <tr class="collapse" id="product-edit-{{ product.id }}">
+                <td colspan="9">
+                    <form class="row g-2 align-items-end" method="post" action="/products/{{ product.id }}/edit">
+                        <div class="col-md-2">
+                            <label class="form-label">{{ _('Code') }}</label>
+                            <input class="form-control form-control-sm" name="product_code" value="{{ product.product_code }}" required>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">{{ _('Name') }}</label>
+                            <input class="form-control form-control-sm" name="product_name" value="{{ product.product_name }}" required>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">{{ _('Dosage form') }}</label>
+                            <input class="form-control form-control-sm" name="dosage_form" value="{{ product.dosage_form or '' }}">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">{{ _('Strength') }}</label>
+                            <input class="form-control form-control-sm" name="strength" value="{{ product.strength or '' }}">
+                        </div>
+                        <div class="col-md-1">
+                            <label class="form-label">{{ _('Route') }}</label>
+                            <input class="form-control form-control-sm" name="route" value="{{ product.route or '' }}">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">{{ _('Company') }}</label>
+                            <select class="form-select form-select-sm" name="is_company_product">
+                                <option value="true" {% if product.is_company_product %}selected{% endif %}>{{ _('Yes') }}</option>
+                                <option value="false" {% if not product.is_company_product %}selected{% endif %}>{{ _('No') }}</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">{{ _('MAH partner') }}</label>
+                            <select class="form-select form-select-sm" name="mah_partner_id">
+                                <option value="">{{ _('None') }}</option>
+                                {% for partner in partners %}
+                                <option value="{{ partner.id }}" {% if product.mah_partner_id == partner.id %}selected{% endif %}>{{ partner.partner_name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">{{ _('Authorization no.') }}</label>
+                            <input class="form-control form-control-sm" name="authorization_number" value="{{ product.authorization_number or '' }}">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">{{ _('Auth country') }}</label>
+                            <input class="form-control form-control-sm text-uppercase" name="authorization_country_code" maxlength="2" value="{{ product.authorization_country_code or '' }}">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">{{ _('Status') }}</label>
+                            <input class="form-control form-control-sm" name="authorization_status" value="{{ product.authorization_status or '' }}">
+                        </div>
+                        <div class="col-md-3 d-flex gap-2">
+                            <button class="btn btn-primary btn-sm icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Save') }}</span></button>
+                            <button class="btn btn-outline-secondary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#product-edit-{{ product.id }}" title="{{ _('Cancel') }}"><i data-lucide="x"></i></button>
+                        </div>
+                    </form>
+                </td>
+            </tr>
+            {% endif %}
             {% else %}
-            <tr><td colspan="6" class="text-secondary">{{ _('No products yet.') }}</td></tr>
+            <tr><td colspan="9" class="text-secondary">{% if filters.active and total_count %}{{ _('No records match the filters.') }}{% else %}{{ _('No products yet.') }}{% endif %}</td></tr>
             {% endfor %}
             </tbody>
         </table>

@@ -24,7 +24,7 @@
     <form id="item-form-{{ item.id }}" method="post" action="/partner-reconciliation/items/{{ item.id }}"></form>
     {% if item.source_side == "partner" %}
     <select class="form-select form-select-sm mb-1" name="internal_case_id" form="item-form-{{ item.id }}">
-        <option value="">{{ _('Link internal case') }}</option>
+        <option value="">{% if item.internal_case_id %}{{ _('Unlink') }}{% else %}{{ _('Link internal case') }}{% endif %}</option>
         {% for case in cases %}
         <option value="{{ case.id }}" {% if item.internal_case_id == case.id %}selected{% endif %}>{{ case.case_number }}</option>
         {% endfor %}
@@ -119,7 +119,7 @@
             {{ review_controls(item, saved) }}
         </tr>
         {% else %}
-        <tr><td colspan="{% if saved and can_review_reconciliation %}16{% else %}15{% endif %}" class="text-secondary">{{ _('No records.') }}</td></tr>
+        <tr><td colspan="{% if saved and can_review_reconciliation %}16{% else %}15{% endif %}" class="text-secondary">{% if status_filter or search or product_filter %}{{ _('No records match the filters.') }}{% else %}{{ _('No records.') }}{% endif %}</td></tr>
         {% endfor %}
         </tbody>
     </table>
@@ -158,7 +158,7 @@
             {{ review_controls(item, saved) }}
         </tr>
         {% else %}
-        <tr><td colspan="{% if saved and can_review_reconciliation %}11{% else %}10{% endif %}" class="text-secondary">{{ _('No records.') }}</td></tr>
+        <tr><td colspan="{% if saved and can_review_reconciliation %}11{% else %}10{% endif %}" class="text-secondary">{% if status_filter or search or product_filter %}{{ _('No records match the filters.') }}{% else %}{{ _('No records.') }}{% endif %}</td></tr>
         {% endfor %}
         </tbody>
     </table>
@@ -175,6 +175,16 @@
     <a class="btn btn-outline-primary icon-button" href="/partner-reconciliation?reconciliation_id={{ latest_reconciliation.id }}"><i data-lucide="skip-forward"></i><span>{{ _('Last record') }}</span></a>
     {% endif %}
 </div>
+
+{% if message %}
+<div class="alert alert-success py-2" role="status">{{ _(message) }}</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-danger py-2" role="alert">{{ _(error) }}</div>
+{% endif %}
+{% if validation %}
+<div class="alert alert-warning py-2" role="alert">{{ _(validation) }}</div>
+{% endif %}
 
 <div class="row g-3">
     <aside class="col-lg-2">
@@ -238,6 +248,15 @@
                     </select>
                 </div>
                 <div class="col-md-3">
+                    <label class="form-label">{{ _('Product') }}</label>
+                    <select class="form-select" name="product_id">
+                        <option value="">{{ _('All') }}</option>
+                        {% for product in products %}
+                        <option value="{{ product.id }}" {% if product_filter == product.id %}selected{% endif %}>{{ product.product_name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
                     <label class="form-label">{{ _('Search') }}</label>
                     <input class="form-control" name="search" value="{{ search }}">
                 </div>
@@ -272,6 +291,38 @@
             </div>
             {% endif %}
             {% endif %}
+        </section>
+
+        <section class="surface mb-3">
+            <h2 class="h6 section-title">{{ _('Saved reconciliations') }}</h2>
+            <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle">
+                    <thead>
+                    <tr>
+                        <th>{{ _('Partner') }}</th>
+                        <th>{{ _('Period') }}</th>
+                        <th>{{ _('Reconciliation status') }}</th>
+                        <th>{{ _('Prepared by') }}</th>
+                        <th>{{ _('Updated') }}</th>
+                        <th>{{ _('Actions') }}</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    {% for item in reconciliations %}
+                    <tr>
+                        <td class="fw-medium">{{ item.partner.partner_name if item.partner else "" }}</td>
+                        <td>{{ item.period_start }} - {{ item.period_end }}</td>
+                        <td><span class="status-pill">{{ _(item.reconciliation_status) }}</span></td>
+                        <td>{{ item.prepared_by or "" }}</td>
+                        <td>{{ item.updated_at }}</td>
+                        <td><a class="btn btn-outline-primary btn-sm icon-button" href="/partner-reconciliation?reconciliation_id={{ item.id }}"><i data-lucide="eye"></i><span>{{ _('View') }}</span></a></td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="6" class="text-secondary">{{ _('No records.') }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         </section>
 
         {% if preview or reconciliation %}

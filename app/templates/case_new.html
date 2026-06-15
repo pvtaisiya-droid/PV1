@@ -10,6 +10,16 @@
     <a class="btn btn-outline-secondary btn-sm icon-button" href="/cases"><i data-lucide="arrow-left"></i><span>{{ _('Back') }}</span></a>
 </div>
 
+{% if message %}
+<div class="alert alert-success py-2" role="status">{{ _(message) }}</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-danger py-2" role="alert">{{ _(error) }}</div>
+{% endif %}
+{% if validation %}
+<div class="alert alert-warning py-2" role="alert">{{ _(validation) }}</div>
+{% endif %}
+
 <section class="surface">
     <form class="row g-3" method="post" action="/cases">
         <div class="col-md-3">

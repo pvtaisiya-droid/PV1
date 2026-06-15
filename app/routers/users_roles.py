@@ -10,6 +10,7 @@ from app.auth import USER_COOKIE, require_permission
 from app.database import get_db
 from app.models import Role, User
 from app.templating import templates
+from app.ui_helpers import active_filters, contains_search
 
 
 router = APIRouter()
@@ -20,12 +21,18 @@ def current_user_id(request: Request) -> str | None:
     return user.id if user else None
 
 
-def redirect_with_message(message: str | None = None, error: str | None = None) -> RedirectResponse:
+def redirect_with_message(
+    message: str | None = None,
+    error: str | None = None,
+    validation: str | None = None,
+) -> RedirectResponse:
     params = {}
     if message:
         params["message"] = message
     if error:
         params["error"] = error
+    if validation:
+        params["validation"] = validation
     suffix = f"?{urlencode(params)}" if params else ""
     return RedirectResponse(f"/users-roles{suffix}", status_code=status.HTTP_303_SEE_OTHER)
 
@@ -64,17 +71,62 @@ def switch_user(
     dependencies=[Depends(require_permission("manage_users"))],
 )
 def users_roles_page(request: Request, db: Session = Depends(get_db)):
+    search = request.query_params.get("search")
+    role_id = request.query_params.get("role_id")
+    status_filter = request.query_params.get("status_filter")
+    base_users = crud.list_users(db, include_deleted=status_filter == "archived")
+    users = [
+        user
+        for user in base_users
+        if contains_search(
+            search,
+            user.email,
+            user.full_name,
+            ", ".join(
+                user_role.role.role_name
+                for user_role in user.user_roles
+                if not user_role.is_deleted and user_role.role
+            ),
+            ", ".join(
+                user_role.role.role_code
+                for user_role in user.user_roles
+                if not user_role.is_deleted and user_role.role
+            ),
+        )
+        and (
+            not role_id
+            or any(
+                user_role.role_id == role_id and not user_role.is_deleted
+                for user_role in user.user_roles
+            )
+        )
+        and (
+            not status_filter
+            or (status_filter == "active" and user.is_active and not user.is_deleted)
+            or (status_filter == "inactive" and not user.is_active and not user.is_deleted)
+            or (status_filter == "archived" and user.is_deleted)
+        )
+    ]
+    filters = {
+        "search": search or "",
+        "role_id": role_id or "",
+        "status_filter": status_filter or "",
+        "active": active_filters(search=search, role_id=role_id, status_filter=status_filter),
+    }
     return templates.TemplateResponse(
         request,
         "users_roles.html",
         {
             "request": request,
             "active_page": "users_roles",
-            "users": crud.list_users(db),
+            "users": users,
             "roles": crud.list_roles(db),
             "permissions": crud.list_permissions(db),
+            "filters": filters,
+            "total_count": len(base_users),
             "message": request.query_params.get("message"),
             "error": request.query_params.get("error"),
+            "validation": request.query_params.get("validation"),
         },
     )
 
@@ -90,6 +142,8 @@ def create_user_form(
     role_ids: list[str] = Form(default=[]),
     db: Session = Depends(get_db),
 ):
+    if not email.strip():
+        return redirect_with_message(validation="Email is required.")
     if db.query(User).filter(User.email == email).first():
         return redirect_with_message(error="User already exists.")
     if not role_ids:
@@ -107,6 +161,39 @@ def create_user_form(
         db.rollback()
         return redirect_with_message(error="User could not be created.")
     return redirect_with_message(message="User created.")
+
+
+@router.post(
+    "/users-roles/users/{user_id}/edit",
+    dependencies=[Depends(require_permission("manage_users"))],
+)
+def edit_user_form(
+    request: Request,
+    user_id: str,
+    email: str = Form(...),
+    full_name: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    user = crud.get_user(db, user_id)
+    if not user:
+        return redirect_with_message(error="User not found.")
+    if not email.strip():
+        return redirect_with_message(validation="Email is required.")
+    existing = db.query(User).filter(User.email == email.strip(), User.id != user_id).first()
+    if existing:
+        return redirect_with_message(error="User already exists.")
+    try:
+        crud.update_app_user(
+            db,
+            user,
+            email=email.strip(),
+            full_name=full_name,
+            changed_by_user_id=current_user_id(request),
+        )
+    except IntegrityError:
+        db.rollback()
+        return redirect_with_message(error="User could not be saved.")
+    return redirect_with_message(message="User saved.")
 
 
 @router.post(

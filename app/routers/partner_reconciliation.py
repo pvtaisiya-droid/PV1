@@ -1,7 +1,7 @@
 from datetime import date, timedelta
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.orm import Session
 
 from app import crud, schemas
@@ -14,6 +14,7 @@ from app.reconciliation import (
 )
 from app.reconciliation_excel import build_reconciliation_workbook
 from app.templating import templates
+from app.ui_helpers import redirect_with_message
 
 
 router = APIRouter()
@@ -29,6 +30,7 @@ def partner_reconciliation_page(
     contact_id: str | None = None,
     language: str = "ru",
     status_filter: str | None = None,
+    product_id: str | None = None,
     search: str | None = None,
     db: Session = Depends(get_db),
 ):
@@ -37,6 +39,7 @@ def partner_reconciliation_page(
         {
             "status_options": RECONCILIATION_STATUSES,
             "status_filter": status_filter or "",
+            "product_filter": product_id or "",
             "search": search or "",
             "language": language,
             "selected_partner_id": partner_id or "",
@@ -59,6 +62,7 @@ def partner_reconciliation_page(
         all_items = filter_items(
             list(reconciliation.items),
             status_filter=status_filter,
+            product_id=product_id,
             search=search,
         )
         context.update(
@@ -96,6 +100,7 @@ def partner_reconciliation_page(
         preview["items"] = filter_items(
             preview["items"],
             status_filter=status_filter,
+            product_id=product_id,
             search=search,
         )
         context.update(
@@ -145,9 +150,9 @@ def save_partner_reconciliation(
         ),
         preview["items"],
     )
-    return RedirectResponse(
+    return redirect_with_message(
         f"/partner-reconciliation?reconciliation_id={reconciliation.id}",
-        status_code=status.HTTP_303_SEE_OTHER,
+        message="Reconciliation saved.",
     )
 
 
@@ -164,9 +169,9 @@ def confirm_partner_reconciliation(
     if not reconciliation:
         raise HTTPException(status_code=404, detail="Reconciliation not found")
     crud.confirm_partner_reconciliation(db, reconciliation, confirmed_by_user)
-    return RedirectResponse(
+    return redirect_with_message(
         f"/partner-reconciliation?reconciliation_id={reconciliation_id}",
-        status_code=status.HTTP_303_SEE_OTHER,
+        message="Reconciliation confirmed.",
     )
 
 
@@ -197,9 +202,9 @@ def update_partner_reconciliation_item(
             confirmed_by_user=confirmed_by_user,
         ),
     )
-    return RedirectResponse(
+    return redirect_with_message(
         f"/partner-reconciliation?reconciliation_id={item.reconciliation_id}",
-        status_code=status.HTTP_303_SEE_OTHER,
+        message="Reconciliation item saved.",
     )
 
 
@@ -295,19 +300,35 @@ def base_context(request: Request, db: Session) -> dict:
         "active_page": "partner_reconciliation",
         "partners": crud.list_partners(db),
         "contacts": crud.list_contract_contacts(db),
+        "products": crud.list_products(db),
         "cases": crud.list_cases(db),
         "reconciliations": crud.list_partner_reconciliations(db),
         "latest_reconciliation": latest,
+        "message": request.query_params.get("message"),
+        "error": request.query_params.get("error"),
+        "validation": request.query_params.get("validation"),
     }
 
 
-def filter_items(items: list, *, status_filter: str | None, search: str | None) -> list:
+def filter_items(
+    items: list,
+    *,
+    status_filter: str | None,
+    product_id: str | None,
+    search: str | None,
+) -> list:
     result = items
     if status_filter:
         result = [
             item
             for item in result
             if get_value(item, "reconciliation_status") == status_filter
+        ]
+    if product_id:
+        result = [
+            item
+            for item in result
+            if get_value(item, "product_id") == product_id
         ]
     if search:
         needle = search.lower()

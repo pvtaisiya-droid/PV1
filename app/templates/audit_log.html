@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}{{ _('Audit Log') }} - {{ _('PV MVP') }}{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+        <h1 class="h3 mb-1">{{ _('Audit Log') }}</h1>
+        <div class="text-secondary small">{{ entries|length }} {{ _('records') }}</div>
+    </div>
+</div>
+
+<section class="surface mb-4">
+    <h2 class="h6 section-title">{{ _('Filters') }}</h2>
+    <form class="row g-2 align-items-end" method="get" action="/audit-log">
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Search') }}</label>
+            <input class="form-control" name="search" value="{{ filters.search }}" placeholder="{{ _('Entity') }} / {{ _('Action') }} / {{ _('User') }}">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Entity') }}</label>
+            <select class="form-select" name="entity_type">
+                <option value="">{{ _('All') }}</option>
+                {% for entity in entity_options %}
+                <option value="{{ entity }}" {% if filters.entity_type == entity %}selected{% endif %}>{{ _(entity) }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Action') }}</label>
+            <select class="form-select" name="action">
+                <option value="">{{ _('All') }}</option>
+                {% for action in action_options %}
+                <option value="{{ action }}" {% if filters.action == action %}selected{% endif %}>{{ _(action) }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('User') }}</label>
+            <select class="form-select" name="user_id">
+                <option value="">{{ _('All') }}</option>
+                {% for user in users %}
+                <option value="{{ user.id }}" {% if filters.user_id == user.id %}selected{% endif %}>{{ user.full_name or user.email }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-1">
+            <label class="form-label">{{ _('Date from') }}</label>
+            <input class="form-control" type="date" name="date_from" value="{{ filters.date_from }}">
+        </div>
+        <div class="col-md-1">
+            <label class="form-label">{{ _('Date to') }}</label>
+            <input class="form-control" type="date" name="date_to" value="{{ filters.date_to }}">
+        </div>
+        <div class="col-md-1 d-flex gap-2">
+            <button class="btn btn-primary icon-only" type="submit" title="{{ _('Search') }}"><i data-lucide="search"></i></button>
+            <a class="btn btn-outline-secondary icon-only" href="/audit-log" title="{{ _('Cancel') }}"><i data-lucide="x"></i></a>
+        </div>
+    </form>
+</section>
+
+<section class="surface">
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle">
+            <thead>
+            <tr>
+                <th>{{ _('Timestamp') }}</th>
+                <th>{{ _('Entity') }}</th>
+                <th>{{ _('Action') }}</th>
+                <th>{{ _('Field') }}</th>
+                <th>{{ _('Old') }}</th>
+                <th>{{ _('New') }}</th>
+                <th>{{ _('Reason') }}</th>
+                <th>{{ _('User') }}</th>
+                <th>{{ _('Actions') }}</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for entry in entries %}
+            <tr>
+                <td>{{ entry.timestamp }}</td>
+                <td>
+                    <div class="fw-medium">{{ _(entry.entity_type) }}</div>
+                    <div class="text-secondary small">{{ entry.entity_id }}</div>
+                </td>
+                <td><span class="status-pill">{{ _(entry.action) }}</span></td>
+                <td>{{ entry.field_name or "" }}</td>
+                <td>{{ entry.old_value or "" }}</td>
+                <td>{{ entry.new_value or "" }}</td>
+                <td>{{ entry.change_reason or "" }}</td>
+                <td>{{ entry.user.email if entry.user else "" }}</td>
+                <td>
+                    {% if entry.case_id %}
+                    <a class="btn btn-outline-primary btn-sm icon-only" href="/cases/{{ entry.case_id }}" title="{{ _('View') }}"><i data-lucide="eye"></i></a>
+                    {% else %}
+                    <span class="text-secondary small">{{ _('No actions') }}</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="9" class="text-secondary">{% if filters.active and total_count %}{{ _('No records match the filters.') }}{% else %}{{ _('No audit entries.') }}{% endif %}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

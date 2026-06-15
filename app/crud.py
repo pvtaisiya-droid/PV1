@@ -9,6 +9,7 @@ from app import schemas
 from app.audit import log_audit
 from app.models import (
     AuditTrail,
+    Attachment,
     Case,
     CaseProduct,
     Contract,
@@ -149,6 +150,33 @@ def create_app_user(
         entity_id=user.id,
         action="create",
         user_id=created_by_user_id,
+    )
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def update_app_user(
+    db: Session,
+    user: User,
+    *,
+    email: str,
+    full_name: str | None,
+    changed_by_user_id: str | None = None,
+) -> User:
+    old_value = f"{user.email} / {user.full_name or ''}"
+    user.email = email
+    user.full_name = full_name
+    user.version += 1
+    log_audit(
+        db,
+        entity_type="User",
+        entity_id=user.id,
+        action="edit",
+        field_name="profile",
+        old_value=old_value,
+        new_value=f"{user.email} / {user.full_name or ''}",
+        user_id=changed_by_user_id,
     )
     db.commit()
     db.refresh(user)
@@ -399,6 +427,50 @@ def create_partner(db: Session, payload: schemas.PartnerCreate) -> Partner:
     return partner
 
 
+def update_partner(db: Session, partner: Partner, payload: schemas.PartnerCreate) -> Partner:
+    data = clean_form_data(model_data(payload))
+    for field, value in data.items():
+        setattr(partner, field, value)
+    partner.version += 1
+    user = get_current_user(db)
+    log_audit(
+        db,
+        entity_type="Partner",
+        entity_id=partner.id,
+        action="edit",
+        user_id=user.id if user else None,
+    )
+    db.commit()
+    db.refresh(partner)
+    return partner
+
+
+def delete_partner(
+    db: Session,
+    partner: Partner,
+    *,
+    deleted_by_user_id: str | None = None,
+    delete_reason: str | None = None,
+) -> Partner:
+    partner.is_deleted = True
+    partner.is_active = False
+    partner.deleted_at = utcnow()
+    partner.deleted_by = deleted_by_user_id
+    partner.delete_reason = delete_reason
+    partner.version += 1
+    log_audit(
+        db,
+        entity_type="Partner",
+        entity_id=partner.id,
+        action="soft_delete",
+        change_reason=delete_reason,
+        user_id=deleted_by_user_id,
+    )
+    db.commit()
+    db.refresh(partner)
+    return partner
+
+
 def list_substances(db: Session) -> list[Substance]:
     return (
         db.query(Substance)
@@ -470,7 +542,10 @@ def create_substance(db: Session, payload: schemas.SubstanceCreate) -> Substance
 def list_products(db: Session) -> list[Product]:
     return (
         db.query(Product)
-        .options(joinedload(Product.substance_links).joinedload(ProductSubstance.substance))
+        .options(
+            joinedload(Product.mah_partner),
+            joinedload(Product.substance_links).joinedload(ProductSubstance.substance),
+        )
         .filter(Product.is_deleted.is_(False))
         .order_by(Product.product_name)
         .all()
@@ -508,6 +583,54 @@ def create_product(db: Session, payload: schemas.ProductCreate) -> Product:
         entity_id=product.id,
         action="create",
         user_id=user.id if user else None,
+    )
+    db.commit()
+    db.refresh(product)
+    return product
+
+
+def update_product(db: Session, product: Product, payload: schemas.ProductCreate) -> Product:
+    data = clean_form_data(model_data(payload))
+    data.pop("active_substance", None)
+    data["product_name_normalized"] = data.get("product_name_normalized") or normalize_text(
+        data.get("product_name")
+    )
+    for field, value in data.items():
+        setattr(product, field, value)
+    product.version += 1
+    user = get_current_user(db)
+    log_audit(
+        db,
+        entity_type="Product",
+        entity_id=product.id,
+        action="edit",
+        user_id=user.id if user else None,
+    )
+    db.commit()
+    db.refresh(product)
+    return product
+
+
+def delete_product(
+    db: Session,
+    product: Product,
+    *,
+    deleted_by_user_id: str | None = None,
+    delete_reason: str | None = None,
+) -> Product:
+    product.is_deleted = True
+    product.is_active = False
+    product.deleted_at = utcnow()
+    product.deleted_by = deleted_by_user_id
+    product.delete_reason = delete_reason
+    product.version += 1
+    log_audit(
+        db,
+        entity_type="Product",
+        entity_id=product.id,
+        action="soft_delete",
+        change_reason=delete_reason,
+        user_id=deleted_by_user_id,
     )
     db.commit()
     db.refresh(product)
@@ -587,6 +710,54 @@ def create_contract_contact(
         entity_id=contact.id,
         action="create",
         user_id=user.id if user else None,
+    )
+    db.commit()
+    db.refresh(contact)
+    return contact
+
+
+def update_contract_contact(
+    db: Session,
+    contact: ContractContact,
+    payload: schemas.ContractContactCreate,
+) -> ContractContact:
+    data = clean_form_data(model_data(payload))
+    for field, value in data.items():
+        setattr(contact, field, value)
+    contact.version += 1
+    user = get_current_user(db)
+    log_audit(
+        db,
+        entity_type="ContractContact",
+        entity_id=contact.id,
+        action="edit",
+        user_id=user.id if user else None,
+    )
+    db.commit()
+    db.refresh(contact)
+    return contact
+
+
+def delete_contract_contact(
+    db: Session,
+    contact: ContractContact,
+    *,
+    deleted_by_user_id: str | None = None,
+    delete_reason: str | None = None,
+) -> ContractContact:
+    contact.is_deleted = True
+    contact.is_active = False
+    contact.deleted_at = utcnow()
+    contact.deleted_by = deleted_by_user_id
+    contact.delete_reason = delete_reason
+    contact.version += 1
+    log_audit(
+        db,
+        entity_type="ContractContact",
+        entity_id=contact.id,
+        action="soft_delete",
+        change_reason=delete_reason,
+        user_id=deleted_by_user_id,
     )
     db.commit()
     db.refresh(contact)
@@ -705,7 +876,8 @@ def update_partner_reconciliation_item(
     payload: schemas.PartnerReconciliationItemUpdate,
 ) -> PartnerReconciliationItem:
     data = clean_form_data(model_data(payload))
-    item.internal_case_id = data.get("internal_case_id") or item.internal_case_id
+    if "internal_case_id" in data:
+        item.internal_case_id = data.get("internal_case_id")
     item.reconciliation_status = data["reconciliation_status"]
     item.reviewer_comment = data.get("reviewer_comment")
     item.confirmed_by_user = data.get("confirmed_by_user")
@@ -891,7 +1063,11 @@ def triage_safety_report(db: Session, report: SafetyReport, payload: schemas.Tri
 def list_cases(db: Session) -> list[Case]:
     return (
         db.query(Case)
-        .options(joinedload(Case.partner))
+        .options(
+            joinedload(Case.partner),
+            joinedload(Case.case_products).joinedload(CaseProduct.product),
+            joinedload(Case.reactions),
+        )
         .filter(Case.is_deleted.is_(False))
         .order_by(Case.created_at.desc())
         .all()
@@ -1014,6 +1190,35 @@ def update_case_status(db: Session, case: Case, payload: schemas.CaseStatusUpdat
     return case
 
 
+def delete_case(
+    db: Session,
+    case: Case,
+    *,
+    deleted_by_user_id: str | None = None,
+    delete_reason: str | None = None,
+) -> Case:
+    case.is_deleted = True
+    case.is_active = False
+    case.deleted_at = utcnow()
+    case.deleted_by = deleted_by_user_id
+    case.delete_reason = delete_reason
+    case.version += 1
+    if case.safety_report:
+        case.safety_report.case_id = None
+    log_audit(
+        db,
+        entity_type="Case",
+        entity_id=case.id,
+        action="soft_delete",
+        case_id=case.id,
+        change_reason=delete_reason,
+        user_id=deleted_by_user_id,
+    )
+    db.commit()
+    db.refresh(case)
+    return case
+
+
 def add_patient(db: Session, case: Case, payload: schemas.PatientCreate) -> Patient:
     patient = Patient(case_id=case.id, **clean_form_data(model_data(payload)))
     db.add(patient)
@@ -1107,6 +1312,108 @@ def add_followup(db: Session, case: Case, payload: schemas.FollowUpCreate) -> Fo
     db.commit()
     db.refresh(followup)
     return followup
+
+
+def list_attachments(db: Session) -> list[Attachment]:
+    return (
+        db.query(Attachment)
+        .options(
+            joinedload(Attachment.case).joinedload(Case.partner),
+            joinedload(Attachment.case).joinedload(Case.case_products).joinedload(CaseProduct.product),
+            joinedload(Attachment.safety_report).joinedload(SafetyReport.partner),
+            joinedload(Attachment.uploaded_by),
+        )
+        .filter(Attachment.is_deleted.is_(False))
+        .order_by(Attachment.uploaded_at.desc(), Attachment.created_at.desc())
+        .all()
+    )
+
+
+def get_attachment(db: Session, attachment_id: str) -> Attachment | None:
+    return (
+        db.query(Attachment)
+        .options(
+            joinedload(Attachment.case).joinedload(Case.partner),
+            joinedload(Attachment.case).joinedload(Case.case_products).joinedload(CaseProduct.product),
+            joinedload(Attachment.safety_report).joinedload(SafetyReport.partner),
+            joinedload(Attachment.uploaded_by),
+        )
+        .filter(Attachment.id == attachment_id, Attachment.is_deleted.is_(False))
+        .first()
+    )
+
+
+def create_attachment(
+    db: Session,
+    *,
+    file_name: str,
+    attachment_type: str | None = None,
+    case_id: str | None = None,
+    safety_report_id: str | None = None,
+    mime_type: str | None = None,
+    storage_path: str | None = None,
+    uploaded_by_user_id: str | None = None,
+) -> Attachment:
+    attachment = Attachment(
+        file_name=file_name,
+        attachment_type=attachment_type,
+        case_id=case_id,
+        safety_report_id=safety_report_id,
+        mime_type=mime_type,
+        storage_path=storage_path,
+        uploaded_by_user_id=uploaded_by_user_id,
+        uploaded_at=utcnow(),
+    )
+    db.add(attachment)
+    db.flush()
+    log_audit(
+        db,
+        entity_type="Attachment",
+        entity_id=attachment.id,
+        action="create",
+        case_id=case_id,
+        user_id=uploaded_by_user_id,
+    )
+    db.commit()
+    db.refresh(attachment)
+    return attachment
+
+
+def delete_attachment(
+    db: Session,
+    attachment: Attachment,
+    *,
+    deleted_by_user_id: str | None = None,
+    delete_reason: str | None = None,
+) -> Attachment:
+    attachment.is_deleted = True
+    attachment.is_active = False
+    attachment.deleted_at = utcnow()
+    attachment.deleted_by = deleted_by_user_id
+    attachment.delete_reason = delete_reason
+    attachment.version += 1
+    log_audit(
+        db,
+        entity_type="Attachment",
+        entity_id=attachment.id,
+        action="soft_delete",
+        case_id=attachment.case_id,
+        change_reason=delete_reason,
+        user_id=deleted_by_user_id,
+    )
+    db.commit()
+    db.refresh(attachment)
+    return attachment
+
+
+def list_audit_entries(db: Session) -> list[AuditTrail]:
+    return (
+        db.query(AuditTrail)
+        .options(joinedload(AuditTrail.user), joinedload(AuditTrail.case))
+        .filter(AuditTrail.is_deleted.is_(False))
+        .order_by(AuditTrail.timestamp.desc())
+        .all()
+    )
 
 
 def validate_submission_references(data: dict[str, Any]) -> None:

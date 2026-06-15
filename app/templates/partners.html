@@ -9,6 +9,39 @@
     </div>
 </div>
 
+{% if message %}
+<div class="alert alert-success py-2" role="status">{{ _(message) }}</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-danger py-2" role="alert">{{ _(error) }}</div>
+{% endif %}
+{% if validation %}
+<div class="alert alert-warning py-2" role="alert">{{ _(validation) }}</div>
+{% endif %}
+
+<section class="surface mb-4">
+    <h2 class="h6 section-title">{{ _('Filters') }}</h2>
+    <form class="row g-2 align-items-end" method="get" action="/partners">
+        <div class="col-md-5">
+            <label class="form-label">{{ _('Search') }}</label>
+            <input class="form-control" name="search" value="{{ filters.search }}" placeholder="{{ _('Code') }} / {{ _('Name') }} / {{ _('Email') }}">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Status') }}</label>
+            <select class="form-select" name="status_filter">
+                <option value="">{{ _('All') }}</option>
+                {% for status in status_options %}
+                <option value="{{ status }}" {% if filters.status_filter == status %}selected{% endif %}>{{ _(status) }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-4 d-flex flex-wrap gap-2">
+            <button class="btn btn-primary icon-button" type="submit"><i data-lucide="search"></i><span>{{ _('Search') }}</span></button>
+            <a class="btn btn-outline-secondary icon-button" href="/partners"><i data-lucide="x"></i><span>{{ _('Cancel') }}</span></a>
+        </div>
+    </form>
+</section>
+
 {% if has_permission('create') or has_permission('manage_reference_data') %}
 <section class="surface mb-4">
     <h2 class="h6 section-title">{{ _('Add Partner') }}</h2>
@@ -53,6 +86,7 @@
                 <th>{{ _('Name') }}</th>
                 <th>{{ _('Status') }}</th>
                 <th>{{ _('Reconciliation frequency') }}</th>
+                <th>{{ _('Actions') }}</th>
             </tr>
             </thead>
             <tbody>
@@ -62,9 +96,68 @@
                 <td>{{ partner.partner_name }}</td>
                 <td><span class="badge text-bg-light">{{ _(partner.partner_type) }}</span></td>
                 <td>{{ _(partner.reconciliation_frequency) }}</td>
+                <td>
+                    <div class="d-flex flex-wrap gap-1">
+                        <button class="btn btn-outline-secondary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#partner-view-{{ partner.id }}" title="{{ _('View') }}"><i data-lucide="eye"></i></button>
+                        {% if has_permission('edit') or has_permission('manage_reference_data') %}
+                        <button class="btn btn-outline-primary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#partner-edit-{{ partner.id }}" title="{{ _('Edit') }}"><i data-lucide="pencil"></i></button>
+                        {% endif %}
+                        {% if has_permission('soft_delete') or has_permission('manage_reference_data') %}
+                        <form method="post" action="/partners/{{ partner.id }}/delete">
+                            <button class="btn btn-outline-danger btn-sm icon-only" type="submit" title="{{ _('Delete') }}"><i data-lucide="trash-2"></i></button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </td>
             </tr>
+            <tr class="collapse" id="partner-view-{{ partner.id }}">
+                <td colspan="5">
+                    <div class="row g-2 small">
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Email') }}</span><div>{{ partner.email or "" }}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Phone') }}</span><div>{{ partner.phone or "" }}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Country') }}</span><div>{{ partner.country_code or "" }}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('PV responsible') }}</span><div>{{ partner.pv_responsible_person or "" }}</div></div>
+                    </div>
+                </td>
+            </tr>
+            {% if has_permission('edit') or has_permission('manage_reference_data') %}
+            <tr class="collapse" id="partner-edit-{{ partner.id }}">
+                <td colspan="5">
+                    <form class="row g-2 align-items-end" method="post" action="/partners/{{ partner.id }}/edit">
+                        <div class="col-md-2">
+                            <label class="form-label">{{ _('Partner code') }}</label>
+                            <input class="form-control form-control-sm" name="partner_code" value="{{ partner.partner_code }}" required>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">{{ _('Name') }}</label>
+                            <input class="form-control form-control-sm" name="partner_name" value="{{ partner.partner_name }}" required>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">{{ _('Status') }}</label>
+                            <select class="form-select form-select-sm" name="partner_type">
+                                {% for status in status_options %}
+                                <option value="{{ status }}" {% if partner.partner_type == status %}selected{% endif %}>{{ _(status) }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">{{ _('Reconciliation frequency') }}</label>
+                            <select class="form-select form-select-sm" name="reconciliation_frequency">
+                                {% for frequency in ["monthly", "quarterly", "not_conducted"] %}
+                                <option value="{{ frequency }}" {% if partner.reconciliation_frequency == frequency %}selected{% endif %}>{{ _(frequency) }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-2 d-flex gap-2">
+                            <button class="btn btn-primary btn-sm icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Save') }}</span></button>
+                            <button class="btn btn-outline-secondary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#partner-edit-{{ partner.id }}" title="{{ _('Cancel') }}"><i data-lucide="x"></i></button>
+                        </div>
+                    </form>
+                </td>
+            </tr>
+            {% endif %}
             {% else %}
-            <tr><td colspan="4" class="text-secondary">{{ _('No partners yet.') }}</td></tr>
+            <tr><td colspan="5" class="text-secondary">{% if filters.active and total_count %}{{ _('No records match the filters.') }}{% else %}{{ _('No partners yet.') }}{% endif %}</td></tr>
             {% endfor %}
             </tbody>
         </table>
