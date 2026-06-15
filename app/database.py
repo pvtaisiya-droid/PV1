@@ -54,6 +54,7 @@ def ensure_sqlite_schema() -> None:
 
     with engine.begin() as connection:
         ensure_soft_delete_columns(inspector, connection)
+        ensure_audit_log_columns(inspector, connection)
 
         columns = {column["name"] for column in inspector.get_columns("tblPartners")}
         if "reconciliation_frequency" not in columns:
@@ -64,7 +65,20 @@ def ensure_sqlite_schema() -> None:
                     "NOT NULL DEFAULT 'not_conducted'"
                 )
             )
-
+        connection.execute(
+            text(
+                """
+                UPDATE "tblPartners"
+                SET reconciliation_frequency = 'not_conducted'
+                WHERE reconciliation_frequency IS NULL
+                   OR reconciliation_frequency NOT IN (
+                       'monthly',
+                       'quarterly',
+                       'not_conducted'
+                   )
+                """
+            )
+        )
         connection.execute(
             text(
                 """
@@ -79,6 +93,86 @@ def ensure_sqlite_schema() -> None:
                 """
             )
         )
+
+
+def ensure_audit_log_columns(inspector, connection) -> None:
+    if not inspector.has_table("tblAuditTrail"):
+        return
+
+    from app.audit import ENTITY_SOURCE_MODULES
+
+    columns = {column["name"] for column in inspector.get_columns("tblAuditTrail")}
+    audit_columns = {
+        "changed_by": "VARCHAR(36)",
+        "changed_at": "DATETIME",
+        "source_module": "VARCHAR(100)",
+        "comment": "TEXT",
+    }
+    for column_name, ddl in audit_columns.items():
+        if column_name not in columns:
+            connection.execute(
+                text(f'ALTER TABLE "tblAuditTrail" ADD COLUMN {column_name} {ddl}')
+            )
+
+    connection.execute(
+        text(
+            """
+            UPDATE "tblAuditTrail"
+            SET changed_by = user_id
+            WHERE changed_by IS NULL
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            UPDATE "tblAuditTrail"
+            SET changed_at = timestamp
+            WHERE changed_at IS NULL
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            UPDATE "tblAuditTrail"
+            SET comment = change_reason
+            WHERE comment IS NULL
+              AND change_reason IS NOT NULL
+            """
+        )
+    )
+    for entity_type, source_module in ENTITY_SOURCE_MODULES.items():
+        connection.execute(
+            text(
+                """
+                UPDATE "tblAuditTrail"
+                SET source_module = :source_module
+                WHERE source_module IS NULL
+                  AND entity_type = :entity_type
+                """
+            ),
+            {"entity_type": entity_type, "source_module": source_module},
+        )
+
+    connection.execute(
+        text(
+            'CREATE INDEX IF NOT EXISTS "ix_audit_changed_by" '
+            'ON "tblAuditTrail" (changed_by)'
+        )
+    )
+    connection.execute(
+        text(
+            'CREATE INDEX IF NOT EXISTS "ix_audit_changed_at" '
+            'ON "tblAuditTrail" (changed_at)'
+        )
+    )
+    connection.execute(
+        text(
+            'CREATE INDEX IF NOT EXISTS "ix_audit_source_module" '
+            'ON "tblAuditTrail" (source_module)'
+        )
+    )
 
 
 def ensure_soft_delete_columns(inspector, connection) -> None:
@@ -117,17 +211,3 @@ def ensure_soft_delete_columns(inspector, connection) -> None:
                 connection.execute(
                     text(f'ALTER TABLE "{table_name}" ADD COLUMN {column_name} {ddl}')
                 )
-        connection.execute(
-            text(
-                """
-                UPDATE "tblPartners"
-                SET reconciliation_frequency = 'not_conducted'
-                WHERE reconciliation_frequency IS NULL
-                   OR reconciliation_frequency NOT IN (
-                       'monthly',
-                       'quarterly',
-                       'not_conducted'
-                   )
-                """
-            )
-        )

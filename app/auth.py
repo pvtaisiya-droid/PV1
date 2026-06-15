@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from contextvars import ContextVar
 
 from fastapi import HTTPException, Request, status
 from jinja2 import pass_context
@@ -10,6 +11,11 @@ from app.rbac import permission_codes_for_user, role_names_for_user, user_state
 
 
 USER_COOKIE = "pv_user_id"
+CURRENT_USER_ID: ContextVar[str | None] = ContextVar("pv_current_user_id", default=None)
+
+
+def get_request_user_id() -> str | None:
+    return CURRENT_USER_ID.get()
 
 
 def load_user(db, user_id: str | None = None, email: str | None = None) -> User | None:
@@ -31,6 +37,7 @@ async def access_middleware(request: Request, call_next: Callable):
     requested_user = request.query_params.get("as_user")
     selected_user_id = request.cookies.get(USER_COOKIE)
     selected_user = None
+    user_token = None
 
     if not request.url.path.startswith("/static"):
         with SessionLocal() as db:
@@ -51,21 +58,27 @@ async def access_middleware(request: Request, call_next: Callable):
                 .order_by(User.full_name, User.email)
                 .all()
             ]
+            user_token = CURRENT_USER_ID.set(selected_user.id if selected_user else None)
     else:
         request.state.current_user = None
         request.state.current_role_names = []
         request.state.permission_codes = set()
         request.state.available_users = []
+        user_token = CURRENT_USER_ID.set(None)
 
-    response = await call_next(request)
-    if requested_user and request.state.current_user:
-        response.set_cookie(
-            USER_COOKIE,
-            request.state.current_user.id,
-            max_age=60 * 60 * 24 * 30,
-            samesite="lax",
-        )
-    return response
+    try:
+        response = await call_next(request)
+        if requested_user and request.state.current_user:
+            response.set_cookie(
+                USER_COOKIE,
+                request.state.current_user.id,
+                max_age=60 * 60 * 24 * 30,
+                samesite="lax",
+            )
+        return response
+    finally:
+        if user_token is not None:
+            CURRENT_USER_ID.reset(user_token)
 
 
 def require_permission(permission_code: str):

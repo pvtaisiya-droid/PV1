@@ -220,6 +220,7 @@ def audit_log_page(
     request: Request,
     search: str | None = None,
     entity_type: str | None = None,
+    source_module: str | None = None,
     action: str | None = None,
     user_id: str | None = None,
     date_from: date | None = None,
@@ -239,17 +240,21 @@ def audit_log_page(
             entry.old_value,
             entry.new_value,
             entry.change_reason,
+            entry.comment,
+            entry.source_module,
             entry.user.email if entry.user else "",
             entry.case.case_number if entry.case else "",
         )
         and (not entity_type or entry.entity_type == entity_type)
+        and (not source_module or entry.source_module == source_module)
         and (not action or entry.action == action)
-        and (not user_id or entry.user_id == user_id)
-        and in_date_range(entry.timestamp, date_from, date_to)
+        and (not user_id or (entry.changed_by or entry.user_id) == user_id)
+        and in_date_range(entry.changed_at or entry.timestamp, date_from, date_to)
     ]
     filters = {
         "search": search or "",
         "entity_type": entity_type or "",
+        "source_module": source_module or "",
         "action": action or "",
         "user_id": user_id or "",
         "date_from": date_from or "",
@@ -257,6 +262,7 @@ def audit_log_page(
         "active": active_filters(
             search=search,
             entity_type=entity_type,
+            source_module=source_module,
             action=action,
             user_id=user_id,
             date_from=date_from,
@@ -272,6 +278,7 @@ def audit_log_page(
             "entries": entries,
             "users": crud.list_users(db),
             "entity_options": unique_values([entry.entity_type for entry in all_entries]),
+            "module_options": unique_values([entry.source_module for entry in all_entries]),
             "action_options": unique_values([entry.action for entry in all_entries]),
             "filters": filters,
             "total_count": len(all_entries),

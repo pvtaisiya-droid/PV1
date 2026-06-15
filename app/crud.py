@@ -3,10 +3,12 @@ import io
 from datetime import date
 from typing import Any
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from app import schemas
 from app.audit import log_audit
+from app.auth import get_request_user_id
 from app.models import (
     AuditTrail,
     Attachment,
@@ -56,7 +58,126 @@ def clean_form_data(data: dict[str, Any]) -> dict[str, Any]:
     return {key: empty_to_none(value) for key, value in data.items()}
 
 
+AUDIT_EXCLUDED_FIELDS = {
+    "product_name_normalized",
+    "substance_name_normalized",
+}
+
+
+def audit_user_id(db: Session) -> str | None:
+    request_user_id = get_request_user_id()
+    if request_user_id:
+        return request_user_id
+    user = get_current_user(db)
+    return user.id if user else None
+
+
+def audit_summary(data: dict[str, Any]) -> str:
+    parts = [
+        f"{field}={value}"
+        for field, value in data.items()
+        if field not in AUDIT_EXCLUDED_FIELDS and value is not None
+    ]
+    return "; ".join(parts)
+
+
+def log_create_event(
+    db: Session,
+    *,
+    entity_type: str,
+    entity_id: str,
+    data: dict[str, Any] | None = None,
+    case_id: str | None = None,
+    user_id: str | None = None,
+    comment: str | None = None,
+) -> None:
+    log_audit(
+        db,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        action="create",
+        case_id=case_id,
+        field_name="record",
+        new_value=audit_summary(data or {}),
+        comment=comment,
+        user_id=user_id or audit_user_id(db),
+    )
+
+
+def log_delete_event(
+    db: Session,
+    *,
+    entity_type: str,
+    entity_id: str,
+    case_id: str | None = None,
+    user_id: str | None = None,
+    delete_reason: str | None = None,
+) -> None:
+    log_audit(
+        db,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        action="soft_delete",
+        case_id=case_id,
+        field_name="is_deleted",
+        old_value=False,
+        new_value=True,
+        change_reason=delete_reason,
+        comment=delete_reason,
+        user_id=user_id or audit_user_id(db),
+    )
+
+
+def log_field_changes(
+    db: Session,
+    *,
+    entity_type: str,
+    entity_id: str,
+    old_values: dict[str, Any],
+    new_values: dict[str, Any],
+    action: str = "edit",
+    case_id: str | None = None,
+    user_id: str | None = None,
+    comment: str | None = None,
+) -> int:
+    changed_count = 0
+    actor_id = user_id or audit_user_id(db)
+    for field, new_value in new_values.items():
+        if field in AUDIT_EXCLUDED_FIELDS:
+            continue
+        old_value = old_values.get(field)
+        if old_value == new_value:
+            continue
+        changed_count += 1
+        log_audit(
+            db,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            action=action,
+            case_id=case_id,
+            field_name=field,
+            old_value=old_value,
+            new_value=new_value,
+            comment=comment,
+            user_id=actor_id,
+        )
+    return changed_count
+
+
 def get_current_user(db: Session) -> User | None:
+    request_user_id = get_request_user_id()
+    if request_user_id:
+        user = (
+            db.query(User)
+            .filter(
+                User.id == request_user_id,
+                User.is_deleted.is_(False),
+                User.is_active.is_(True),
+            )
+            .first()
+        )
+        if user:
+            return user
     return (
         db.query(User)
         .filter(User.is_deleted.is_(False))
@@ -144,11 +265,11 @@ def create_app_user(
                     assigned_by_user_id=created_by_user_id,
                 )
             )
-    log_audit(
+    log_create_event(
         db,
         entity_type="User",
         entity_id=user.id,
-        action="create",
+        data={"email": email, "full_name": full_name, "roles": ", ".join(role_ids)},
         user_id=created_by_user_id,
     )
     db.commit()
@@ -164,18 +285,16 @@ def update_app_user(
     full_name: str | None,
     changed_by_user_id: str | None = None,
 ) -> User:
-    old_value = f"{user.email} / {user.full_name or ''}"
+    old_values = {"email": user.email, "full_name": user.full_name}
     user.email = email
     user.full_name = full_name
     user.version += 1
-    log_audit(
+    log_field_changes(
         db,
         entity_type="User",
         entity_id=user.id,
-        action="edit",
-        field_name="profile",
-        old_value=old_value,
-        new_value=f"{user.email} / {user.full_name or ''}",
+        old_values=old_values,
+        new_values={"email": user.email, "full_name": user.full_name},
         user_id=changed_by_user_id,
     )
     db.commit()
@@ -196,16 +315,12 @@ def archive_user(
     user.deleted_by = deleted_by_user_id
     user.delete_reason = delete_reason
     user.version += 1
-    log_audit(
+    log_delete_event(
         db,
         entity_type="User",
         entity_id=user.id,
-        action="soft_delete",
-        field_name="is_deleted",
-        old_value=False,
-        new_value=True,
-        change_reason=delete_reason,
         user_id=deleted_by_user_id,
+        delete_reason=delete_reason,
     )
     db.commit()
     db.refresh(user)
@@ -414,13 +529,11 @@ def create_partner(db: Session, payload: schemas.PartnerCreate) -> Partner:
     partner = Partner(**data)
     db.add(partner)
     db.flush()
-    user = get_current_user(db)
-    log_audit(
+    log_create_event(
         db,
         entity_type="Partner",
         entity_id=partner.id,
-        action="create",
-        user_id=user.id if user else None,
+        data=data,
     )
     db.commit()
     db.refresh(partner)
@@ -429,16 +542,16 @@ def create_partner(db: Session, payload: schemas.PartnerCreate) -> Partner:
 
 def update_partner(db: Session, partner: Partner, payload: schemas.PartnerCreate) -> Partner:
     data = clean_form_data(model_data(payload))
+    old_values = {field: getattr(partner, field, None) for field in data}
     for field, value in data.items():
         setattr(partner, field, value)
     partner.version += 1
-    user = get_current_user(db)
-    log_audit(
+    log_field_changes(
         db,
         entity_type="Partner",
         entity_id=partner.id,
-        action="edit",
-        user_id=user.id if user else None,
+        old_values=old_values,
+        new_values=data,
     )
     db.commit()
     db.refresh(partner)
@@ -458,13 +571,12 @@ def delete_partner(
     partner.deleted_by = deleted_by_user_id
     partner.delete_reason = delete_reason
     partner.version += 1
-    log_audit(
+    log_delete_event(
         db,
         entity_type="Partner",
         entity_id=partner.id,
-        action="soft_delete",
-        change_reason=delete_reason,
         user_id=deleted_by_user_id,
+        delete_reason=delete_reason,
     )
     db.commit()
     db.refresh(partner)
@@ -508,12 +620,16 @@ def get_or_create_substance(
     )
     db.add(substance)
     db.flush()
-    log_audit(
+    log_create_event(
         db,
         entity_type="Substance",
         entity_id=substance.id,
-        action="create",
-        user_id=(get_current_user(db).id if get_current_user(db) else None),
+        data={
+            "substance_name": substance.substance_name,
+            "inn_name": substance.inn_name,
+            "atc_code": substance.atc_code,
+            "substance_type": substance.substance_type,
+        },
     )
     return substance
 
@@ -526,13 +642,11 @@ def create_substance(db: Session, payload: schemas.SubstanceCreate) -> Substance
     substance = Substance(**data)
     db.add(substance)
     db.flush()
-    user = get_current_user(db)
-    log_audit(
+    log_create_event(
         db,
         entity_type="Substance",
         entity_id=substance.id,
-        action="create",
-        user_id=user.id if user else None,
+        data=data,
     )
     db.commit()
     db.refresh(substance)
@@ -575,14 +689,27 @@ def create_product(db: Session, payload: schemas.ProductCreate) -> Product:
             is_primary=True,
         )
         db.add(link)
+        db.flush()
+        log_create_event(
+            db,
+            entity_type="ProductSubstance",
+            entity_id=link.id,
+            data={
+                "product_id": product.id,
+                "substance_id": substance.id,
+                "substance_role": link.substance_role,
+                "is_primary": link.is_primary,
+            },
+        )
 
-    user = get_current_user(db)
-    log_audit(
+    audit_data = dict(data)
+    if active_substance:
+        audit_data["active_substance"] = active_substance
+    log_create_event(
         db,
         entity_type="Product",
         entity_id=product.id,
-        action="create",
-        user_id=user.id if user else None,
+        data=audit_data,
     )
     db.commit()
     db.refresh(product)
@@ -595,16 +722,16 @@ def update_product(db: Session, product: Product, payload: schemas.ProductCreate
     data["product_name_normalized"] = data.get("product_name_normalized") or normalize_text(
         data.get("product_name")
     )
+    old_values = {field: getattr(product, field, None) for field in data}
     for field, value in data.items():
         setattr(product, field, value)
     product.version += 1
-    user = get_current_user(db)
-    log_audit(
+    log_field_changes(
         db,
         entity_type="Product",
         entity_id=product.id,
-        action="edit",
-        user_id=user.id if user else None,
+        old_values=old_values,
+        new_values=data,
     )
     db.commit()
     db.refresh(product)
@@ -624,13 +751,12 @@ def delete_product(
     product.deleted_by = deleted_by_user_id
     product.delete_reason = delete_reason
     product.version += 1
-    log_audit(
+    log_delete_event(
         db,
         entity_type="Product",
         entity_id=product.id,
-        action="soft_delete",
-        change_reason=delete_reason,
         user_id=deleted_by_user_id,
+        delete_reason=delete_reason,
     )
     db.commit()
     db.refresh(product)
@@ -657,16 +783,15 @@ def get_contract(db: Session, contract_id: str) -> Contract | None:
 
 
 def create_contract(db: Session, payload: schemas.ContractCreate) -> Contract:
-    contract = Contract(**clean_form_data(model_data(payload)))
+    data = clean_form_data(model_data(payload))
+    contract = Contract(**data)
     db.add(contract)
     db.flush()
-    user = get_current_user(db)
-    log_audit(
+    log_create_event(
         db,
         entity_type="Contract",
         entity_id=contract.id,
-        action="create",
-        user_id=user.id if user else None,
+        data=data,
     )
     db.commit()
     db.refresh(contract)
@@ -700,16 +825,15 @@ def create_contract_contact(
     db: Session,
     payload: schemas.ContractContactCreate,
 ) -> ContractContact:
-    contact = ContractContact(**clean_form_data(model_data(payload)))
+    data = clean_form_data(model_data(payload))
+    contact = ContractContact(**data)
     db.add(contact)
     db.flush()
-    user = get_current_user(db)
-    log_audit(
+    log_create_event(
         db,
         entity_type="ContractContact",
         entity_id=contact.id,
-        action="create",
-        user_id=user.id if user else None,
+        data=data,
     )
     db.commit()
     db.refresh(contact)
@@ -722,16 +846,16 @@ def update_contract_contact(
     payload: schemas.ContractContactCreate,
 ) -> ContractContact:
     data = clean_form_data(model_data(payload))
+    old_values = {field: getattr(contact, field, None) for field in data}
     for field, value in data.items():
         setattr(contact, field, value)
     contact.version += 1
-    user = get_current_user(db)
-    log_audit(
+    log_field_changes(
         db,
         entity_type="ContractContact",
         entity_id=contact.id,
-        action="edit",
-        user_id=user.id if user else None,
+        old_values=old_values,
+        new_values=data,
     )
     db.commit()
     db.refresh(contact)
@@ -751,13 +875,12 @@ def delete_contract_contact(
     contact.deleted_by = deleted_by_user_id
     contact.delete_reason = delete_reason
     contact.version += 1
-    log_audit(
+    log_delete_event(
         db,
         entity_type="ContractContact",
         entity_id=contact.id,
-        action="soft_delete",
-        change_reason=delete_reason,
         user_id=deleted_by_user_id,
+        delete_reason=delete_reason,
     )
     db.commit()
     db.refresh(contact)
@@ -857,13 +980,18 @@ def create_partner_reconciliation(
             )
         )
 
-    user = get_current_user(db)
-    log_audit(
+    log_create_event(
         db,
         entity_type="PartnerReconciliation",
         entity_id=reconciliation.id,
-        action="create",
-        user_id=user.id if user else None,
+        data={
+            "partner_id": reconciliation.partner_id,
+            "contact_id": reconciliation.contact_id,
+            "period_start": reconciliation.period_start,
+            "period_end": reconciliation.period_end,
+            "language": reconciliation.language,
+            "reconciliation_status": reconciliation.reconciliation_status,
+        },
     )
     db.commit()
     db.refresh(reconciliation)
@@ -876,20 +1004,31 @@ def update_partner_reconciliation_item(
     payload: schemas.PartnerReconciliationItemUpdate,
 ) -> PartnerReconciliationItem:
     data = clean_form_data(model_data(payload))
+    old_values = {
+        "internal_case_id": item.internal_case_id,
+        "reconciliation_status": item.reconciliation_status,
+        "reviewer_comment": item.reviewer_comment,
+        "confirmed_by_user": item.confirmed_by_user,
+    }
     if "internal_case_id" in data:
         item.internal_case_id = data.get("internal_case_id")
     item.reconciliation_status = data["reconciliation_status"]
     item.reviewer_comment = data.get("reviewer_comment")
     item.confirmed_by_user = data.get("confirmed_by_user")
     item.version += 1
-    log_audit(
+    log_field_changes(
         db,
         entity_type="PartnerReconciliationItem",
         entity_id=item.id,
         action="status_change",
-        field_name="reconciliation_status",
-        new_value=item.reconciliation_status,
-        user_id=(get_current_user(db).id if get_current_user(db) else None),
+        old_values=old_values,
+        new_values={
+            "internal_case_id": item.internal_case_id,
+            "reconciliation_status": item.reconciliation_status,
+            "reviewer_comment": item.reviewer_comment,
+            "confirmed_by_user": item.confirmed_by_user,
+        },
+        comment=item.reviewer_comment,
     )
     refresh_partner_reconciliation_counts(item.reconciliation)
     db.commit()
@@ -917,6 +1056,7 @@ def confirm_partner_reconciliation(
     reconciliation: PartnerReconciliation,
     confirmed_by_user: str | None = None,
 ) -> PartnerReconciliation:
+    old_status = reconciliation.reconciliation_status
     reconciliation.reconciliation_status = "confirmed"
     reconciliation.confirmed_by_user = confirmed_by_user
     reconciliation.confirmed_at = utcnow()
@@ -931,7 +1071,11 @@ def confirm_partner_reconciliation(
         entity_type="PartnerReconciliation",
         entity_id=reconciliation.id,
         action="confirm",
-        user_id=(get_current_user(db).id if get_current_user(db) else None),
+        field_name="reconciliation_status",
+        old_value=old_status,
+        new_value=reconciliation.reconciliation_status,
+        comment=confirmed_by_user,
+        user_id=audit_user_id(db),
     )
     db.commit()
     db.refresh(reconciliation)
@@ -969,13 +1113,11 @@ def create_product_substance(
     link = ProductSubstance(**clean_form_data(model_data(payload)))
     db.add(link)
     db.flush()
-    user = get_current_user(db)
-    log_audit(
+    log_create_event(
         db,
         entity_type="ProductSubstance",
         entity_id=link.id,
-        action="create",
-        user_id=user.id if user else None,
+        data=clean_form_data(model_data(payload)),
     )
     db.commit()
     db.refresh(link)
@@ -1017,13 +1159,11 @@ def create_safety_report(db: Session, payload: schemas.SafetyReportCreate) -> Sa
     report = SafetyReport(**data)
     db.add(report)
     db.flush()
-    user = get_current_user(db)
-    log_audit(
+    log_create_event(
         db,
         entity_type="SafetyReport",
         entity_id=report.id,
-        action="create",
-        user_id=user.id if user else None,
+        data=data,
     )
     db.commit()
     db.refresh(report)
@@ -1040,8 +1180,8 @@ def triage_safety_report(db: Session, report: SafetyReport, payload: schemas.Tri
     report.minimum_criteria_reporter = bool(data.get("minimum_criteria_reporter"))
     report.minimum_criteria_product = bool(data.get("minimum_criteria_product"))
     report.minimum_criteria_event = bool(data.get("minimum_criteria_event"))
-    user = get_current_user(db)
-    report.triaged_by_user_id = user.id if user else None
+    user_id = audit_user_id(db)
+    report.triaged_by_user_id = user_id
     report.triaged_at = utcnow()
     report.version += 1
     log_audit(
@@ -1053,7 +1193,7 @@ def triage_safety_report(db: Session, report: SafetyReport, payload: schemas.Tri
         old_value=old_status,
         new_value=report.triage_status,
         change_reason=data.get("change_reason"),
-        user_id=user.id if user else None,
+        user_id=user_id,
     )
     db.commit()
     db.refresh(report)
@@ -1105,14 +1245,12 @@ def create_case(db: Session, payload: schemas.CaseCreate) -> Case:
             report.case_id = case.id
             report.triage_status = "converted_to_case"
 
-    user = get_current_user(db)
-    log_audit(
+    log_create_event(
         db,
         entity_type="Case",
         entity_id=case.id,
-        action="create",
         case_id=case.id,
-        user_id=user.id if user else None,
+        data=data,
     )
     db.commit()
     db.refresh(case)
@@ -1142,15 +1280,19 @@ def create_case_from_report(db: Session, report: SafetyReport) -> Case:
     report.triage_status = "converted_to_case"
     report.is_valid_icsr = True
     report.version += 1
-    user = get_current_user(db)
-    log_audit(
+    user_id = audit_user_id(db)
+    log_create_event(
         db,
         entity_type="Case",
         entity_id=case.id,
-        action="create",
         case_id=case.id,
-        user_id=user.id if user else None,
-        change_reason="Created from safety report",
+        data={
+            "case_number": case.case_number,
+            "safety_report_id": report.id,
+            "workflow_status": case.workflow_status,
+        },
+        user_id=user_id,
+        comment="Created from safety report",
     )
     log_audit(
         db,
@@ -1161,7 +1303,7 @@ def create_case_from_report(db: Session, report: SafetyReport) -> Case:
         old_value="valid_icsr",
         new_value="converted_to_case",
         case_id=case.id,
-        user_id=user.id if user else None,
+        user_id=user_id,
     )
     db.commit()
     db.refresh(case)
@@ -1172,7 +1314,6 @@ def update_case_status(db: Session, case: Case, payload: schemas.CaseStatusUpdat
     old_status = case.workflow_status
     case.workflow_status = payload.workflow_status
     case.version += 1
-    user = get_current_user(db)
     log_audit(
         db,
         entity_type="Case",
@@ -1183,7 +1324,7 @@ def update_case_status(db: Session, case: Case, payload: schemas.CaseStatusUpdat
         old_value=old_status,
         new_value=case.workflow_status,
         change_reason=payload.change_reason,
-        user_id=user.id if user else None,
+        user_id=audit_user_id(db),
     )
     db.commit()
     db.refresh(case)
@@ -1205,14 +1346,13 @@ def delete_case(
     case.version += 1
     if case.safety_report:
         case.safety_report.case_id = None
-    log_audit(
+    log_delete_event(
         db,
         entity_type="Case",
         entity_id=case.id,
-        action="soft_delete",
         case_id=case.id,
-        change_reason=delete_reason,
         user_id=deleted_by_user_id,
+        delete_reason=delete_reason,
     )
     db.commit()
     db.refresh(case)
@@ -1220,17 +1360,16 @@ def delete_case(
 
 
 def add_patient(db: Session, case: Case, payload: schemas.PatientCreate) -> Patient:
-    patient = Patient(case_id=case.id, **clean_form_data(model_data(payload)))
+    data = clean_form_data(model_data(payload))
+    patient = Patient(case_id=case.id, **data)
     db.add(patient)
     db.flush()
-    user = get_current_user(db)
-    log_audit(
+    log_create_event(
         db,
         entity_type="Patient",
         entity_id=patient.id,
-        action="create",
         case_id=case.id,
-        user_id=user.id if user else None,
+        data=data,
     )
     db.commit()
     db.refresh(patient)
@@ -1254,14 +1393,12 @@ def add_case_product(db: Session, case: Case, payload: schemas.CaseProductCreate
     case_product = CaseProduct(case_id=case.id, **data)
     db.add(case_product)
     db.flush()
-    user = get_current_user(db)
-    log_audit(
+    log_create_event(
         db,
         entity_type="CaseProduct",
         entity_id=case_product.id,
-        action="create",
         case_id=case.id,
-        user_id=user.id if user else None,
+        data=data,
     )
     db.commit()
     db.refresh(case_product)
@@ -1269,19 +1406,18 @@ def add_case_product(db: Session, case: Case, payload: schemas.CaseProductCreate
 
 
 def add_reaction(db: Session, case: Case, payload: schemas.ReactionCreate) -> Reaction:
-    reaction = Reaction(case_id=case.id, **clean_form_data(model_data(payload)))
+    data = clean_form_data(model_data(payload))
+    reaction = Reaction(case_id=case.id, **data)
     db.add(reaction)
     if reaction.is_serious:
         case.seriousness = "serious"
     db.flush()
-    user = get_current_user(db)
-    log_audit(
+    log_create_event(
         db,
         entity_type="Reaction",
         entity_id=reaction.id,
-        action="create",
         case_id=case.id,
-        user_id=user.id if user else None,
+        data=data,
     )
     db.commit()
     db.refresh(reaction)
@@ -1300,14 +1436,12 @@ def add_followup(db: Session, case: Case, payload: schemas.FollowUpCreate) -> Fo
     followup = FollowUp(case_id=case.id, **data)
     db.add(followup)
     db.flush()
-    user = get_current_user(db)
-    log_audit(
+    log_create_event(
         db,
         entity_type="FollowUp",
         entity_id=followup.id,
-        action="create",
         case_id=case.id,
-        user_id=user.id if user else None,
+        data=data,
     )
     db.commit()
     db.refresh(followup)
@@ -1366,12 +1500,19 @@ def create_attachment(
     )
     db.add(attachment)
     db.flush()
-    log_audit(
+    log_create_event(
         db,
         entity_type="Attachment",
         entity_id=attachment.id,
-        action="create",
         case_id=case_id,
+        data={
+            "file_name": file_name,
+            "attachment_type": attachment_type,
+            "case_id": case_id,
+            "safety_report_id": safety_report_id,
+            "mime_type": mime_type,
+            "storage_path": storage_path,
+        },
         user_id=uploaded_by_user_id,
     )
     db.commit()
@@ -1392,14 +1533,13 @@ def delete_attachment(
     attachment.deleted_by = deleted_by_user_id
     attachment.delete_reason = delete_reason
     attachment.version += 1
-    log_audit(
+    log_delete_event(
         db,
         entity_type="Attachment",
         entity_id=attachment.id,
-        action="soft_delete",
         case_id=attachment.case_id,
-        change_reason=delete_reason,
         user_id=deleted_by_user_id,
+        delete_reason=delete_reason,
     )
     db.commit()
     db.refresh(attachment)
@@ -1411,7 +1551,7 @@ def list_audit_entries(db: Session) -> list[AuditTrail]:
         db.query(AuditTrail)
         .options(joinedload(AuditTrail.user), joinedload(AuditTrail.case))
         .filter(AuditTrail.is_deleted.is_(False))
-        .order_by(AuditTrail.timestamp.desc())
+        .order_by(func.coalesce(AuditTrail.changed_at, AuditTrail.timestamp).desc())
         .all()
     )
 
@@ -1451,14 +1591,12 @@ def create_submission(db: Session, payload: schemas.SubmissionCreate) -> Submiss
     submission = Submission(**data)
     db.add(submission)
     db.flush()
-    user = get_current_user(db)
-    log_audit(
+    log_create_event(
         db,
         entity_type="Submission",
         entity_id=submission.id,
-        action="create",
         case_id=submission.case_id,
-        user_id=user.id if user else None,
+        data=data,
     )
     db.commit()
     db.refresh(submission)
@@ -1486,7 +1624,6 @@ def update_submission_status(
     submission.error_message = payload.error_message
     if submission.submission_status == "submitted" and not submission.submitted_at:
         submission.submitted_at = utcnow()
-    user = get_current_user(db)
     log_audit(
         db,
         entity_type="Submission",
@@ -1496,7 +1633,8 @@ def update_submission_status(
         field_name="submission_status",
         old_value=old_status,
         new_value=submission.submission_status,
-        user_id=user.id if user else None,
+        comment=payload.error_message,
+        user_id=audit_user_id(db),
     )
     db.commit()
     db.refresh(submission)

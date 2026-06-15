@@ -1,7 +1,7 @@
 # Паспорт проекта PV1
 
-Дата актуализации: 2026-06-14
-Текущая версия паспорта: 0.7
+Дата актуализации: 2026-06-15
+Текущая версия паспорта: 0.8
 Статус проекта: MVP core создан, требуется дальнейшее развитие и валидация.
 
 ## 1. Название проекта
@@ -48,7 +48,7 @@ PV1 — это локально запускаемый MVP веб-системы
 | ORM-модели | Реализовано | Созданы основные MVP-таблицы. |
 | Web UI | Реализовано частично | Есть единый shell с компактной двухуровневой боковой навигацией, рабочие страницы Dashboard, Safety Reports/PV Intake, Cases/ICSRs, Partners, Products, Substances, Contracts, Contract contacts, Partner Reconciliation, Submissions; для будущих модулей добавлены страницы-заглушки. Интерфейс двуязычный RU/EN, русский язык по умолчанию. |
 | JSON API | Реализовано частично | Есть основные API-группы для partners, products, substances, product-substances, contracts, contract contacts, safety reports, cases, submissions. |
-| Audit trail | Реализовано частично | Логируются ключевые действия MVP, включая базовые действия по пользователям, ролям и permissions. |
+| Audit trail | Реализовано частично | Добавлен рабочий раздел Audit Log с таблицей событий, поиском, фильтрами по пользователю, модулю, действию и датам, просмотром деталей; аудит фиксирует actor/time/source module и old/new значения для ключевых действий MVP. |
 | Seed data | Реализовано | `python -m app.seed` создает тестовый набор данных. |
 | CSV export | Реализовано | `GET /api/cases/export.csv`. |
 | GPT/AI | Заготовка | Созданы `app/ai/extractor.py` и `app/ai/prompts.py`; реальная интеграция не подключена. |
@@ -247,7 +247,7 @@ SQLite используется только для разработки, лок
 | `tblFollowUps` | Follow-up информация по case. | M-1 к `tblCases`. |
 | `tblAttachments` | Метаданные вложений. | Может ссылаться на case или safety report. |
 | `tblSubmissions` | Отправки наружу. | В MVP связана с case; оставлены поля `pbrer_id`, `rmp_id` для будущего. |
-| `tblAuditTrail` | Audit trail. | Логирует действия по entity, case, user. |
+| `tblAuditTrail` | Audit trail / Audit Log. | Логирует действия по entity, case, user/changed_by, changed_at, source_module, old/new values и comment. |
 
 Ключевые индексы реализованы для:
 
@@ -865,6 +865,7 @@ Seed data расширены партнерами, продуктами, кон�
 | 2026-06-14 | 0.5 / sidebar shell and placeholders | Верхняя навигация заменена единым боковым layout; добавлены пункты меню для ключевых MVP-разделов и страницы-заглушки для PSUR/PBRER, RMP, PSMF, Documents, Audit Log, Users & Roles и Settings. | Codex по запросу пользователя |
 | 2026-06-14 | 0.6 / compact two-level sidebar | Левое меню переработано в компактную двухуровневую навигацию: главные группы и вложенные пункты выбранной группы, убрана внутренняя прокрутка сайдбара, добавлен режим сворачивания до иконок и сохранен мобильный drawer. | Codex по запросу пользователя |
 | 2026-06-14 | 0.7 / RBAC MVP | Добавлены таблицы roles, permissions, user_roles и role_permissions; реализованы несколько ролей у пользователя, permission-aware навигация и формы, раздел Users & Roles, текущий пользователь через cookie для MVP-тестирования, серверные permission checks для ключевых действий и audit для назначения ролей/permissions. | Codex по запросу пользователя |
+| 2026-06-15 | 0.8 / Audit Log | Расширен существующий audit trail до рабочего раздела Audit Log: добавлены поля changed_by, changed_at, source_module и comment, SQLite-дорасширение схемы, фильтры по пользователю/модулю/действию/дате, поиск, раскрытие деталей события и более точное логирование old/new значений для справочников, ИСНР, сверок, документов, пользователей и ролей. | Codex по запросу пользователя |
 
 ## 23. Open questions
 

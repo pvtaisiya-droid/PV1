@@ -638,6 +638,7 @@ class AuditTrail(CommonMixin, Base):
     __table_args__ = (
         Index("ix_audit_entity", "entity_type", "entity_id"),
         Index("ix_audit_case_time", "case_id", "timestamp"),
+        Index("ix_audit_module_time", "source_module", "changed_at"),
     )
 
     entity_type = Column(String(100), nullable=False)
@@ -650,6 +651,10 @@ class AuditTrail(CommonMixin, Base):
     change_reason = Column(Text, nullable=True)
     user_id = Column(String(36), ForeignKey("tblUsers.id"), nullable=True, index=True)
     timestamp = Column(DateTime(timezone=True), default=utcnow, index=True, nullable=False)
+    changed_by = Column(String(36), nullable=True, index=True)
+    changed_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    source_module = Column(String(100), nullable=True, index=True)
+    comment = Column(Text, nullable=True)
     ip_address = Column(String(100), nullable=True)
     correlation_id = Column(String(100), nullable=True)
 

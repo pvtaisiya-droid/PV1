@@ -14,7 +14,7 @@
     <form class="row g-2 align-items-end" method="get" action="/audit-log">
         <div class="col-md-3">
             <label class="form-label">{{ _('Search') }}</label>
-            <input class="form-control" name="search" value="{{ filters.search }}" placeholder="{{ _('Entity') }} / {{ _('Action') }} / {{ _('User') }}">
+            <input class="form-control" name="search" value="{{ filters.search }}" placeholder="{{ _('Entity') }} / {{ _('Module') }} / {{ _('User') }}">
         </div>
         <div class="col-md-2">
             <label class="form-label">{{ _('Entity') }}</label>
@@ -22,6 +22,15 @@
                 <option value="">{{ _('All') }}</option>
                 {% for entity in entity_options %}
                 <option value="{{ entity }}" {% if filters.entity_type == entity %}selected{% endif %}>{{ _(entity) }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Module') }}</label>
+            <select class="form-select" name="source_module">
+                <option value="">{{ _('All') }}</option>
+                {% for module in module_options %}
+                <option value="{{ module }}" {% if filters.source_module == module %}selected{% endif %}>{{ _(module) }}</option>
                 {% endfor %}
             </select>
         </div>
@@ -51,7 +60,7 @@
             <label class="form-label">{{ _('Date to') }}</label>
             <input class="form-control" type="date" name="date_to" value="{{ filters.date_to }}">
         </div>
-        <div class="col-md-1 d-flex gap-2">
+        <div class="col-md-12 d-flex gap-2 justify-content-end">
             <button class="btn btn-primary icon-only" type="submit" title="{{ _('Search') }}"><i data-lucide="search"></i></button>
             <a class="btn btn-outline-secondary icon-only" href="/audit-log" title="{{ _('Cancel') }}"><i data-lucide="x"></i></a>
         </div>
@@ -63,21 +72,22 @@
         <table class="table table-sm table-hover align-middle">
             <thead>
             <tr>
-                <th>{{ _('Timestamp') }}</th>
+                <th>{{ _('Changed at') }}</th>
+                <th>{{ _('Module') }}</th>
                 <th>{{ _('Entity') }}</th>
                 <th>{{ _('Action') }}</th>
                 <th>{{ _('Field') }}</th>
-                <th>{{ _('Old') }}</th>
-                <th>{{ _('New') }}</th>
-                <th>{{ _('Reason') }}</th>
-                <th>{{ _('User') }}</th>
-                <th>{{ _('Actions') }}</th>
+                <th>{{ _('Old value') }}</th>
+                <th>{{ _('New value') }}</th>
+                <th>{{ _('Changed by') }}</th>
+                <th>{{ _('Details') }}</th>
             </tr>
             </thead>
             <tbody>
             {% for entry in entries %}
             <tr>
-                <td>{{ entry.timestamp }}</td>
+                <td class="text-nowrap">{{ entry.changed_at or entry.timestamp }}</td>
+                <td>{{ _(entry.source_module or '') }}</td>
                 <td>
                     <div class="fw-medium">{{ _(entry.entity_type) }}</div>
                     <div class="text-secondary small">{{ entry.entity_id }}</div>
@@ -86,14 +96,74 @@
                 <td>{{ entry.field_name or "" }}</td>
                 <td>{{ entry.old_value or "" }}</td>
                 <td>{{ entry.new_value or "" }}</td>
-                <td>{{ entry.change_reason or "" }}</td>
-                <td>{{ entry.user.email if entry.user else "" }}</td>
                 <td>
-                    {% if entry.case_id %}
-                    <a class="btn btn-outline-primary btn-sm icon-only" href="/cases/{{ entry.case_id }}" title="{{ _('View') }}"><i data-lucide="eye"></i></a>
-                    {% else %}
-                    <span class="text-secondary small">{{ _('No actions') }}</span>
+                    {% if entry.user %}
+                    <div class="fw-medium">{{ entry.user.full_name or entry.user.email }}</div>
+                    <div class="text-secondary small">{{ entry.user.email }}</div>
+                    {% elif entry.changed_by or entry.user_id %}
+                    <span class="text-secondary small">{{ entry.changed_by or entry.user_id }}</span>
                     {% endif %}
+                </td>
+                <td>
+                    <button class="btn btn-outline-primary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#audit-details-{{ entry.id }}" title="{{ _('View details') }}"><i data-lucide="eye"></i></button>
+                </td>
+            </tr>
+            <tr class="collapse" id="audit-details-{{ entry.id }}">
+                <td colspan="9">
+                    <div class="row g-3 small">
+                        <div class="col-md-3">
+                            <span class="text-secondary">{{ _('Event ID') }}</span>
+                            <div class="fw-medium">{{ entry.id }}</div>
+                        </div>
+                        <div class="col-md-3">
+                            <span class="text-secondary">{{ _('Entity type') }}</span>
+                            <div>{{ _(entry.entity_type) }}</div>
+                        </div>
+                        <div class="col-md-3">
+                            <span class="text-secondary">{{ _('Entity ID') }}</span>
+                            <div>{{ entry.entity_id }}</div>
+                        </div>
+                        <div class="col-md-3">
+                            <span class="text-secondary">{{ _('Source module') }}</span>
+                            <div>{{ _(entry.source_module or '') }}</div>
+                        </div>
+                        <div class="col-md-3">
+                            <span class="text-secondary">{{ _('Action') }}</span>
+                            <div>{{ _(entry.action) }}</div>
+                        </div>
+                        <div class="col-md-3">
+                            <span class="text-secondary">{{ _('Field name') }}</span>
+                            <div>{{ entry.field_name or "" }}</div>
+                        </div>
+                        <div class="col-md-3">
+                            <span class="text-secondary">{{ _('Changed at') }}</span>
+                            <div>{{ entry.changed_at or entry.timestamp }}</div>
+                        </div>
+                        <div class="col-md-3">
+                            <span class="text-secondary">{{ _('Changed by') }}</span>
+                            <div>{% if entry.user %}{{ entry.user.full_name or entry.user.email }}{% else %}{{ entry.changed_by or entry.user_id or "" }}{% endif %}</div>
+                        </div>
+                        <div class="col-md-6">
+                            <span class="text-secondary">{{ _('Old value') }}</span>
+                            <div class="text-break">{{ entry.old_value or "" }}</div>
+                        </div>
+                        <div class="col-md-6">
+                            <span class="text-secondary">{{ _('New value') }}</span>
+                            <div class="text-break">{{ entry.new_value or "" }}</div>
+                        </div>
+                        <div class="col-md-9">
+                            <span class="text-secondary">{{ _('Comment') }}</span>
+                            <div class="text-break">{{ entry.comment or entry.change_reason or "" }}</div>
+                        </div>
+                        <div class="col-md-3">
+                            <span class="text-secondary">{{ _('Related case') }}</span>
+                            <div>
+                                {% if entry.case_id %}
+                                <a href="/cases/{{ entry.case_id }}">{{ entry.case.case_number if entry.case else entry.case_id }}</a>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
                 </td>
             </tr>
             {% else %}
