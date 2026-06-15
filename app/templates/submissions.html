@@ -9,6 +9,7 @@
     </div>
 </div>
 
+{% if has_permission('create') %}
 <section class="surface mb-4">
     <h2 class="h6 section-title">{{ _('Create Submission') }}</h2>
     <form class="row g-3" method="post" action="/submissions">
@@ -38,6 +39,7 @@
         </div>
     </form>
 </section>
+{% endif %}
 
 <section class="surface">
     <div class="table-responsive">
@@ -54,6 +56,7 @@
                 <td>{{ submission.due_date or "" }}</td>
                 <td>{{ submission.submitted_at or "" }}</td>
                 <td>
+                    {% if has_permission('edit') %}
                     <form class="d-flex gap-2" method="post" action="/submissions/{{ submission.id }}/status">
                         <select class="form-select form-select-sm" name="submission_status">
                             {% for status in ["planned", "ready", "submitted", "acknowledged", "failed", "cancelled"] %}
@@ -62,6 +65,7 @@
                         </select>
                         <button class="btn btn-outline-primary btn-sm icon-only" type="submit" title="{{ _('Save status') }}"><i data-lucide="save"></i></button>
                     </form>
+                    {% endif %}
                 </td>
             </tr>
             {% else %}

@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}{{ _(page_title) }} - {{ _('PV MVP') }}{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+        <h1 class="h3 mb-1">{{ _(page_title) }}</h1>
+        <div class="text-secondary small">{{ _(page_description) }}</div>
+    </div>
+    <a class="btn btn-outline-secondary btn-sm icon-button" href="/"><i data-lucide="arrow-left"></i><span>{{ _('Dashboard') }}</span></a>
+</div>
+
+<section class="surface placeholder-panel">
+    <span class="status-pill">{{ _('Section in development') }}</span>
+    <p class="mb-0 text-secondary">{{ _('This module is listed in navigation and will be implemented in the next MVP steps.') }}</p>
+</section>
+{% endblock %}

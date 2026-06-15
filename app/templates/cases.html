@@ -8,8 +8,12 @@
         <div class="text-secondary small">{{ cases|length }} {{ _('records') }}</div>
     </div>
     <div class="d-flex gap-2">
+        {% if has_permission('export') %}
         <a class="btn btn-outline-secondary btn-sm icon-button" href="/api/cases/export.csv"><i data-lucide="download"></i><span>{{ _('CSV') }}</span></a>
+        {% endif %}
+        {% if has_permission('create') %}
         <a class="btn btn-primary btn-sm icon-button" href="/cases/new"><i data-lucide="plus"></i><span>{{ _('New case') }}</span></a>
+        {% endif %}
     </div>
 </div>
 

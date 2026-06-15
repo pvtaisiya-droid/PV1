@@ -3,6 +3,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app import crud, schemas
+from app.auth import require_permission
 from app.database import get_db
 from app.templating import templates
 
@@ -25,7 +26,7 @@ def submissions_page(request: Request, db: Session = Depends(get_db)):
     )
 
 
-@router.post("/submissions")
+@router.post("/submissions", dependencies=[Depends(require_permission("create"))])
 def create_submission_form(
     case_id: str = Form(...),
     recipient_partner_id: str | None = Form(None),
@@ -54,7 +55,7 @@ def create_submission_form(
     return RedirectResponse("/submissions", status_code=status.HTTP_303_SEE_OTHER)
 
 
-@router.post("/submissions/{submission_id}/status")
+@router.post("/submissions/{submission_id}/status", dependencies=[Depends(require_permission("edit"))])
 def update_submission_status_form(
     submission_id: str,
     submission_status: str = Form(...),
@@ -84,6 +85,7 @@ def api_list_submissions(db: Session = Depends(get_db)):
     "/api/submissions",
     response_model=schemas.SubmissionRead,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("create"))],
 )
 def api_create_submission(payload: schemas.SubmissionCreate, db: Session = Depends(get_db)):
     try:
@@ -92,7 +94,11 @@ def api_create_submission(payload: schemas.SubmissionCreate, db: Session = Depen
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.patch("/api/submissions/{submission_id}/status", response_model=schemas.SubmissionRead)
+@router.patch(
+    "/api/submissions/{submission_id}/status",
+    response_model=schemas.SubmissionRead,
+    dependencies=[Depends(require_permission("edit"))],
+)
 def api_update_submission_status(
     submission_id: str,
     payload: schemas.SubmissionStatusUpdate,

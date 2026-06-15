@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}{{ _('Users & Roles') }} · {{ _('PV MVP') }}{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+    <div>
+        <h1 class="h3 mb-1">{{ _('Users & Roles') }}</h1>
+        <div class="text-secondary small">{{ users|length }} {{ _('Users') }}, {{ roles|length }} {{ _('Roles') }}, {{ permissions|length }} {{ _('Permissions') }}</div>
+    </div>
+</div>
+
+{% if message %}
+<div class="alert alert-success py-2" role="status">{{ _(message) }}</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-danger py-2" role="alert">{{ _(error) }}</div>
+{% endif %}
+
+<section class="surface mb-4">
+    <h2 class="h6 section-title">{{ _('Create user') }}</h2>
+    <form class="row g-3" method="post" action="/users-roles/users">
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Email') }}</label>
+            <input class="form-control" type="email" name="email" required>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Full name') }}</label>
+            <input class="form-control" name="full_name">
+        </div>
+        <div class="col-md-4">
+            <label class="form-label">{{ _('Assigned roles') }}</label>
+            <select class="form-select" name="role_ids" multiple size="3">
+                {% for role in roles %}
+                <option value="{{ role.id }}" {% if role.role_code == 'readonly_auditor' %}selected{% endif %}>{{ _(role.role_name) }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2 d-flex align-items-end">
+            <button class="btn btn-primary w-100 icon-button" type="submit"><i data-lucide="user-plus"></i><span>{{ _('Add') }}</span></button>
+        </div>
+    </form>
+</section>
+
+<section class="surface mb-4">
+    <h2 class="h6 section-title">{{ _('Active users') }}</h2>
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead>
+            <tr>
+                <th>{{ _('User') }}</th>
+                <th>{{ _('Assigned roles') }}</th>
+                <th>{{ _('Assign role') }}</th>
+                <th>{{ _('Actions') }}</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for user in users %}
+            {% set assigned_role_ids = user.user_roles|rejectattr('is_deleted')|map(attribute='role_id')|list %}
+            <tr>
+                <td>
+                    <div class="fw-semibold">{{ user.full_name or user.email }}</div>
+                    <div class="text-secondary small">{{ user.email }}</div>
+                </td>
+                <td>
+                    <div class="d-flex flex-wrap gap-1">
+                        {% for user_role in user.user_roles if not user_role.is_deleted and user_role.role %}
+                        <form method="post" action="/users-roles/users/{{ user.id }}/roles/{{ user_role.role_id }}/remove" class="d-inline-flex">
+                            <span class="badge text-bg-light role-badge">
+                                {{ _(user_role.role.role_name) }}
+                                <button class="badge-action" type="submit" title="{{ _('Remove role') }}" aria-label="{{ _('Remove role') }}">
+                                    <i data-lucide="x"></i>
+                                </button>
+                            </span>
+                        </form>
+                        {% else %}
+                        <span class="text-secondary small">{{ _('No roles assigned.') }}</span>
+                        {% endfor %}
+                    </div>
+                </td>
+                <td>
+                    <form class="d-flex gap-2" method="post" action="/users-roles/users/{{ user.id }}/roles">
+                        <select class="form-select form-select-sm" name="role_id" aria-label="{{ _('Role') }}">
+                            {% for role in roles %}
+                            <option value="{{ role.id }}" {% if role.id in assigned_role_ids %}disabled{% endif %}>{{ _(role.role_name) }}</option>
+                            {% endfor %}
+                        </select>
+                        <button class="btn btn-outline-primary btn-sm icon-only" type="submit" title="{{ _('Assign role') }}"><i data-lucide="plus"></i></button>
+                    </form>
+                </td>
+                <td>
+                    {% if has_permission('soft_delete') and current_user() and user.id != current_user().id %}
+                    <form class="d-flex gap-2" method="post" action="/users-roles/users/{{ user.id }}/archive">
+                        <input class="form-control form-control-sm" name="delete_reason" placeholder="{{ _('Delete reason') }}">
+                        <button class="btn btn-outline-danger btn-sm icon-only" type="submit" title="{{ _('Archive user') }}"><i data-lucide="archive"></i></button>
+                    </form>
+                    {% else %}
+                    <span class="text-secondary small">{{ _('No actions') }}</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="text-secondary">{{ _('No users yet.') }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="surface">
+    <h2 class="h6 section-title">{{ _('Role permissions') }}</h2>
+    <div class="table-responsive">
+        <table class="table table-sm align-middle permission-table">
+            <thead>
+            <tr>
+                <th>{{ _('Role') }}</th>
+                {% for permission in permissions %}
+                <th title="{{ _(permission.description) }}">{{ _(permission.permission_code) }}</th>
+                {% endfor %}
+                <th>{{ _('Save') }}</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for role in roles %}
+            {% set role_permission_ids = role.role_permissions|rejectattr('is_deleted')|map(attribute='permission_id')|list %}
+            <tr>
+                <td>
+                    <div class="fw-semibold">{{ _(role.role_name) }}</div>
+                    <div class="text-secondary small">{{ role.role_code }}</div>
+                    <form id="role-permissions-{{ role.id }}" method="post" action="/users-roles/roles/{{ role.id }}/permissions"></form>
+                </td>
+                {% for permission in permissions %}
+                <td class="text-center">
+                    <input class="form-check-input" form="role-permissions-{{ role.id }}" type="checkbox" name="permission_ids" value="{{ permission.id }}" {% if permission.id in role_permission_ids or role.role_code == 'admin' %}checked{% endif %} {% if role.role_code == 'admin' %}disabled{% endif %} title="{{ _(permission.permission_code) }}">
+                </td>
+                {% endfor %}
+                <td>
+                    <button class="btn btn-outline-primary btn-sm icon-only" form="role-permissions-{{ role.id }}" type="submit" title="{{ _('Save permissions') }}"><i data-lucide="save"></i></button>
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

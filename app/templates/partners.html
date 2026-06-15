@@ -9,76 +9,50 @@
     </div>
 </div>
 
+{% if has_permission('create') or has_permission('manage_reference_data') %}
 <section class="surface mb-4">
     <h2 class="h6 section-title">{{ _('Add Partner') }}</h2>
     <form class="row g-3" method="post" action="/partners">
         <div class="col-md-2">
-            <label class="form-label">{{ _('Code') }}</label>
+            <label class="form-label">{{ _('Partner code') }}</label>
             <input class="form-control" name="partner_code" required>
         </div>
         <div class="col-md-3">
             <label class="form-label">{{ _('Name') }}</label>
             <input class="form-control" name="partner_name" required>
         </div>
-        <div class="col-md-2">
-            <label class="form-label">{{ _('Type') }}</label>
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Status') }}</label>
             <select class="form-select" name="partner_type">
-                <option value="mah">{{ _('mah') }}</option>
-                <option value="distributor">{{ _('distributor') }}</option>
-                <option value="license_partner">{{ _('license_partner') }}</option>
-                <option value="cro">{{ _('cro') }}</option>
-                <option value="local_affiliate">{{ _('local_affiliate') }}</option>
-                <option value="partner" selected>{{ _('partner') }}</option>
+                <option value="archive">{{ _('archive') }}</option>
+                <option value="fn" selected>{{ _('fn') }}</option>
+                <option value="registration_in_progress">{{ _('registration_in_progress') }}</option>
             </select>
         </div>
-        <div class="col-md-1">
-            <label class="form-label">{{ _('Country') }}</label>
-            <input class="form-control text-uppercase" name="country_code" maxlength="2">
-        </div>
         <div class="col-md-2">
-            <label class="form-label">{{ _('Email') }}</label>
-            <input class="form-control" type="email" name="email">
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">{{ _('PV responsible') }}</label>
-            <input class="form-control" name="pv_responsible_person">
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">{{ _('Region') }}</label>
-            <input class="form-control" name="region">
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">{{ _('Phone') }}</label>
-            <input class="form-control" name="phone">
-        </div>
-        <div class="col-md-6">
-            <label class="form-label">{{ _('Address') }}</label>
-            <input class="form-control" name="address">
-        </div>
-        <div class="col-md-2 d-flex align-items-end">
-            <div class="form-check">
-                <input class="form-check-input" type="checkbox" name="sdea_required" value="true" id="sdeaRequired">
-                <label class="form-check-label" for="sdeaRequired">{{ _('SDEA required') }}</label>
-            </div>
+            <label class="form-label">{{ _('Reconciliation frequency') }}</label>
+            <select class="form-select" name="reconciliation_frequency">
+                <option value="monthly">{{ _('monthly') }}</option>
+                <option value="quarterly">{{ _('quarterly') }}</option>
+                <option value="not_conducted" selected>{{ _('not_conducted') }}</option>
+            </select>
         </div>
         <div class="col-md-2 d-flex align-items-end">
             <button class="btn btn-primary w-100 icon-button" type="submit"><i data-lucide="plus"></i><span>{{ _('Add') }}</span></button>
         </div>
     </form>
 </section>
+{% endif %}
 
 <section class="surface">
     <div class="table-responsive">
         <table class="table table-hover align-middle">
             <thead>
             <tr>
-                <th>{{ _('Code') }}</th>
+                <th>{{ _('Partner code') }}</th>
                 <th>{{ _('Name') }}</th>
-                <th>{{ _('Type') }}</th>
-                <th>{{ _('Country') }}</th>
-                <th>{{ _('Email') }}</th>
-                <th>{{ _('PV responsible') }}</th>
-                <th>{{ _('SDEA') }}</th>
+                <th>{{ _('Status') }}</th>
+                <th>{{ _('Reconciliation frequency') }}</th>
             </tr>
             </thead>
             <tbody>
@@ -87,13 +61,10 @@
                 <td class="fw-medium">{{ partner.partner_code }}</td>
                 <td>{{ partner.partner_name }}</td>
                 <td><span class="badge text-bg-light">{{ _(partner.partner_type) }}</span></td>
-                <td>{{ partner.country_code or "" }}</td>
-                <td>{{ partner.email or "" }}</td>
-                <td>{{ partner.pv_responsible_person or "" }}</td>
-                <td>{% if partner.sdea_required %}<span class="badge text-bg-warning">{{ _('Yes') }}</span>{% else %}<span class="text-secondary">{{ _('No') }}</span>{% endif %}</td>
+                <td>{{ _(partner.reconciliation_frequency) }}</td>
             </tr>
             {% else %}
-            <tr><td colspan="7" class="text-secondary">{{ _('No partners yet.') }}</td></tr>
+            <tr><td colspan="4" class="text-secondary">{{ _('No partners yet.') }}</td></tr>
             {% endfor %}
             </tbody>
         </table>

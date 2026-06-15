@@ -8,25 +8,174 @@
     <link href="{{ url_for('static', path='style.css') }}" rel="stylesheet">
 </head>
 <body>
-<nav class="navbar navbar-expand-lg border-bottom bg-white sticky-top">
-    <div class="container-fluid app-shell">
-        <a class="navbar-brand" href="/" aria-label="ARS PharmRussia PV MVP">
-            <img class="brand-logo" src="{{ url_for('static', path='brand/ars-pharmrussia-logo.png') }}" alt="ARS PharmRussia">
-            <span class="brand-product">{{ _('PV MVP') }}</span>
-        </a>
-        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav" aria-controls="mainNav" aria-expanded="false" aria-label="Toggle navigation">
-            <span class="navbar-toggler-icon"></span>
+{% set nav_page = active_page|default('dashboard') %}
+{% set can_view = has_permission('view') %}
+{% set can_audit_view = has_permission('audit_view') %}
+{% set can_manage_users = has_permission('manage_users') %}
+{% set can_manage_reference = has_permission('manage_reference_data') %}
+{% set can_manage_settings = has_permission('manage_system_settings') %}
+{% set active_user = current_user() %}
+{% set active_roles = current_roles() %}
+{% set users_for_switch = available_users() %}
+{% if nav_page in ['safety_reports', 'cases', 'partner_reconciliation', 'psur', 'submissions'] %}
+    {% set current_group = 'operations' %}
+{% elif nav_page in ['partners', 'products', 'substances', 'contract_contacts', 'contracts'] %}
+    {% set current_group = 'reference' %}
+{% elif nav_page in ['documents', 'audit_log'] %}
+    {% set current_group = 'records' %}
+{% elif nav_page in ['users_roles', 'settings', 'rmp', 'psmf'] %}
+    {% set current_group = 'admin' %}
+{% else %}
+    {% set current_group = 'dashboard' %}
+{% endif %}
+
+{% macro sidebar_nav() -%}
+<nav class="sidebar-nav" aria-label="{{ _('Main navigation') }}" data-current-group="{{ current_group }}">
+    <div class="sidebar-primary" aria-label="{{ _('Main sections') }}">
+        {% if can_view %}
+        <button class="sidebar-main-button {% if current_group == 'dashboard' %}active{% endif %}" type="button" data-nav-group="dashboard" title="{{ _('Dashboard') }}">
+            <i data-lucide="layout-dashboard"></i><span>{{ _('Dashboard') }}</span>
         </button>
-        <div class="collapse navbar-collapse" id="mainNav">
-            <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-                <li class="nav-item"><a class="nav-link {% if active_page == 'dashboard' %}active{% endif %}" href="/">{{ _('Dashboard') }}</a></li>
-                <li class="nav-item"><a class="nav-link {% if active_page == 'safety_reports' %}active{% endif %}" href="/safety-reports">{{ _('Safety Reports') }}</a></li>
-                <li class="nav-item"><a class="nav-link {% if active_page == 'cases' %}active{% endif %}" href="/cases">{{ _('Cases') }}</a></li>
-                <li class="nav-item"><a class="nav-link {% if active_page == 'partners' %}active{% endif %}" href="/partners">{{ _('Partners') }}</a></li>
-                <li class="nav-item"><a class="nav-link {% if active_page == 'products' %}active{% endif %}" href="/products">{{ _('Products') }}</a></li>
-                <li class="nav-item"><a class="nav-link {% if active_page == 'submissions' %}active{% endif %}" href="/submissions">{{ _('Submissions') }}</a></li>
-            </ul>
+        {% endif %}
+        {% if can_view %}
+        <button class="sidebar-main-button {% if current_group == 'operations' %}active{% endif %}" type="button" data-nav-group="operations" title="{{ _('Operations') }}">
+            <i data-lucide="activity"></i><span>{{ _('Operations') }}</span>
+        </button>
+        {% endif %}
+        {% if can_view or can_manage_reference %}
+        <button class="sidebar-main-button {% if current_group == 'reference' %}active{% endif %}" type="button" data-nav-group="reference" title="{{ _('Reference Data') }}">
+            <i data-lucide="database"></i><span>{{ _('Reference Data') }}</span>
+        </button>
+        {% endif %}
+        {% if can_view or can_audit_view %}
+        <button class="sidebar-main-button {% if current_group == 'records' %}active{% endif %}" type="button" data-nav-group="records" title="{{ _('Controlled Records') }}">
+            <i data-lucide="archive"></i><span>{{ _('Controlled Records') }}</span>
+        </button>
+        {% endif %}
+        {% if can_manage_users or can_manage_settings or can_view %}
+        <button class="sidebar-main-button {% if current_group == 'admin' %}active{% endif %}" type="button" data-nav-group="admin" title="{{ _('Administration / System') }}">
+            <i data-lucide="settings-2"></i><span>{{ _('Administration / System') }}</span>
+        </button>
+        {% endif %}
+    </div>
+
+    <div class="sidebar-secondary">
+        {% if can_view %}
+        <div class="sidebar-group-panel {% if current_group == 'dashboard' %}active{% endif %}" data-nav-panel="dashboard">
+            <div class="sidebar-section">{{ _('Dashboard') }}</div>
+            <a class="sidebar-sub-link {% if nav_page == 'dashboard' %}active{% endif %}" href="/" title="{{ _('Dashboard') }}"><i data-lucide="layout-dashboard"></i><span>{{ _('Dashboard') }}</span></a>
+        </div>
+        {% endif %}
+
+        {% if can_view %}
+        <div class="sidebar-group-panel {% if current_group == 'operations' %}active{% endif %}" data-nav-panel="operations">
+            <div class="sidebar-section">{{ _('Operations') }}</div>
+            <a class="sidebar-sub-link {% if nav_page == 'safety_reports' %}active{% endif %}" href="/safety-reports" title="{{ _('PV Intake') }}"><i data-lucide="inbox"></i><span>{{ _('PV Intake') }}</span></a>
+            <a class="sidebar-sub-link {% if nav_page == 'cases' %}active{% endif %}" href="/cases" title="{{ _('ICSRs') }}"><i data-lucide="folder-open"></i><span>{{ _('ICSRs') }}</span></a>
+            <a class="sidebar-sub-link {% if nav_page == 'partner_reconciliation' %}active{% endif %}" href="/partner-reconciliation" title="{{ _('Reconciliation') }}"><i data-lucide="git-compare-arrows"></i><span>{{ _('Reconciliation') }}</span></a>
+            <a class="sidebar-sub-link {% if nav_page == 'psur' %}active{% endif %}" href="/psur" title="{{ _('PSUR / PBRER') }}"><i data-lucide="calendar-check"></i><span>{{ _('PSUR / PBRER') }}</span></a>
+            <a class="sidebar-sub-link {% if nav_page == 'submissions' %}active{% endif %}" href="/submissions" title="{{ _('Submissions') }}"><i data-lucide="send"></i><span>{{ _('Submissions') }}</span></a>
+        </div>
+        {% endif %}
+
+        {% if can_view or can_manage_reference %}
+        <div class="sidebar-group-panel {% if current_group == 'reference' %}active{% endif %}" data-nav-panel="reference">
+            <div class="sidebar-section">{{ _('Reference Data') }}</div>
+            <a class="sidebar-sub-link {% if nav_page == 'partners' %}active{% endif %}" href="/partners" title="{{ _('Partners') }}"><i data-lucide="building-2"></i><span>{{ _('Partners') }}</span></a>
+            <a class="sidebar-sub-link {% if nav_page == 'products' %}active{% endif %}" href="/products" title="{{ _('Products') }}"><i data-lucide="package"></i><span>{{ _('Products') }}</span></a>
+            <a class="sidebar-sub-link {% if nav_page == 'substances' %}active{% endif %}" href="/substances" title="{{ _('Substances') }}"><i data-lucide="flask-conical"></i><span>{{ _('Substances') }}</span></a>
+            <a class="sidebar-sub-link {% if nav_page == 'contract_contacts' %}active{% endif %}" href="/contract-contacts" title="{{ _('Contacts') }}"><i data-lucide="contact"></i><span>{{ _('Contacts') }}</span></a>
+            <a class="sidebar-sub-link {% if nav_page == 'contracts' %}active{% endif %}" href="/contracts" title="{{ _('Contracts') }}"><i data-lucide="file-signature"></i><span>{{ _('Contracts') }}</span></a>
+        </div>
+        {% endif %}
+
+        {% if can_view or can_audit_view %}
+        <div class="sidebar-group-panel {% if current_group == 'records' %}active{% endif %}" data-nav-panel="records">
+            <div class="sidebar-section">{{ _('Controlled Records') }}</div>
+            {% if can_view %}
+            <a class="sidebar-sub-link {% if nav_page == 'documents' %}active{% endif %}" href="/documents" title="{{ _('Documents') }}"><i data-lucide="files"></i><span>{{ _('Documents') }}</span></a>
+            {% endif %}
+            {% if can_audit_view %}
+            <a class="sidebar-sub-link {% if nav_page == 'audit_log' %}active{% endif %}" href="/audit-log" title="{{ _('Audit Log') }}"><i data-lucide="history"></i><span>{{ _('Audit Log') }}</span></a>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {% if can_manage_users or can_manage_settings or can_view %}
+        <div class="sidebar-group-panel {% if current_group == 'admin' %}active{% endif %}" data-nav-panel="admin">
+            <div class="sidebar-section">{{ _('Administration / System') }}</div>
+            {% if can_manage_users %}
+            <a class="sidebar-sub-link {% if nav_page == 'users_roles' %}active{% endif %}" href="/users-roles#users" title="{{ _('Users') }}"><i data-lucide="user-round"></i><span>{{ _('Users') }}</span></a>
+            <a class="sidebar-sub-link" href="/users-roles#roles" title="{{ _('Roles') }}"><i data-lucide="shield-user"></i><span>{{ _('Roles') }}</span></a>
+            {% endif %}
+            {% if can_manage_settings %}
+            <a class="sidebar-sub-link {% if nav_page == 'settings' %}active{% endif %}" href="/settings" title="{{ _('Settings') }}"><i data-lucide="settings"></i><span>{{ _('Settings') }}</span></a>
+            <a class="sidebar-sub-link" href="/settings#dictionaries" title="{{ _('Dictionaries') }}"><i data-lucide="book-marked"></i><span>{{ _('Dictionaries') }}</span></a>
+            {% endif %}
+            {% if can_view %}
+            <a class="sidebar-sub-link {% if nav_page == 'rmp' %}active{% endif %}" href="/rmp" title="{{ _('RMP') }}"><i data-lucide="shield-check"></i><span>{{ _('RMP') }}</span></a>
+            <a class="sidebar-sub-link {% if nav_page == 'psmf' %}active{% endif %}" href="/psmf" title="{{ _('PSMF') }}"><i data-lucide="library"></i><span>{{ _('PSMF') }}</span></a>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="sidebar-footer">
+        <button class="sidebar-collapse-button" type="button" data-sidebar-toggle title="{{ _('Collapse sidebar') }}">
+            <i data-lucide="panel-left-close"></i><span>{{ _('Collapse') }}</span>
+        </button>
+    </div>
+</nav>
+{%- endmacro %}
+
+<div class="app-layout">
+    <aside class="app-sidebar d-none d-lg-flex">
+        <a class="sidebar-brand" href="/" title="{{ _('PV MVP') }}" aria-label="ARS PharmRussia PV MVP">
+            <span class="sidebar-mark">PV</span>
+            <span class="sidebar-name">{{ _('PV MVP') }}</span>
+        </a>
+        {{ sidebar_nav() }}
+    </aside>
+
+    <div class="offcanvas offcanvas-start app-sidebar-mobile d-lg-none" tabindex="-1" id="mainSidebar" aria-labelledby="mainSidebarLabel">
+        <div class="offcanvas-header">
+            <a class="sidebar-brand" href="/" id="mainSidebarLabel" aria-label="ARS PharmRussia PV MVP">
+                <img class="brand-logo" src="{{ url_for('static', path='brand/ars-pharmrussia-logo.png') }}" alt="ARS PharmRussia">
+                <span class="brand-product">{{ _('PV MVP') }}</span>
+            </a>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="{{ _('Close') }}"></button>
+        </div>
+        <div class="offcanvas-body">
+            {{ sidebar_nav() }}
+        </div>
+    </div>
+
+    <div class="app-main">
+        <header class="app-topbar">
+            <button class="btn btn-outline-secondary btn-sm icon-only d-lg-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#mainSidebar" aria-controls="mainSidebar" title="{{ _('Menu') }}">
+                <i data-lucide="menu"></i>
+            </button>
+            <a class="mobile-brand" href="/" aria-label="ARS PharmRussia PV MVP">
+                <img class="brand-logo" src="{{ url_for('static', path='brand/ars-pharmrussia-logo.png') }}" alt="ARS PharmRussia">
+            </a>
+            <div class="topbar-spacer"></div>
             <div class="d-flex flex-wrap align-items-center gap-2">
+                {% if active_user %}
+                <div class="current-user-chip" title="{{ active_roles|join(', ') }}">
+                    <i data-lucide="circle-user-round"></i>
+                    <span>{{ active_user.full_name or active_user.email }}</span>
+                </div>
+                {% endif %}
+                {% if users_for_switch %}
+                <form class="user-switcher" method="post" action="/users-roles/switch-user">
+                    <input type="hidden" name="next_url" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}">
+                    <select class="form-select form-select-sm" name="user_id" aria-label="{{ _('Switch user') }}" onchange="this.form.submit()">
+                        {% for user in users_for_switch %}
+                        <option value="{{ user.id }}" {% if active_user and user.id == active_user.id %}selected{% endif %}>{{ user.full_name or user.email }}</option>
+                        {% endfor %}
+                    </select>
+                </form>
+                {% endif %}
                 <div class="btn-group btn-group-sm language-switch" role="group" aria-label="Language">
                     <a class="btn btn-outline-secondary {% if request.state.lang == 'ru' %}active{% endif %}" href="{{ lang_url('ru') }}">RU</a>
                     <a class="btn btn-outline-secondary {% if request.state.lang == 'en' %}active{% endif %}" href="{{ lang_url('en') }}">EN</a>
@@ -35,13 +184,13 @@
                     <i data-lucide="book-open"></i><span>{{ _('API') }}</span>
                 </a>
             </div>
-        </div>
-    </div>
-</nav>
+        </header>
 
-<main class="container-fluid app-shell py-4">
-    {% block content %}{% endblock %}
-</main>
+        <main class="container-fluid app-shell app-content py-4">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
@@ -49,6 +198,84 @@
     if (window.lucide) {
         window.lucide.createIcons();
     }
+
+    (function () {
+        const layout = document.querySelector(".app-layout");
+        const navs = Array.from(document.querySelectorAll(".sidebar-nav"));
+        const storageKey = "pvSidebarCollapsed";
+
+        function setGroup(group, persist) {
+            navs.forEach((nav) => {
+                nav.querySelectorAll("[data-nav-group]").forEach((button) => {
+                    button.classList.toggle("active", button.dataset.navGroup === group);
+                    button.setAttribute("aria-pressed", button.dataset.navGroup === group ? "true" : "false");
+                });
+                nav.querySelectorAll("[data-nav-panel]").forEach((panel) => {
+                    const isActive = panel.dataset.navPanel === group;
+                    panel.classList.toggle("active", isActive);
+                    panel.toggleAttribute("hidden", !isActive);
+                });
+            });
+            if (persist) {
+                window.localStorage.setItem("pvSidebarGroup", group);
+            }
+        }
+
+        function updateCollapsedState(isCollapsed) {
+            if (!layout) {
+                return;
+            }
+            layout.classList.toggle("sidebar-collapsed", isCollapsed);
+            document.querySelectorAll("[data-sidebar-toggle]").forEach((button) => {
+                button.setAttribute("title", isCollapsed ? "{{ _('Expand sidebar') }}" : "{{ _('Collapse sidebar') }}");
+                const label = button.querySelector("span");
+                if (label) {
+                    label.textContent = isCollapsed ? "{{ _('Expand') }}" : "{{ _('Collapse') }}";
+                }
+                const icon = button.querySelector("i");
+                if (icon) {
+                    icon.setAttribute("data-lucide", isCollapsed ? "panel-left-open" : "panel-left-close");
+                }
+            });
+            window.localStorage.setItem(storageKey, isCollapsed ? "1" : "0");
+            if (window.lucide) {
+                window.lucide.createIcons();
+            }
+        }
+
+        function activateHashLink() {
+            if (!window.location.hash) {
+                return;
+            }
+            const target = window.location.pathname + window.location.hash;
+            document.querySelectorAll(".sidebar-group-panel.active").forEach((panel) => {
+                const matchingLink = panel.querySelector(`a[href="${target}"]`);
+                if (!matchingLink) {
+                    return;
+                }
+                panel.querySelectorAll(".sidebar-sub-link").forEach((link) => link.classList.remove("active"));
+                matchingLink.classList.add("active");
+            });
+        }
+
+        const initialGroup = navs[0]?.dataset.currentGroup || window.localStorage.getItem("pvSidebarGroup") || "dashboard";
+        setGroup(initialGroup, false);
+        activateHashLink();
+
+        navs.forEach((nav) => {
+            nav.querySelectorAll("[data-nav-group]").forEach((button) => {
+                button.addEventListener("click", () => setGroup(button.dataset.navGroup, true));
+            });
+        });
+
+        document.querySelectorAll("[data-sidebar-toggle]").forEach((button) => {
+            button.addEventListener("click", () => {
+                updateCollapsedState(!layout.classList.contains("sidebar-collapsed"));
+            });
+        });
+
+        updateCollapsedState(window.localStorage.getItem(storageKey) === "1");
+    })();
 </script>
 </body>
 </html>

@@ -3,6 +3,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app import crud, schemas
+from app.auth import require_any_permission
 from app.database import get_db
 from app.templating import templates
 
@@ -23,18 +24,15 @@ def partners_page(request: Request, db: Session = Depends(get_db)):
     )
 
 
-@router.post("/partners")
+@router.post(
+    "/partners",
+    dependencies=[Depends(require_any_permission("manage_reference_data", "create"))],
+)
 def create_partner_form(
     partner_code: str = Form(...),
     partner_name: str = Form(...),
-    partner_type: str = Form("partner"),
-    country_code: str | None = Form(None),
-    region: str | None = Form(None),
-    email: str | None = Form(None),
-    phone: str | None = Form(None),
-    address: str | None = Form(None),
-    pv_responsible_person: str | None = Form(None),
-    sdea_required: bool = Form(False),
+    partner_type: str = Form("fn"),
+    reconciliation_frequency: str = Form("not_conducted"),
     db: Session = Depends(get_db),
 ):
     crud.create_partner(
@@ -43,13 +41,7 @@ def create_partner_form(
             partner_code=partner_code,
             partner_name=partner_name,
             partner_type=partner_type,
-            country_code=country_code,
-            region=region,
-            email=email,
-            phone=phone,
-            address=address,
-            pv_responsible_person=pv_responsible_person,
-            sdea_required=sdea_required,
+            reconciliation_frequency=reconciliation_frequency,
         ),
     )
     return RedirectResponse("/partners", status_code=status.HTTP_303_SEE_OTHER)
@@ -60,7 +52,12 @@ def api_list_partners(db: Session = Depends(get_db)):
     return crud.list_partners(db)
 
 
-@router.post("/api/partners", response_model=schemas.PartnerRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/api/partners",
+    response_model=schemas.PartnerRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_any_permission("manage_reference_data", "create"))],
+)
 def api_create_partner(payload: schemas.PartnerCreate, db: Session = Depends(get_db)):
     return crud.create_partner(db, payload)
 

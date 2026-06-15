@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}{{ _('Substances') }} - {{ _('PV MVP') }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h1 class="h3 mb-1">{{ _('Substances') }}</h1>
+        <div class="text-secondary small">{{ substances|length }} {{ _('substances') }}</div>
+    </div>
+</div>
+
+{% if has_permission('create') or has_permission('manage_reference_data') %}
+<section class="surface mb-4">
+    <h2 class="h6 section-title">{{ _('Add Substance') }}</h2>
+    <form class="row g-3" method="post" action="/substances">
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Name') }}</label>
+            <input class="form-control" name="substance_name" required>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('INN') }}</label>
+            <input class="form-control" name="inn_name">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('ATC') }}</label>
+            <input class="form-control" name="atc_code">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('CAS') }}</label>
+            <input class="form-control" name="cas_number">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Substance type') }}</label>
+            <input class="form-control" name="substance_type" value="active">
+        </div>
+        <div class="col-md-1 d-flex align-items-end">
+            <button class="btn btn-primary w-100 icon-only" type="submit" title="{{ _('Add substance') }}"><i data-lucide="plus"></i></button>
+        </div>
+    </form>
+</section>
+
+<section class="surface mb-4">
+    <h2 class="h6 section-title">{{ _('Link substance to product') }}</h2>
+    <form class="row g-3" method="post" action="/product-substances">
+        <div class="col-md-4">
+            <label class="form-label">{{ _('Product') }}</label>
+            <select class="form-select" name="product_id" required>
+                <option value="" disabled selected>{{ _('Select product') }}</option>
+                {% for product in products %}
+                <option value="{{ product.id }}">{{ product.product_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-4">
+            <label class="form-label">{{ _('Substance') }}</label>
+            <select class="form-select" name="substance_id" required>
+                <option value="" disabled selected>{{ _('Select substance') }}</option>
+                {% for substance in substances %}
+                <option value="{{ substance.id }}">{{ substance.substance_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Role') }}</label>
+            <select class="form-select" name="substance_role">
+                <option value="active" selected>{{ _('active') }}</option>
+                <option value="excipient">{{ _('excipient') }}</option>
+            </select>
+        </div>
+        <div class="col-md-1 d-flex align-items-end">
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="is_primary" value="true" id="primarySubstance" checked>
+                <label class="form-check-label" for="primarySubstance">{{ _('Primary') }}</label>
+            </div>
+        </div>
+        <div class="col-md-1 d-flex align-items-end">
+            <button class="btn btn-primary w-100 icon-only" type="submit" title="{{ _('Link') }}" {% if not products or not substances %}disabled{% endif %}><i data-lucide="link"></i></button>
+        </div>
+    </form>
+</section>
+{% endif %}
+
+<div class="row g-4">
+    <div class="col-lg-5">
+        <section class="surface h-100">
+            <h2 class="h6 section-title">{{ _('Substances') }}</h2>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead>
+                    <tr>
+                        <th>{{ _('Name') }}</th>
+                        <th>{{ _('INN') }}</th>
+                        <th>{{ _('ATC') }}</th>
+                        <th>{{ _('CAS') }}</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    {% for substance in substances %}
+                    <tr>
+                        <td class="fw-medium">{{ substance.substance_name }}</td>
+                        <td>{{ substance.inn_name or "" }}</td>
+                        <td>{{ substance.atc_code or "" }}</td>
+                        <td>{{ substance.cas_number or "" }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="4" class="text-secondary">{{ _('No substances yet.') }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+    <div class="col-lg-7">
+        <section class="surface h-100">
+            <h2 class="h6 section-title">{{ _('Product-substance links') }}</h2>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead>
+                    <tr>
+                        <th>{{ _('Product') }}</th>
+                        <th>{{ _('Substance') }}</th>
+                        <th>{{ _('Role') }}</th>
+                        <th>{{ _('Primary') }}</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    {% for product in products %}
+                        {% for link in product.substance_links %}
+                        <tr>
+                            <td>{{ product.product_name }}</td>
+                            <td class="fw-medium">{{ link.substance.substance_name if link.substance else "" }}</td>
+                            <td>{{ _(link.substance_role) }}</td>
+                            <td>{% if link.is_primary %}<span class="badge text-bg-success">{{ _('Yes') }}</span>{% else %}<span class="badge text-bg-secondary">{{ _('No') }}</span>{% endif %}</td>
+                        </tr>
+                        {% endfor %}
+                    {% endfor %}
+                    {% if not products|selectattr("substance_links")|list %}
+                    <tr><td colspan="4" class="text-secondary">{{ _('No product-substance links yet.') }}</td></tr>
+                    {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+</div>
+{% endblock %}

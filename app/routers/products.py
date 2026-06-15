@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Form, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app import crud, schemas
+from app.auth import require_any_permission
 from app.database import get_db
 from app.templating import templates
 
@@ -19,13 +20,15 @@ def products_page(request: Request, db: Session = Depends(get_db)):
             "request": request,
             "products": crud.list_products(db),
             "partners": crud.list_partners(db),
-            "substances": crud.list_substances(db),
             "active_page": "products",
         },
     )
 
 
-@router.post("/products")
+@router.post(
+    "/products",
+    dependencies=[Depends(require_any_permission("manage_reference_data", "create"))],
+)
 def create_product_form(
     product_code: str = Form(...),
     product_name: str = Form(...),
@@ -59,59 +62,16 @@ def create_product_form(
     return RedirectResponse("/products", status_code=status.HTTP_303_SEE_OTHER)
 
 
-@router.post("/substances")
-def create_substance_form(
-    substance_name: str = Form(...),
-    inn_name: str | None = Form(None),
-    cas_number: str | None = Form(None),
-    atc_code: str | None = Form(None),
-    substance_type: str | None = Form("active"),
-    db: Session = Depends(get_db),
-):
-    crud.create_substance(
-        db,
-        schemas.SubstanceCreate(
-            substance_name=substance_name,
-            inn_name=inn_name,
-            cas_number=cas_number,
-            atc_code=atc_code,
-            substance_type=substance_type,
-        ),
-    )
-    return RedirectResponse("/products", status_code=status.HTTP_303_SEE_OTHER)
-
-
 @router.get("/api/products", response_model=list[schemas.ProductRead])
 def api_list_products(db: Session = Depends(get_db)):
     return crud.list_products(db)
 
 
-@router.post("/api/products", response_model=schemas.ProductRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/api/products",
+    response_model=schemas.ProductRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_any_permission("manage_reference_data", "create"))],
+)
 def api_create_product(payload: schemas.ProductCreate, db: Session = Depends(get_db)):
     return crud.create_product(db, payload)
-
-
-@router.get("/api/substances", response_model=list[schemas.SubstanceRead])
-def api_list_substances(db: Session = Depends(get_db)):
-    return crud.list_substances(db)
-
-
-@router.post("/api/substances", response_model=schemas.SubstanceRead, status_code=status.HTTP_201_CREATED)
-def api_create_substance(payload: schemas.SubstanceCreate, db: Session = Depends(get_db)):
-    return crud.create_substance(db, payload)
-
-
-@router.post(
-    "/api/product-substances",
-    response_model=schemas.ProductSubstanceRead,
-    status_code=status.HTTP_201_CREATED,
-)
-def api_create_product_substance(
-    payload: schemas.ProductSubstanceCreate,
-    db: Session = Depends(get_db),
-):
-    product = crud.get_product(db, payload.product_id)
-    substance = crud.get_substance(db, payload.substance_id)
-    if not product or not substance:
-        raise HTTPException(status_code=404, detail="Product or substance not found")
-    return crud.create_product_substance(db, payload)

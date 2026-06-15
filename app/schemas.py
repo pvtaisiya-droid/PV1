@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -7,18 +8,52 @@ class ORMModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class PermissionRead(ORMModel):
+    id: str
+    permission_code: str
+    permission_name: str
+    description: str | None = None
+
+
+class RoleRead(ORMModel):
+    id: str
+    role_code: str
+    role_name: str
+    description: str | None = None
+    is_system: bool
+
+
+class UserCreate(BaseModel):
+    email: str
+    full_name: str | None = None
+    role_ids: list[str] = Field(default_factory=list)
+
+
+class UserRead(ORMModel):
+    id: str
+    email: str
+    full_name: str | None = None
+    role: str
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class UserRoleAssign(BaseModel):
+    role_id: str
+
+
+class RolePermissionsUpdate(BaseModel):
+    permission_ids: list[str] = Field(default_factory=list)
+
+
 class PartnerBase(BaseModel):
     partner_code: str
     partner_name: str
-    partner_type: str = "partner"
-    country_code: str | None = None
-    region: str | None = None
-    email: str | None = None
-    phone: str | None = None
-    address: str | None = None
-    pv_responsible_person: str | None = None
-    sdea_required: bool = False
-    is_active: bool = True
+    partner_type: Literal["archive", "fn", "registration_in_progress"] = "fn"
+    reconciliation_frequency: Literal["monthly", "quarterly", "not_conducted"] = (
+        "not_conducted"
+    )
 
 
 class PartnerCreate(PartnerBase):
@@ -74,6 +109,125 @@ class ProductRead(ProductBase, ORMModel):
     id: str
     created_at: datetime
     updated_at: datetime
+
+
+class ContractBase(BaseModel):
+    partner_id: str
+    product_id: str
+    contract_type: Literal[
+        "pharmacovigilance_agreement",
+        "additional_agreement",
+    ] = "pharmacovigilance_agreement"
+    contract_number: str
+    contract_date: date
+    valid_until: date
+
+
+class ContractCreate(ContractBase):
+    pass
+
+
+class ContractRead(ContractBase, ORMModel):
+    id: str
+    is_current: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class ContractContactBase(BaseModel):
+    partner_id: str
+    last_name: str
+    first_name: str
+    patronymic: str | None = None
+    email: str
+    position: str
+    is_current: bool = True
+
+
+class ContractContactCreate(ContractContactBase):
+    pass
+
+
+class ContractContactRead(ContractContactBase, ORMModel):
+    id: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class PartnerReconciliationBase(BaseModel):
+    partner_id: str
+    contact_id: str | None = None
+    reconciliation_date: date | None = None
+    period_start: date
+    period_end: date
+    language: Literal["ru", "en"] = "ru"
+    reconciliation_status: str = "draft"
+    prepared_by: str | None = None
+
+
+class PartnerReconciliationCreate(PartnerReconciliationBase):
+    pass
+
+
+class PartnerReconciliationRead(PartnerReconciliationBase, ORMModel):
+    id: str
+    contact_name: str | None = None
+    contact_email: str | None = None
+    our_case_count: int
+    partner_case_count: int
+    matched_count: int
+    discrepancy_count: int
+    confirmed_by_user: str | None = None
+    confirmed_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class PartnerReconciliationItemBase(BaseModel):
+    internal_case_id: str | None = None
+    partner_case_id: str | None = None
+    product_id: str | None = None
+    source_side: str
+    case_type: str = "initial"
+    receipt_date_our_company: date | None = None
+    receipt_date_partner: date | None = None
+    transfer_date_our_company: date | None = None
+    transfer_date_partner: date | None = None
+    adverse_event: str | None = None
+    seriousness: str | None = None
+    reconciliation_status: str = "requires_review"
+    match_confidence: float | None = None
+    match_method: str | None = None
+    reviewer_comment: str | None = None
+    confirmed_by_user: str | None = None
+    internal_case_number: str | None = None
+    partner_case_number: str | None = None
+    partner_name: str | None = None
+    product_name: str | None = None
+    active_substance: str | None = None
+    patient: str | None = None
+    country: str | None = None
+    source_type: str | None = None
+    short_description: str | None = None
+    linked_item_id: str | None = None
+
+
+class PartnerReconciliationItemCreate(PartnerReconciliationItemBase):
+    pass
+
+
+class PartnerReconciliationItemRead(PartnerReconciliationItemBase, ORMModel):
+    id: str
+    reconciliation_id: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class PartnerReconciliationItemUpdate(BaseModel):
+    internal_case_id: str | None = None
+    reconciliation_status: str
+    reviewer_comment: str | None = None
+    confirmed_by_user: str | None = None
 
 
 class ProductSubstanceCreate(BaseModel):

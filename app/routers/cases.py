@@ -3,6 +3,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 
 from app import crud, schemas
+from app.auth import require_permission
 from app.database import get_db
 from app.templating import templates
 
@@ -23,7 +24,11 @@ def cases_page(request: Request, db: Session = Depends(get_db)):
     )
 
 
-@router.get("/cases/new", response_class=HTMLResponse)
+@router.get(
+    "/cases/new",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("create"))],
+)
 def new_case_page(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(
         request,
@@ -37,7 +42,7 @@ def new_case_page(request: Request, db: Session = Depends(get_db)):
     )
 
 
-@router.post("/cases")
+@router.post("/cases", dependencies=[Depends(require_permission("create"))])
 def create_case_form(
     case_number: str | None = Form(None),
     worldwide_case_id: str | None = Form(None),
@@ -93,7 +98,7 @@ def case_detail(case_id: str, request: Request, db: Session = Depends(get_db)):
     )
 
 
-@router.post("/cases/{case_id}/status")
+@router.post("/cases/{case_id}/status", dependencies=[Depends(require_permission("edit"))])
 def change_case_status_form(
     case_id: str,
     workflow_status: str = Form(...),
@@ -111,7 +116,7 @@ def change_case_status_form(
     return RedirectResponse(f"/cases/{case_id}", status_code=status.HTTP_303_SEE_OTHER)
 
 
-@router.post("/cases/{case_id}/patients")
+@router.post("/cases/{case_id}/patients", dependencies=[Depends(require_permission("create"))])
 def add_patient_form(
     case_id: str,
     patient_initials: str | None = Form(None),
@@ -146,7 +151,7 @@ def add_patient_form(
     return RedirectResponse(f"/cases/{case_id}", status_code=status.HTTP_303_SEE_OTHER)
 
 
-@router.post("/cases/{case_id}/products")
+@router.post("/cases/{case_id}/products", dependencies=[Depends(require_permission("create"))])
 def add_case_product_form(
     case_id: str,
     product_id: str | None = Form(None),
@@ -179,7 +184,7 @@ def add_case_product_form(
     return RedirectResponse(f"/cases/{case_id}", status_code=status.HTTP_303_SEE_OTHER)
 
 
-@router.post("/cases/{case_id}/reactions")
+@router.post("/cases/{case_id}/reactions", dependencies=[Depends(require_permission("create"))])
 def add_reaction_form(
     case_id: str,
     reported_term: str = Form(...),
@@ -220,7 +225,7 @@ def add_reaction_form(
     return RedirectResponse(f"/cases/{case_id}", status_code=status.HTTP_303_SEE_OTHER)
 
 
-@router.post("/cases/{case_id}/followups")
+@router.post("/cases/{case_id}/followups", dependencies=[Depends(require_permission("create"))])
 def add_followup_form(
     case_id: str,
     received_date: str | None = Form(None),
@@ -245,7 +250,7 @@ def add_followup_form(
     return RedirectResponse(f"/cases/{case_id}", status_code=status.HTTP_303_SEE_OTHER)
 
 
-@router.post("/cases/{case_id}/submissions")
+@router.post("/cases/{case_id}/submissions", dependencies=[Depends(require_permission("create"))])
 def add_submission_form(
     case_id: str,
     recipient_partner_id: str | None = Form(None),
@@ -274,7 +279,7 @@ def add_submission_form(
     return RedirectResponse(f"/cases/{case_id}", status_code=status.HTTP_303_SEE_OTHER)
 
 
-@router.get("/api/cases/export.csv")
+@router.get("/api/cases/export.csv", dependencies=[Depends(require_permission("export"))])
 def api_export_cases_csv(db: Session = Depends(get_db)):
     return Response(
         crud.export_cases_csv(db),
@@ -288,7 +293,12 @@ def api_list_cases(db: Session = Depends(get_db)):
     return crud.list_cases(db)
 
 
-@router.post("/api/cases", response_model=schemas.CaseRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/api/cases",
+    response_model=schemas.CaseRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("create"))],
+)
 def api_create_case(payload: schemas.CaseCreate, db: Session = Depends(get_db)):
     return crud.create_case(db, payload)
 
@@ -309,7 +319,11 @@ def api_get_case_overview(case_id: str, db: Session = Depends(get_db)):
     return crud.case_overview(case)
 
 
-@router.patch("/api/cases/{case_id}/status", response_model=schemas.CaseRead)
+@router.patch(
+    "/api/cases/{case_id}/status",
+    response_model=schemas.CaseRead,
+    dependencies=[Depends(require_permission("edit"))],
+)
 def api_update_case_status(
     case_id: str,
     payload: schemas.CaseStatusUpdate,
@@ -321,7 +335,11 @@ def api_update_case_status(
     return crud.update_case_status(db, case, payload)
 
 
-@router.post("/api/cases/{case_id}/patients", response_model=schemas.PatientRead)
+@router.post(
+    "/api/cases/{case_id}/patients",
+    response_model=schemas.PatientRead,
+    dependencies=[Depends(require_permission("create"))],
+)
 def api_add_patient(
     case_id: str,
     payload: schemas.PatientCreate,
@@ -333,7 +351,11 @@ def api_add_patient(
     return crud.add_patient(db, case, payload)
 
 
-@router.post("/api/cases/{case_id}/products", response_model=schemas.CaseProductRead)
+@router.post(
+    "/api/cases/{case_id}/products",
+    response_model=schemas.CaseProductRead,
+    dependencies=[Depends(require_permission("create"))],
+)
 def api_add_case_product(
     case_id: str,
     payload: schemas.CaseProductCreate,
@@ -345,7 +367,11 @@ def api_add_case_product(
     return crud.add_case_product(db, case, payload)
 
 
-@router.post("/api/cases/{case_id}/reactions", response_model=schemas.ReactionRead)
+@router.post(
+    "/api/cases/{case_id}/reactions",
+    response_model=schemas.ReactionRead,
+    dependencies=[Depends(require_permission("create"))],
+)
 def api_add_reaction(
     case_id: str,
     payload: schemas.ReactionCreate,
@@ -357,7 +383,11 @@ def api_add_reaction(
     return crud.add_reaction(db, case, payload)
 
 
-@router.post("/api/cases/{case_id}/followups", response_model=schemas.FollowUpRead)
+@router.post(
+    "/api/cases/{case_id}/followups",
+    response_model=schemas.FollowUpRead,
+    dependencies=[Depends(require_permission("create"))],
+)
 def api_add_followup(
     case_id: str,
     payload: schemas.FollowUpCreate,
@@ -369,7 +399,11 @@ def api_add_followup(
     return crud.add_followup(db, case, payload)
 
 
-@router.post("/api/cases/{case_id}/submissions", response_model=schemas.SubmissionRead)
+@router.post(
+    "/api/cases/{case_id}/submissions",
+    response_model=schemas.SubmissionRead,
+    dependencies=[Depends(require_permission("create"))],
+)
 def api_add_submission(
     case_id: str,
     payload: schemas.SubmissionCreate,

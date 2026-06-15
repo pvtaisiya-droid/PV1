@@ -3,6 +3,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app import crud, schemas
+from app.auth import require_permission
 from app.database import get_db
 from app.templating import templates
 
@@ -24,7 +25,7 @@ def safety_reports_page(request: Request, db: Session = Depends(get_db)):
     )
 
 
-@router.post("/safety-reports")
+@router.post("/safety-reports", dependencies=[Depends(require_permission("create"))])
 def create_safety_report_form(
     source_type: str | None = Form("email"),
     partner_id: str | None = Form(None),
@@ -66,7 +67,7 @@ def safety_report_detail(report_id: str, request: Request, db: Session = Depends
     )
 
 
-@router.post("/safety-reports/{report_id}/triage")
+@router.post("/safety-reports/{report_id}/triage", dependencies=[Depends(require_permission("edit"))])
 def triage_safety_report_form(
     report_id: str,
     triage_status: str = Form(...),
@@ -97,7 +98,7 @@ def triage_safety_report_form(
     return RedirectResponse(f"/safety-reports/{report_id}", status_code=status.HTTP_303_SEE_OTHER)
 
 
-@router.post("/safety-reports/{report_id}/create-case")
+@router.post("/safety-reports/{report_id}/create-case", dependencies=[Depends(require_permission("create"))])
 def create_case_from_report_form(report_id: str, db: Session = Depends(get_db)):
     report = crud.get_safety_report(db, report_id)
     if not report:
@@ -115,6 +116,7 @@ def api_list_safety_reports(db: Session = Depends(get_db)):
     "/api/safety-reports",
     response_model=schemas.SafetyReportRead,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("create"))],
 )
 def api_create_safety_report(payload: schemas.SafetyReportCreate, db: Session = Depends(get_db)):
     return crud.create_safety_report(db, payload)
@@ -128,7 +130,11 @@ def api_get_safety_report(report_id: str, db: Session = Depends(get_db)):
     return report
 
 
-@router.patch("/api/safety-reports/{report_id}/triage", response_model=schemas.SafetyReportRead)
+@router.patch(
+    "/api/safety-reports/{report_id}/triage",
+    response_model=schemas.SafetyReportRead,
+    dependencies=[Depends(require_permission("edit"))],
+)
 def api_triage_safety_report(
     report_id: str,
     payload: schemas.TriageUpdate,
@@ -140,7 +146,11 @@ def api_triage_safety_report(
     return crud.triage_safety_report(db, report, payload)
 
 
-@router.post("/api/safety-reports/{report_id}/create-case", response_model=schemas.CaseRead)
+@router.post(
+    "/api/safety-reports/{report_id}/create-case",
+    response_model=schemas.CaseRead,
+    dependencies=[Depends(require_permission("create"))],
+)
 def api_create_case_from_report(report_id: str, db: Session = Depends(get_db)):
     report = crud.get_safety_report(db, report_id)
     if not report:

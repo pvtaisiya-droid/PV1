@@ -9,6 +9,7 @@
     </div>
 </div>
 
+{% if has_permission('create') %}
 <section class="surface mb-4">
     <h2 class="h6 section-title">{{ _('New Safety Report') }}</h2>
     <form class="row g-3" method="post" action="/safety-reports">
@@ -56,6 +57,7 @@
         </div>
     </form>
 </section>
+{% endif %}
 
 <section class="surface">
     <div class="table-responsive">

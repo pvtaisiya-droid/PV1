@@ -15,7 +15,9 @@
     <li class="nav-item" role="presentation"><button class="nav-link" id="entry-tab" data-bs-toggle="tab" data-bs-target="#entry" type="button" role="tab">{{ _('Data Entry') }}</button></li>
     <li class="nav-item" role="presentation"><button class="nav-link" id="followup-tab" data-bs-toggle="tab" data-bs-target="#followup" type="button" role="tab">{{ _('Follow-up') }}</button></li>
     <li class="nav-item" role="presentation"><button class="nav-link" id="submission-tab" data-bs-toggle="tab" data-bs-target="#submission" type="button" role="tab">{{ _('Submissions') }}</button></li>
+    {% if has_permission('audit_view') %}
     <li class="nav-item" role="presentation"><button class="nav-link" id="audit-tab" data-bs-toggle="tab" data-bs-target="#audit" type="button" role="tab">{{ _('Audit') }}</button></li>
+    {% endif %}
 </ul>
 
 <div class="tab-content">
@@ -36,6 +38,7 @@
                     <div class="raw-text">{{ case.narrative or "" }}</div>
                 </section>
             </div>
+            {% if has_permission('edit') %}
             <div class="col-lg-4">
                 <section class="surface">
                     <h2 class="h6 section-title">{{ _('Change Workflow Status') }}</h2>
@@ -58,10 +61,12 @@
                     </form>
                 </section>
             </div>
+            {% endif %}
         </div>
     </div>
 
     <div class="tab-pane fade" id="entry" role="tabpanel" aria-labelledby="entry-tab" tabindex="0">
+        {% if has_permission('create') %}
         <div class="row g-4">
             <div class="col-lg-4">
                 <section class="surface h-100">
@@ -129,6 +134,7 @@
                 </section>
             </div>
         </div>
+        {% endif %}
 
         <div class="row g-4 mt-1">
             <div class="col-lg-4">
@@ -154,6 +160,7 @@
 
     <div class="tab-pane fade" id="followup" role="tabpanel" aria-labelledby="followup-tab" tabindex="0">
         <div class="row g-4">
+            {% if has_permission('create') %}
             <div class="col-lg-4">
                 <section class="surface">
                     <h2 class="h6 section-title">{{ _('Add Follow-up') }}</h2>
@@ -166,7 +173,8 @@
                     </form>
                 </section>
             </div>
-            <div class="col-lg-8">
+            {% endif %}
+            <div class="{% if has_permission('create') %}col-lg-8{% else %}col-12{% endif %}">
                 <section class="surface">
                     <h2 class="h6 section-title">{{ _('Follow-ups') }}</h2>
                     <div class="table-responsive">
@@ -182,6 +190,7 @@
 
     <div class="tab-pane fade" id="submission" role="tabpanel" aria-labelledby="submission-tab" tabindex="0">
         <div class="row g-4">
+            {% if has_permission('create') %}
             <div class="col-lg-4">
                 <section class="surface">
                     <h2 class="h6 section-title">{{ _('Create Submission') }}</h2>
@@ -203,7 +212,8 @@
                     </form>
                 </section>
             </div>
-            <div class="col-lg-8">
+            {% endif %}
+            <div class="{% if has_permission('create') %}col-lg-8{% else %}col-12{% endif %}">
                 <section class="surface">
                     <h2 class="h6 section-title">{{ _('Submissions') }}</h2>
                     <div class="table-responsive">
@@ -217,6 +227,7 @@
         </div>
     </div>
 
+    {% if has_permission('audit_view') %}
     <div class="tab-pane fade" id="audit" role="tabpanel" aria-labelledby="audit-tab" tabindex="0">
         <section class="surface">
             <h2 class="h6 section-title">{{ _('Audit Trail') }}</h2>
@@ -242,5 +253,6 @@
             </div>
         </section>
     </div>
+    {% endif %}
 </div>
 {% endblock %}

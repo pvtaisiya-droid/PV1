@@ -11,18 +11,27 @@ from app.models import (
     AuditTrail,
     Case,
     CaseProduct,
+    Contract,
+    ContractContact,
     FollowUp,
     Partner,
+    PartnerReconciliation,
+    PartnerReconciliationItem,
     Patient,
+    Permission,
     Product,
     ProductSubstance,
     Reaction,
+    Role,
+    RolePermission,
     SafetyReport,
     Submission,
     Substance,
     User,
+    UserRole,
     utcnow,
 )
+from app.rbac import LEGACY_ROLE_MAP
 
 
 def normalize_text(value: str | None) -> str | None:
@@ -76,12 +85,292 @@ def generate_number(db: Session, model: type, field_name: str, prefix: str) -> s
 def create_user(db: Session, email: str, full_name: str, role: str = "viewer") -> User:
     existing = db.query(User).filter(User.email == email).first()
     if existing:
+        if not existing.user_roles:
+            role_code = LEGACY_ROLE_MAP.get(role, "readonly_auditor")
+            role_record = get_role_by_code(db, role_code)
+            if role_record:
+                db.add(UserRole(user_id=existing.id, role_id=role_record.id))
+                db.commit()
+                db.refresh(existing)
         return existing
     user = User(email=email, full_name=full_name, role=role)
     db.add(user)
+    db.flush()
+    role_code = LEGACY_ROLE_MAP.get(role, "readonly_auditor")
+    role_record = get_role_by_code(db, role_code)
+    if role_record:
+        db.add(UserRole(user_id=user.id, role_id=role_record.id))
     db.commit()
     db.refresh(user)
     return user
+
+
+def list_users(db: Session, include_deleted: bool = False) -> list[User]:
+    query = db.query(User).options(
+        joinedload(User.user_roles).joinedload(UserRole.role)
+    )
+    if not include_deleted:
+        query = query.filter(User.is_deleted.is_(False))
+    return query.order_by(User.full_name, User.email).all()
+
+
+def get_user(db: Session, user_id: str) -> User | None:
+    return (
+        db.query(User)
+        .options(joinedload(User.user_roles).joinedload(UserRole.role))
+        .filter(User.id == user_id, User.is_deleted.is_(False))
+        .first()
+    )
+
+
+def create_app_user(
+    db: Session,
+    *,
+    email: str,
+    full_name: str | None,
+    role_ids: list[str],
+    created_by_user_id: str | None = None,
+) -> User:
+    user = User(email=email, full_name=full_name, role="viewer")
+    db.add(user)
+    db.flush()
+    for role_id in role_ids:
+        if get_role(db, role_id):
+            db.add(
+                UserRole(
+                    user_id=user.id,
+                    role_id=role_id,
+                    assigned_by_user_id=created_by_user_id,
+                )
+            )
+    log_audit(
+        db,
+        entity_type="User",
+        entity_id=user.id,
+        action="create",
+        user_id=created_by_user_id,
+    )
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def archive_user(
+    db: Session,
+    user: User,
+    *,
+    deleted_by_user_id: str | None,
+    delete_reason: str | None,
+) -> User:
+    user.is_deleted = True
+    user.is_active = False
+    user.deleted_at = utcnow()
+    user.deleted_by = deleted_by_user_id
+    user.delete_reason = delete_reason
+    user.version += 1
+    log_audit(
+        db,
+        entity_type="User",
+        entity_id=user.id,
+        action="soft_delete",
+        field_name="is_deleted",
+        old_value=False,
+        new_value=True,
+        change_reason=delete_reason,
+        user_id=deleted_by_user_id,
+    )
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def list_roles(db: Session) -> list[Role]:
+    return (
+        db.query(Role)
+        .options(
+            joinedload(Role.role_permissions).joinedload(RolePermission.permission),
+            joinedload(Role.user_roles),
+        )
+        .filter(Role.is_deleted.is_(False))
+        .order_by(Role.role_name)
+        .all()
+    )
+
+
+def get_role(db: Session, role_id: str) -> Role | None:
+    return db.query(Role).filter(Role.id == role_id, Role.is_deleted.is_(False)).first()
+
+
+def get_role_by_code(db: Session, role_code: str) -> Role | None:
+    return (
+        db.query(Role)
+        .filter(Role.role_code == role_code, Role.is_deleted.is_(False))
+        .first()
+    )
+
+
+def list_permissions(db: Session) -> list[Permission]:
+    return (
+        db.query(Permission)
+        .filter(Permission.is_deleted.is_(False))
+        .order_by(Permission.permission_code)
+        .all()
+    )
+
+
+def assign_user_role(
+    db: Session,
+    *,
+    user_id: str,
+    role_id: str,
+    assigned_by_user_id: str | None = None,
+) -> UserRole:
+    existing = (
+        db.query(UserRole)
+        .filter(
+            UserRole.user_id == user_id,
+            UserRole.role_id == role_id,
+        )
+        .first()
+    )
+    if existing:
+        if existing.is_deleted:
+            role = get_role(db, role_id)
+            existing.is_deleted = False
+            existing.deleted_at = None
+            existing.deleted_by = None
+            existing.delete_reason = None
+            existing.assigned_by_user_id = assigned_by_user_id
+            existing.assigned_at = utcnow()
+            existing.version += 1
+            log_audit(
+                db,
+                entity_type="User",
+                entity_id=user_id,
+                action="role_assigned",
+                field_name="roles",
+                new_value=role.role_code if role else role_id,
+                user_id=assigned_by_user_id,
+            )
+            db.commit()
+            db.refresh(existing)
+        return existing
+    user_role = UserRole(
+        user_id=user_id,
+        role_id=role_id,
+        assigned_by_user_id=assigned_by_user_id,
+    )
+    db.add(user_role)
+    db.flush()
+    role = get_role(db, role_id)
+    log_audit(
+        db,
+        entity_type="User",
+        entity_id=user_id,
+        action="role_assigned",
+        field_name="roles",
+        new_value=role.role_code if role else role_id,
+        user_id=assigned_by_user_id,
+    )
+    db.commit()
+    db.refresh(user_role)
+    return user_role
+
+
+def remove_user_role(
+    db: Session,
+    *,
+    user_id: str,
+    role_id: str,
+    removed_by_user_id: str | None = None,
+) -> None:
+    user_role = (
+        db.query(UserRole)
+        .filter(
+            UserRole.user_id == user_id,
+            UserRole.role_id == role_id,
+            UserRole.is_deleted.is_(False),
+        )
+        .first()
+    )
+    if not user_role:
+        return
+    role = user_role.role
+    user_role.is_deleted = True
+    user_role.deleted_at = utcnow()
+    user_role.deleted_by = removed_by_user_id
+    user_role.version += 1
+    log_audit(
+        db,
+        entity_type="User",
+        entity_id=user_id,
+        action="role_removed",
+        field_name="roles",
+        old_value=role.role_code if role else role_id,
+        user_id=removed_by_user_id,
+    )
+    db.commit()
+
+
+def update_role_permissions(
+    db: Session,
+    *,
+    role_id: str,
+    permission_ids: list[str],
+    changed_by_user_id: str | None = None,
+) -> Role:
+    role = get_role(db, role_id)
+    if not role:
+        raise ValueError("Role not found")
+    permission_ids_set = set(permission_ids)
+    all_links = list(role.role_permissions)
+    existing_links = [
+        link for link in role.role_permissions if not link.is_deleted and link.permission
+    ]
+    old_codes = sorted(link.permission.permission_code for link in existing_links)
+    all_by_permission_id = {link.permission_id: link for link in all_links}
+
+    for link in existing_links:
+        if link.permission_id not in permission_ids_set:
+            link.is_deleted = True
+            link.deleted_at = utcnow()
+            link.deleted_by = changed_by_user_id
+            link.version += 1
+
+    for permission_id in permission_ids_set:
+        existing_link = all_by_permission_id.get(permission_id)
+        if existing_link:
+            existing_link.is_deleted = False
+            existing_link.deleted_at = None
+            existing_link.deleted_by = None
+            existing_link.delete_reason = None
+            existing_link.version += 1
+            continue
+        if db.query(Permission).filter(Permission.id == permission_id).first():
+            db.add(RolePermission(role_id=role_id, permission_id=permission_id))
+
+    db.flush()
+    new_codes = []
+    if permission_ids_set:
+        new_codes = sorted(
+            permission.permission_code
+            for permission in db.query(Permission)
+            .filter(Permission.id.in_(permission_ids_set))
+            .all()
+        )
+    log_audit(
+        db,
+        entity_type="Role",
+        entity_id=role.id,
+        action="permission_changed",
+        field_name="permissions",
+        old_value=", ".join(old_codes),
+        new_value=", ".join(new_codes),
+        user_id=changed_by_user_id,
+    )
+    db.commit()
+    db.refresh(role)
+    return role
 
 
 def list_partners(db: Session) -> list[Partner]:
@@ -225,10 +514,286 @@ def create_product(db: Session, payload: schemas.ProductCreate) -> Product:
     return product
 
 
+def list_contracts(db: Session) -> list[Contract]:
+    return (
+        db.query(Contract)
+        .options(joinedload(Contract.partner), joinedload(Contract.product))
+        .filter(Contract.is_deleted.is_(False))
+        .order_by(Contract.valid_until.desc(), Contract.contract_date.desc())
+        .all()
+    )
+
+
+def get_contract(db: Session, contract_id: str) -> Contract | None:
+    return (
+        db.query(Contract)
+        .options(joinedload(Contract.partner), joinedload(Contract.product))
+        .filter(Contract.id == contract_id, Contract.is_deleted.is_(False))
+        .first()
+    )
+
+
+def create_contract(db: Session, payload: schemas.ContractCreate) -> Contract:
+    contract = Contract(**clean_form_data(model_data(payload)))
+    db.add(contract)
+    db.flush()
+    user = get_current_user(db)
+    log_audit(
+        db,
+        entity_type="Contract",
+        entity_id=contract.id,
+        action="create",
+        user_id=user.id if user else None,
+    )
+    db.commit()
+    db.refresh(contract)
+    return contract
+
+
+def list_contract_contacts(db: Session) -> list[ContractContact]:
+    return (
+        db.query(ContractContact)
+        .options(joinedload(ContractContact.partner))
+        .filter(ContractContact.is_deleted.is_(False))
+        .order_by(
+            ContractContact.last_name,
+            ContractContact.first_name,
+            ContractContact.patronymic,
+        )
+        .all()
+    )
+
+
+def get_contract_contact(db: Session, contact_id: str) -> ContractContact | None:
+    return (
+        db.query(ContractContact)
+        .options(joinedload(ContractContact.partner))
+        .filter(ContractContact.id == contact_id, ContractContact.is_deleted.is_(False))
+        .first()
+    )
+
+
+def create_contract_contact(
+    db: Session,
+    payload: schemas.ContractContactCreate,
+) -> ContractContact:
+    contact = ContractContact(**clean_form_data(model_data(payload)))
+    db.add(contact)
+    db.flush()
+    user = get_current_user(db)
+    log_audit(
+        db,
+        entity_type="ContractContact",
+        entity_id=contact.id,
+        action="create",
+        user_id=user.id if user else None,
+    )
+    db.commit()
+    db.refresh(contact)
+    return contact
+
+
+def list_partner_reconciliations(db: Session) -> list[PartnerReconciliation]:
+    return (
+        db.query(PartnerReconciliation)
+        .options(
+            joinedload(PartnerReconciliation.partner),
+            joinedload(PartnerReconciliation.contact),
+        )
+        .filter(PartnerReconciliation.is_deleted.is_(False))
+        .order_by(PartnerReconciliation.created_at.desc())
+        .all()
+    )
+
+
+def get_partner_reconciliation(
+    db: Session,
+    reconciliation_id: str,
+) -> PartnerReconciliation | None:
+    return (
+        db.query(PartnerReconciliation)
+        .options(
+            joinedload(PartnerReconciliation.partner),
+            joinedload(PartnerReconciliation.contact),
+            joinedload(PartnerReconciliation.items).joinedload(PartnerReconciliationItem.internal_case),
+        )
+        .filter(
+            PartnerReconciliation.id == reconciliation_id,
+            PartnerReconciliation.is_deleted.is_(False),
+        )
+        .first()
+    )
+
+
+def get_latest_partner_reconciliation(db: Session) -> PartnerReconciliation | None:
+    return (
+        db.query(PartnerReconciliation)
+        .filter(PartnerReconciliation.is_deleted.is_(False))
+        .order_by(PartnerReconciliation.created_at.desc())
+        .first()
+    )
+
+
+def create_partner_reconciliation(
+    db: Session,
+    payload: schemas.PartnerReconciliationCreate,
+    items: list[dict[str, Any]],
+) -> PartnerReconciliation:
+    data = clean_form_data(model_data(payload))
+    reconciliation_date = data.pop("reconciliation_date", None) or date.today()
+    contact = None
+    if data.get("contact_id"):
+        contact = get_contract_contact(db, data["contact_id"])
+
+    reconciliation = PartnerReconciliation(
+        **data,
+        reconciliation_date=reconciliation_date,
+        reconciliation_status="draft",
+        contact_name=(
+            " ".join(
+                part
+                for part in [
+                    contact.last_name if contact else None,
+                    contact.first_name if contact else None,
+                    contact.patronymic if contact else None,
+                ]
+                if part
+            )
+            or None
+        ),
+        contact_email=contact.email if contact else None,
+        our_case_count=sum(1 for item in items if item.get("source_side") == "our_company"),
+        partner_case_count=sum(1 for item in items if item.get("source_side") == "partner"),
+        matched_count=sum(
+            1
+            for item in items
+            if item.get("reconciliation_status") in {"matched", "confirmed"}
+        ),
+        discrepancy_count=sum(
+            1
+            for item in items
+            if item.get("reconciliation_status") not in {"matched", "confirmed"}
+        ),
+    )
+    db.add(reconciliation)
+    db.flush()
+
+    for item in items:
+        db.add(
+            PartnerReconciliationItem(
+                reconciliation_id=reconciliation.id,
+                **clean_form_data(item),
+            )
+        )
+
+    user = get_current_user(db)
+    log_audit(
+        db,
+        entity_type="PartnerReconciliation",
+        entity_id=reconciliation.id,
+        action="create",
+        user_id=user.id if user else None,
+    )
+    db.commit()
+    db.refresh(reconciliation)
+    return reconciliation
+
+
+def update_partner_reconciliation_item(
+    db: Session,
+    item: PartnerReconciliationItem,
+    payload: schemas.PartnerReconciliationItemUpdate,
+) -> PartnerReconciliationItem:
+    data = clean_form_data(model_data(payload))
+    item.internal_case_id = data.get("internal_case_id") or item.internal_case_id
+    item.reconciliation_status = data["reconciliation_status"]
+    item.reviewer_comment = data.get("reviewer_comment")
+    item.confirmed_by_user = data.get("confirmed_by_user")
+    item.version += 1
+    log_audit(
+        db,
+        entity_type="PartnerReconciliationItem",
+        entity_id=item.id,
+        action="status_change",
+        field_name="reconciliation_status",
+        new_value=item.reconciliation_status,
+        user_id=(get_current_user(db).id if get_current_user(db) else None),
+    )
+    refresh_partner_reconciliation_counts(item.reconciliation)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+def get_partner_reconciliation_item(
+    db: Session,
+    item_id: str,
+) -> PartnerReconciliationItem | None:
+    return (
+        db.query(PartnerReconciliationItem)
+        .options(joinedload(PartnerReconciliationItem.reconciliation))
+        .filter(
+            PartnerReconciliationItem.id == item_id,
+            PartnerReconciliationItem.is_deleted.is_(False),
+        )
+        .first()
+    )
+
+
+def confirm_partner_reconciliation(
+    db: Session,
+    reconciliation: PartnerReconciliation,
+    confirmed_by_user: str | None = None,
+) -> PartnerReconciliation:
+    reconciliation.reconciliation_status = "confirmed"
+    reconciliation.confirmed_by_user = confirmed_by_user
+    reconciliation.confirmed_at = utcnow()
+    reconciliation.version += 1
+    for item in reconciliation.items:
+        if item.reconciliation_status == "matched":
+            item.reconciliation_status = "confirmed"
+            item.confirmed_by_user = confirmed_by_user
+    refresh_partner_reconciliation_counts(reconciliation)
+    log_audit(
+        db,
+        entity_type="PartnerReconciliation",
+        entity_id=reconciliation.id,
+        action="confirm",
+        user_id=(get_current_user(db).id if get_current_user(db) else None),
+    )
+    db.commit()
+    db.refresh(reconciliation)
+    return reconciliation
+
+
+def refresh_partner_reconciliation_counts(reconciliation: PartnerReconciliation) -> None:
+    items = [item for item in reconciliation.items if not item.is_deleted]
+    reconciliation.our_case_count = sum(1 for item in items if item.source_side == "our_company")
+    reconciliation.partner_case_count = sum(1 for item in items if item.source_side == "partner")
+    reconciliation.matched_count = sum(
+        1 for item in items if item.reconciliation_status in {"matched", "confirmed"}
+    )
+    reconciliation.discrepancy_count = sum(
+        1 for item in items if item.reconciliation_status not in {"matched", "confirmed"}
+    )
+
+
 def create_product_substance(
     db: Session,
     payload: schemas.ProductSubstanceCreate,
 ) -> ProductSubstance:
+    existing_link = (
+        db.query(ProductSubstance)
+        .filter(
+            ProductSubstance.product_id == payload.product_id,
+            ProductSubstance.substance_id == payload.substance_id,
+            ProductSubstance.is_deleted.is_(False),
+        )
+        .first()
+    )
+    if existing_link:
+        return existing_link
+
     link = ProductSubstance(**clean_form_data(model_data(payload)))
     db.add(link)
     db.flush()
