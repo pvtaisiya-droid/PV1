@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from fastapi.responses import RedirectResponse
 from starlette import status
@@ -23,9 +23,21 @@ def redirect_with_message(
         params["error"] = error
     if validation:
         params["validation"] = validation
-    separator = "&" if "?" in path else "?"
-    suffix = f"{separator}{urlencode(params)}" if params else ""
-    return RedirectResponse(f"{path}{suffix}", status_code=status.HTTP_303_SEE_OTHER)
+    if not params:
+        return RedirectResponse(path, status_code=status.HTTP_303_SEE_OTHER)
+    parts = urlsplit(path)
+    query_params = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query_params.update(params)
+    target = urlunsplit(
+        (
+            parts.scheme,
+            parts.netloc,
+            parts.path,
+            urlencode(query_params),
+            parts.fragment,
+        )
+    )
+    return RedirectResponse(target, status_code=status.HTTP_303_SEE_OTHER)
 
 
 def contains_search(search: str | None, *values: object) -> bool:

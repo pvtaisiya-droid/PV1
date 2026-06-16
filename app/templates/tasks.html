@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% block title %}{{ _('Tasks') }} - {{ _('PV MVP') }}{% endblock %}
+
+{% macro task_responsible(task) -%}
+{{ task.responsible_person or (task.assigned_to.full_name if task.assigned_to else '') or (task.assigned_to.email if task.assigned_to else '') }}
+{%- endmacro %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+        <h1 class="h3 mb-1">{{ _('Tasks') }}</h1>
+        <div class="text-secondary small">{{ tasks|length }} {{ _('records') }}</div>
+    </div>
+</div>
+
+{% if message %}
+<div class="alert alert-success py-2" role="status">{{ _(message) }}</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-danger py-2" role="alert">{{ _(error) }}</div>
+{% endif %}
+{% if validation %}
+<div class="alert alert-warning py-2" role="alert">{{ _(validation) }}</div>
+{% endif %}
+
+<section class="surface mb-4">
+    <h2 class="h6 section-title">{{ _('Filters') }}</h2>
+    <form class="row g-2 align-items-end" method="get" action="/tasks">
+        <div class="col-md-4">
+            <label class="form-label">{{ _('Search') }}</label>
+            <input class="form-control" name="search" value="{{ filters.search }}" placeholder="{{ _('Title') }} / {{ _('Comment') }} / {{ _('Related object') }}">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Status') }}</label>
+            <select class="form-select" name="status_filter">
+                <option value="">{{ _('All') }}</option>
+                {% for status in status_options + legacy_status_options %}
+                <option value="{{ status }}" {% if filters.status_filter == status %}selected{% endif %}>{{ _(status) }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Responsible') }}</label>
+            <select class="form-select" name="responsible_filter">
+                <option value="">{{ _('All') }}</option>
+                {% for responsible in responsible_options %}
+                <option value="{{ responsible }}" {% if filters.responsible_filter == responsible %}selected{% endif %}>{{ responsible }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2 d-flex flex-wrap gap-2">
+            <button class="btn btn-primary icon-button" type="submit"><i data-lucide="search"></i><span>{{ _('Search') }}</span></button>
+            <a class="btn btn-outline-secondary icon-only" href="/tasks" title="{{ _('Cancel') }}"><i data-lucide="x"></i></a>
+        </div>
+    </form>
+</section>
+
+{% if has_permission('create') or has_permission('create_related_requests') or has_permission('comment') %}
+<section class="surface mb-4">
+    <h2 class="h6 section-title">{{ _('Add task') }}</h2>
+    <form class="row g-3" method="post" action="/tasks">
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Title') }}</label>
+            <input class="form-control" name="title" required>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Description') }}</label>
+            <input class="form-control" name="description">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Responsible') }}</label>
+            <input class="form-control" name="responsible_person">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Assigned') }}</label>
+            <select class="form-select" name="assigned_to_user_id">
+                <option value="">{{ _('None') }}</option>
+                {% for user in users %}
+                <option value="{{ user.id }}">{{ user.full_name or user.email }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-1">
+            <label class="form-label">{{ _('Priority') }}</label>
+            <select class="form-select" name="priority">
+                {% for priority in priority_options %}
+                <option value="{{ priority }}" {% if priority == 'normal' %}selected{% endif %}>{{ _(priority) }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-1">
+            <label class="form-label">{{ _('Due date') }}</label>
+            <input class="form-control" type="date" name="due_date">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Status') }}</label>
+            <select class="form-select" name="status_value">
+                {% for status in status_options %}
+                <option value="{{ status }}" {% if status == 'new' %}selected{% endif %}>{{ _(status) }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Related object') }}</label>
+            <input class="form-control" name="related_entity_type" placeholder="Partner / PSUR">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Related ID') }}</label>
+            <input class="form-control" name="related_entity_id">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Comment') }}</label>
+            <input class="form-control" name="comment">
+        </div>
+        <div class="col-md-2 d-flex align-items-end">
+            <button class="btn btn-primary w-100 icon-button" type="submit"><i data-lucide="plus"></i><span>{{ _('Add') }}</span></button>
+        </div>
+    </form>
+</section>
+{% endif %}
+
+<section class="surface">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead>
+            <tr>
+                <th>{{ _('Title') }}</th>
+                <th>{{ _('Responsible') }}</th>
+                <th>{{ _('Due date') }}</th>
+                <th>{{ _('Priority') }}</th>
+                <th>{{ _('Status') }}</th>
+                <th>{{ _('Related object') }}</th>
+                <th>{{ _('Comment') }}</th>
+                <th>{{ _('Actions') }}</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for task in tasks %}
+            {% set is_overdue = task.due_date and task.due_date < today and task.status not in ['completed', 'cancelled', 'Completed', 'Cancelled'] %}
+            <tr class="{% if is_overdue %}table-danger{% endif %}">
+                <td class="fw-medium">
+                    {{ task.title }}
+                    {% if task.description %}<div class="text-secondary small">{{ task.description }}</div>{% endif %}
+                </td>
+                <td>{{ task_responsible(task) }}</td>
+                <td>{{ task.due_date or "" }}</td>
+                <td><span class="badge text-bg-light">{{ _(task.priority) }}</span></td>
+                <td><span class="status-pill">{{ _(task.status) }}</span></td>
+                <td>
+                    {% if task.related_entity_type %}
+                    <span class="badge text-bg-light">{{ task.related_entity_type }}</span>
+                    <div class="text-secondary small text-break">{{ task.related_entity_id or "" }}</div>
+                    {% endif %}
+                </td>
+                <td>{{ task.comment or "" }}</td>
+                <td>
+                    {% if has_permission('edit') or has_permission('comment') %}
+                    <form class="d-flex gap-1" method="post" action="/tasks/{{ task.id }}/status">
+                        <select class="form-select form-select-sm" name="status_value">
+                            {% for status in status_options + legacy_status_options %}
+                            <option value="{{ status }}" {% if task.status == status %}selected{% endif %}>{{ _(status) }}</option>
+                            {% endfor %}
+                        </select>
+                        <button class="btn btn-outline-primary btn-sm icon-only" type="submit" title="{{ _('Save') }}"><i data-lucide="save"></i></button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="8" class="text-secondary">{% if filters.active and total_count %}{{ _('No records match the filters.') }}{% else %}{{ _('No tasks.') }}{% endif %}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

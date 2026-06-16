@@ -11,13 +11,17 @@ from app.routers import (
     contract_contacts,
     contracts,
     dashboard,
+    incoming_requests,
     partners,
     partner_reconciliation,
     placeholders,
     products,
+    psmf,
+    psur,
     safety_reports,
     substances,
     submissions,
+    tasks,
     users_roles,
 )
 
@@ -45,6 +49,10 @@ app.include_router(safety_reports.router)
 app.include_router(cases.router)
 app.include_router(partners.router)
 app.include_router(partner_reconciliation.router)
+app.include_router(incoming_requests.router)
+app.include_router(tasks.router)
+app.include_router(psur.router)
+app.include_router(psmf.router)
 app.include_router(products.router)
 app.include_router(substances.router)
 app.include_router(contracts.router)

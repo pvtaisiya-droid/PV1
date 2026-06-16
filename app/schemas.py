@@ -163,6 +163,11 @@ class PartnerReconciliationBase(BaseModel):
     language: Literal["ru", "en"] = "ru"
     reconciliation_status: str = "draft"
     prepared_by: str | None = None
+    products: str | None = None
+    sent_date: date | None = None
+    response_date: date | None = None
+    discrepancy_description: str | None = None
+    document_id: str | None = None
 
 
 class PartnerReconciliationCreate(PartnerReconciliationBase):
@@ -459,6 +464,262 @@ class SubmissionStatusUpdate(BaseModel):
     error_message: str | None = None
 
 
+class PSURPlanBase(BaseModel):
+    active_substance_id: str
+    product_id: str | None = None
+    psur_type: Literal["PSUR", "PBRER", "Local Safety Report"] = "PSUR"
+    reporting_period_start: date
+    reporting_period_end: date
+    data_lock_point: date
+    due_date_internal: date | None = None
+    due_date_submission: date | None = None
+    frequency: str | None = None
+    status: str = "Planned"
+    responsible_user_id: str | None = None
+    reviewer_user_id: str | None = None
+
+
+class PSURPlanCreate(PSURPlanBase):
+    pass
+
+
+class PSURPlanRead(PSURPlanBase, ORMModel):
+    id: str
+    created_by: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    is_deleted: bool
+
+
+class PSURPlanUpdate(BaseModel):
+    product_id: str | None = None
+    psur_type: str
+    reporting_period_start: date
+    reporting_period_end: date
+    data_lock_point: date
+    due_date_internal: date | None = None
+    due_date_submission: date | None = None
+    frequency: str | None = None
+    responsible_user_id: str | None = None
+    reviewer_user_id: str | None = None
+
+
+class PSURStatusUpdate(BaseModel):
+    status: str
+    change_reason: str | None = None
+
+
+class PSURProductCreate(BaseModel):
+    product_id: str
+    country: str | None = None
+    marketing_authorisation_number: str | None = None
+    included_in_report: bool = True
+    comment: str | None = None
+
+
+class PSURProductRead(PSURProductCreate, ORMModel):
+    id: str
+    psur_plan_id: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class PSURCaseUpdate(BaseModel):
+    case_included: bool = True
+    reason_excluded: str | None = None
+    seriousness: str | None = None
+    listedness: str | None = None
+    case_origin: str | None = None
+    assessment_comment: str | None = None
+
+
+class PSURCaseRead(PSURCaseUpdate, ORMModel):
+    id: str
+    psur_plan_id: str
+    case_id: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class PSURPartnerRequestCreate(BaseModel):
+    partner_id: str
+    contact_person_id: str | None = None
+    request_type: str = "Cases"
+    request_date: date | None = None
+    due_date: date | None = None
+    status: str = "Not Sent"
+    response_summary: str | None = None
+    document_id: str | None = None
+
+
+class PSURPartnerRequestRead(PSURPartnerRequestCreate, ORMModel):
+    id: str
+    psur_plan_id: str
+    created_by: str | None = None
+    response_date: date | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class PSURSectionUpdate(BaseModel):
+    section_status: str
+    assigned_to: str | None = None
+    reviewed_by: str | None = None
+    section_text: str | None = None
+    comment: str | None = None
+    human_confirmed: bool = False
+
+
+class PSURSectionRead(PSURSectionUpdate, ORMModel):
+    id: str
+    psur_plan_id: str
+    section_code: str
+    section_title: str
+    gpt_generated: bool
+    gpt_prompt: str | None = None
+    gpt_output_json: str | None = None
+    confirmed_by: str | None = None
+    confirmed_at: datetime | None = None
+    last_updated_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class PSURDocumentCreate(BaseModel):
+    document_type: str = "Draft"
+    file_name: str
+    file_path: str | None = None
+    version_number: str | None = None
+    is_final: bool = False
+    comment: str | None = None
+
+
+class PSURDocumentRead(PSURDocumentCreate, ORMModel):
+    id: str
+    psur_plan_id: str
+    uploaded_by: str | None = None
+    uploaded_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class TaskCreate(BaseModel):
+    title: str
+    description: str | None = None
+    status: str = "new"
+    priority: str = "normal"
+    due_date: date | None = None
+    assigned_to_user_id: str | None = None
+    responsible_person: str | None = None
+    related_entity_type: str | None = None
+    related_entity_id: str | None = None
+    comment: str | None = None
+
+
+class TaskRead(TaskCreate, ORMModel):
+    id: str
+    created_by: str | None = None
+    updated_by: str | None = None
+    completed_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class IncomingRequestCreate(BaseModel):
+    source_text: str
+    request_type: str | None = None
+    partner_id: str | None = None
+    product_id: str | None = None
+    active_substance: str | None = None
+    possible_icsr: str = "no"
+    patient_information: str | None = None
+    adverse_event: str | None = None
+    seriousness: str | None = None
+    seriousness_criteria: str | None = None
+    missing_information: str | None = None
+    recommended_next_action: str | None = None
+    validity_assessment: str | None = None
+    gpt_json_output: str | None = None
+    status: str = "confirmed"
+
+
+class IncomingRequestRead(IncomingRequestCreate, ORMModel):
+    id: str
+    human_confirmed: bool
+    created_by: str | None = None
+    updated_by: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class SOPCreate(BaseModel):
+    sop_code: str
+    title: str
+    document_type: str = "SOP"
+    version: str = "1.0"
+    status: str = "Draft"
+    process_area: str = "Other"
+    owner: str
+    reviewer: str | None = None
+    approver: str | None = None
+    approval_date: date | None = None
+    effective_date: date
+    next_review_date: date
+    revision_reason: str | None = None
+    file_path: str | None = None
+    file_url: str | None = None
+    description: str | None = None
+    training_required: bool = False
+
+
+class SOPRead(SOPCreate, ORMModel):
+    id: str
+    created_by: str | None = None
+    updated_by: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class PSMFComponentCreate(BaseModel):
+    code: str
+    title: str
+    component_type: Literal["MAIN_SECTION", "ANNEX"] = "MAIN_SECTION"
+    scope: Literal["GLOBAL", "PARTNER_SPECIFIC"] = "GLOBAL"
+    partner_id: str | None = None
+    description: str | None = None
+    status: Literal["draft", "under_review", "approved"] = "draft"
+    current_version: str = "0.1"
+
+
+class PSMFComponentRead(PSMFComponentCreate, ORMModel):
+    id: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class PSMFComponentVersionCreate(BaseModel):
+    component_id: str
+    version: str
+    content: str
+    status: Literal["draft", "under_review", "approved"] = "draft"
+    change_summary: str | None = None
+    created_by: str | None = None
+
+
+class PSMFComponentVersionRead(PSMFComponentVersionCreate, ORMModel):
+    id: str
+    approved_by: str | None = None
+    approved_at: datetime | None = None
+    is_locked: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class PSMFContentUpdate(BaseModel):
+    content: str
+    change_summary: str | None = None
+
+
 class DashboardStats(BaseModel):
     total_safety_reports: int
     reports_awaiting_triage: int
@@ -467,6 +728,17 @@ class DashboardStats(BaseModel):
     serious_cases: int
     submissions_due: int
     overdue_submissions: int
+    total_partners: int
+    total_products: int
+    active_pv_agreements: int
+    open_tasks: int
+    overdue_tasks: int
+    reconciliations_in_progress: int
+    incoming_requests_needing_review: int
+    effective_sops: int
+    sops_requiring_review: int
+    sops_under_approval: int
+    sops_review_due_60_days: int
 
 
 class CaseOverview(BaseModel):

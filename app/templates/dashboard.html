@@ -5,42 +5,108 @@
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
     <div>
         <h1 class="h3 mb-1">{{ _('Dashboard') }}</h1>
-        <div class="text-secondary small">{{ _('Operational overview') }}</div>
+        <div class="text-secondary small">{{ _('MVP operational overview') }}</div>
     </div>
-    <div class="d-flex gap-2">
-        <a class="btn btn-primary btn-sm icon-button" href="/safety-reports"><i data-lucide="inbox"></i><span>{{ _('Reports') }}</span></a>
-        <a class="btn btn-outline-primary btn-sm icon-button" href="/cases"><i data-lucide="folder-open"></i><span>{{ _('Cases') }}</span></a>
+    <div class="d-flex flex-wrap gap-2 page-actions">
+        <a class="btn btn-primary btn-sm icon-button" href="/incoming-requests"><i data-lucide="inbox"></i><span>{{ _('Incoming Requests') }}</span></a>
+        <a class="btn btn-outline-primary btn-sm icon-button" href="/tasks"><i data-lucide="list-checks"></i><span>{{ _('Tasks') }}</span></a>
     </div>
 </div>
 
-<div class="metric-grid">
-    <a class="metric-card" href="/safety-reports">
-        <span>{{ _('Total safety reports') }}</span>
-        <strong>{{ stats.total_safety_reports }}</strong>
+<div class="metric-grid mb-4">
+    <a class="metric-card" href="/partners">
+        <span>{{ _('Partners') }}</span>
+        <strong>{{ stats.total_partners }}</strong>
     </a>
-    <a class="metric-card warning" href="/safety-reports">
-        <span>{{ _('Reports awaiting triage') }}</span>
-        <strong>{{ stats.reports_awaiting_triage }}</strong>
+    <a class="metric-card" href="/products">
+        <span>{{ _('Products') }}</span>
+        <strong>{{ stats.total_products }}</strong>
     </a>
-    <a class="metric-card" href="/cases">
-        <span>{{ _('Total cases') }}</span>
-        <strong>{{ stats.total_cases }}</strong>
+    <a class="metric-card" href="/contracts">
+        <span>{{ _('Active PV agreements') }}</span>
+        <strong>{{ stats.active_pv_agreements }}</strong>
     </a>
-    <a class="metric-card" href="/cases">
-        <span>{{ _('Open cases') }}</span>
-        <strong>{{ stats.open_cases }}</strong>
+    <a class="metric-card" href="/tasks">
+        <span>{{ _('Open tasks') }}</span>
+        <strong>{{ stats.open_tasks }}</strong>
     </a>
-    <a class="metric-card danger" href="/cases">
-        <span>{{ _('Serious cases') }}</span>
-        <strong>{{ stats.serious_cases }}</strong>
+    <a class="metric-card danger" href="/tasks?status_filter=overdue">
+        <span>{{ _('Overdue tasks') }}</span>
+        <strong>{{ stats.overdue_tasks }}</strong>
     </a>
-    <a class="metric-card" href="/submissions">
-        <span>{{ _('Submissions due') }}</span>
-        <strong>{{ stats.submissions_due }}</strong>
+    <a class="metric-card warning" href="/partner-reconciliation">
+        <span>{{ _('Reconciliations in progress') }}</span>
+        <strong>{{ stats.reconciliations_in_progress }}</strong>
     </a>
-    <a class="metric-card danger" href="/submissions">
-        <span>{{ _('Overdue submissions') }}</span>
-        <strong>{{ stats.overdue_submissions }}</strong>
+    <a class="metric-card warning" href="/incoming-requests?status_filter=needs_review">
+        <span>{{ _('Incoming requests needing review') }}</span>
+        <strong>{{ stats.incoming_requests_needing_review }}</strong>
     </a>
+</div>
+
+<div class="row g-3">
+    <div class="col-xl-4">
+        <section class="surface h-100">
+            <h2 class="h6 section-title">{{ _('Upcoming deadlines') }}</h2>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                    <thead><tr><th>{{ _('Date') }}</th><th>{{ _('Item') }}</th><th>{{ _('Status') }}</th></tr></thead>
+                    <tbody>
+                    {% for item in upcoming_deadlines %}
+                    <tr>
+                        <td>{{ item.date }}</td>
+                        <td><a href="{{ item.url }}">{{ item.title }}</a><div class="text-secondary small">{{ _(item.type) }}{% if item.owner %} / {{ item.owner }}{% endif %}</div></td>
+                        <td><span class="status-pill">{{ _(item.status) }}</span></td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="3" class="text-secondary">{{ _('No upcoming deadlines.') }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+    <div class="col-xl-4">
+        <section class="surface h-100">
+            <h2 class="h6 section-title">{{ _('Overdue tasks') }}</h2>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                    <thead><tr><th>{{ _('Due date') }}</th><th>{{ _('Task') }}</th><th>{{ _('Responsible') }}</th></tr></thead>
+                    <tbody>
+                    {% for task in overdue_tasks %}
+                    <tr class="table-danger">
+                        <td>{{ task.due_date }}</td>
+                        <td><a href="/tasks">{{ task.title }}</a><div class="text-secondary small">{{ _(task.priority) }}</div></td>
+                        <td>{{ task.responsible_person or (task.assigned_to.full_name if task.assigned_to else '') }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="3" class="text-secondary">{{ _('No overdue tasks.') }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+    <div class="col-xl-4">
+        <section class="surface h-100">
+            <h2 class="h6 section-title">{{ _('Recent changes') }}</h2>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                    <thead><tr><th>{{ _('Time') }}</th><th>{{ _('Object') }}</th><th>{{ _('Action') }}</th></tr></thead>
+                    <tbody>
+                    {% for entry in recent_changes %}
+                    <tr>
+                        <td>{{ entry.changed_at or entry.timestamp }}</td>
+                        <td>{{ _(entry.entity_type) }}<div class="text-secondary small text-break">{{ entry.entity_id }}</div></td>
+                        <td><span class="status-pill">{{ _(entry.action) }}</span></td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="3" class="text-secondary">{{ _('No changes yet.') }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
 </div>
 {% endblock %}

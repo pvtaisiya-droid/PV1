@@ -1,0 +1,515 @@
+{% extends "base.html" %}
+{% block title %}{{ _('PSUR / PBRER') }} - {{ _('PV MVP') }}{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+        <h1 class="h3 mb-1">{{ plan.active_substance.substance_name if plan.active_substance else _('PSUR / PBRER') }}</h1>
+        <div class="text-secondary small">{{ _(plan.psur_type) }} / {{ _(plan.status) }} / {{ plan.reporting_period_start }} - {{ plan.reporting_period_end }}</div>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+        {% if has_permission('export') %}
+        <a class="btn btn-outline-secondary btn-sm icon-button" href="/api/psur/{{ plan.id }}/summary.rtf"><i data-lucide="file-down"></i><span>{{ _('Summary') }}</span></a>
+        <a class="btn btn-outline-secondary btn-sm icon-button" href="/api/psur/{{ plan.id }}/cases/export.csv"><i data-lucide="table"></i><span>{{ _('Cases CSV') }}</span></a>
+        {% endif %}
+        <a class="btn btn-outline-secondary btn-sm icon-button" href="/psur"><i data-lucide="arrow-left"></i><span>{{ _('Back') }}</span></a>
+    </div>
+</div>
+
+{% if message %}
+<div class="alert alert-success py-2" role="status">{{ _(message) }}</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-danger py-2" role="alert">{{ _(error) }}</div>
+{% endif %}
+{% if validation %}
+<div class="alert alert-warning py-2" role="alert">{{ _(validation) }}</div>
+{% endif %}
+
+<ul class="nav nav-tabs mb-3" id="psurTabs" role="tablist">
+    <li class="nav-item" role="presentation"><button class="nav-link active" id="general-tab" data-bs-toggle="tab" data-bs-target="#general" type="button" role="tab">{{ _('General information') }}</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" id="products-tab" data-bs-toggle="tab" data-bs-target="#products" type="button" role="tab">{{ _('Products') }}</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" id="cases-tab" data-bs-toggle="tab" data-bs-target="#cases" type="button" role="tab">{{ _('ICSR cases') }}</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" id="partner-requests-tab" data-bs-toggle="tab" data-bs-target="#partner-requests" type="button" role="tab">{{ _('Partner requests') }}</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" id="sections-tab" data-bs-toggle="tab" data-bs-target="#sections" type="button" role="tab">{{ _('Report sections') }}</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" id="documents-tab" data-bs-toggle="tab" data-bs-target="#documents" type="button" role="tab">{{ _('Documents') }}</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" id="tasks-tab" data-bs-toggle="tab" data-bs-target="#tasks" type="button" role="tab">{{ _('Tasks') }}</button></li>
+    {% if has_permission('audit_view') %}
+    <li class="nav-item" role="presentation"><button class="nav-link" id="audit-tab" data-bs-toggle="tab" data-bs-target="#audit" type="button" role="tab">{{ _('Audit trail') }}</button></li>
+    {% endif %}
+</ul>
+
+<div class="tab-content">
+    <div class="tab-pane fade show active" id="general" role="tabpanel" aria-labelledby="general-tab" tabindex="0">
+        <div class="row g-4">
+            <div class="col-lg-8">
+                <section class="surface">
+                    <h2 class="h6 section-title">{{ _('General information') }}</h2>
+                    <dl class="row compact-dl">
+                        <dt class="col-sm-4">{{ _('Active substance') }}</dt><dd class="col-sm-8">{{ plan.active_substance.substance_name if plan.active_substance else "" }}</dd>
+                        <dt class="col-sm-4">{{ _('Product') }}</dt><dd class="col-sm-8">{{ plan.product.product_name if plan.product else "" }}</dd>
+                        <dt class="col-sm-4">{{ _('Type') }}</dt><dd class="col-sm-8">{{ _(plan.psur_type) }}</dd>
+                        <dt class="col-sm-4">{{ _('Frequency') }}</dt><dd class="col-sm-8">{{ plan.frequency or "" }}</dd>
+                        <dt class="col-sm-4">{{ _('Reporting period') }}</dt><dd class="col-sm-8">{{ plan.reporting_period_start }} - {{ plan.reporting_period_end }}</dd>
+                        <dt class="col-sm-4">{{ _('Data lock point') }}</dt><dd class="col-sm-8">{{ plan.data_lock_point }}</dd>
+                        <dt class="col-sm-4">{{ _('Internal due') }}</dt><dd class="col-sm-8">{{ plan.due_date_internal or "" }}</dd>
+                        <dt class="col-sm-4">{{ _('Submission due') }}</dt><dd class="col-sm-8">{{ plan.due_date_submission or "" }}</dd>
+                        <dt class="col-sm-4">{{ _('Responsible') }}</dt><dd class="col-sm-8">{{ plan.responsible_user.full_name if plan.responsible_user else "" }}</dd>
+                        <dt class="col-sm-4">{{ _('Reviewer') }}</dt><dd class="col-sm-8">{{ plan.reviewer_user.full_name if plan.reviewer_user else "" }}</dd>
+                    </dl>
+                </section>
+            </div>
+            <div class="col-lg-4">
+                {% if has_permission('edit') or has_permission('approve') %}
+                <section class="surface mb-4">
+                    <h2 class="h6 section-title">{{ _('Change status') }}</h2>
+                    <form class="row g-3" method="post" action="/psur/{{ plan.id }}/status">
+                        <div class="col-12">
+                            <label class="form-label">{{ _('Status') }}</label>
+                            <select class="form-select" name="status_value">
+                                {% for status in psur_status_options %}
+                                <option value="{{ status }}" {% if plan.status == status %}selected{% endif %}>{{ _(status) }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">{{ _('Reason') }}</label>
+                            <input class="form-control" name="change_reason">
+                        </div>
+                        <div class="col-12">
+                            <button class="btn btn-primary icon-button" type="submit"><i data-lucide="refresh-cw"></i><span>{{ _('Update') }}</span></button>
+                        </div>
+                    </form>
+                </section>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if has_permission('edit') %}
+        <section class="surface mt-4">
+            <h2 class="h6 section-title">{{ _('Edit') }}</h2>
+            <form class="row g-3" method="post" action="/psur/{{ plan.id }}">
+                <div class="col-md-3">
+                    <label class="form-label">{{ _('Product') }}</label>
+                    <select class="form-select" name="product_id">
+                        <option value="">{{ _('None') }}</option>
+                        {% for product in products %}
+                        <option value="{{ product.id }}" {% if plan.product_id == product.id %}selected{% endif %}>{{ product.product_name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">{{ _('Type') }}</label>
+                    <select class="form-select" name="psur_type">
+                        {% for type in psur_type_options %}
+                        <option value="{{ type }}" {% if plan.psur_type == type %}selected{% endif %}>{{ _(type) }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2"><label class="form-label">{{ _('Period start') }}</label><input class="form-control" type="date" name="reporting_period_start" value="{{ plan.reporting_period_start }}" required></div>
+                <div class="col-md-2"><label class="form-label">{{ _('Period end') }}</label><input class="form-control" type="date" name="reporting_period_end" value="{{ plan.reporting_period_end }}" required></div>
+                <div class="col-md-2"><label class="form-label">{{ _('Data lock point') }}</label><input class="form-control" type="date" name="data_lock_point" value="{{ plan.data_lock_point }}" required></div>
+                <div class="col-md-1"><label class="form-label">{{ _('Frequency') }}</label><input class="form-control" name="frequency" value="{{ plan.frequency or '' }}"></div>
+                <div class="col-md-2"><label class="form-label">{{ _('Internal due') }}</label><input class="form-control" type="date" name="due_date_internal" value="{{ plan.due_date_internal or '' }}"></div>
+                <div class="col-md-2"><label class="form-label">{{ _('Submission due') }}</label><input class="form-control" type="date" name="due_date_submission" value="{{ plan.due_date_submission or '' }}"></div>
+                <div class="col-md-3">
+                    <label class="form-label">{{ _('Responsible') }}</label>
+                    <select class="form-select" name="responsible_user_id">
+                        <option value="">{{ _('None') }}</option>
+                        {% for user in users %}
+                        <option value="{{ user.id }}" {% if plan.responsible_user_id == user.id %}selected{% endif %}>{{ user.full_name or user.email }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">{{ _('Reviewer') }}</label>
+                    <select class="form-select" name="reviewer_user_id">
+                        <option value="">{{ _('None') }}</option>
+                        {% for user in users %}
+                        <option value="{{ user.id }}" {% if plan.reviewer_user_id == user.id %}selected{% endif %}>{{ user.full_name or user.email }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                    <button class="btn btn-primary w-100 icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Save') }}</span></button>
+                </div>
+            </form>
+        </section>
+        {% endif %}
+    </div>
+
+    <div class="tab-pane fade" id="products" role="tabpanel" aria-labelledby="products-tab" tabindex="0">
+        {% if has_permission('create') or has_permission('edit') %}
+        <section class="surface mb-4">
+            <h2 class="h6 section-title">{{ _('Add product') }}</h2>
+            <form class="row g-3" method="post" action="/psur/{{ plan.id }}/products">
+                <div class="col-md-3">
+                    <label class="form-label">{{ _('Product') }}</label>
+                    <select class="form-select" name="product_id" required>
+                        <option value="">{{ _('Select product') }}</option>
+                        {% for product in products %}
+                        <option value="{{ product.id }}">{{ product.product_name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2"><label class="form-label">{{ _('Country') }}</label><input class="form-control" name="country"></div>
+                <div class="col-md-3"><label class="form-label">{{ _('MA number') }}</label><input class="form-control" name="marketing_authorisation_number"></div>
+                <div class="col-md-2"><label class="form-check mt-4"><input class="form-check-input" type="checkbox" name="included_in_report" value="true" checked> {{ _('Included') }}</label></div>
+                <div class="col-md-1"><label class="form-label">{{ _('Comment') }}</label><input class="form-control" name="comment"></div>
+                <div class="col-md-1 d-flex align-items-end"><button class="btn btn-primary w-100 icon-only" type="submit" title="{{ _('Save') }}"><i data-lucide="save"></i></button></div>
+            </form>
+        </section>
+        {% endif %}
+        <section class="surface">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead><tr><th>{{ _('Product') }}</th><th>{{ _('Country') }}</th><th>{{ _('MA number') }}</th><th>{{ _('Included') }}</th><th>{{ _('Comment') }}</th></tr></thead>
+                    <tbody>
+                    {% for row in plan.psur_products %}
+                    <tr><td>{{ row.product.product_name if row.product else row.product_id }}</td><td>{{ row.country or "" }}</td><td>{{ row.marketing_authorisation_number or "" }}</td><td>{% if row.included_in_report %}{{ _('Yes') }}{% else %}{{ _('No') }}{% endif %}</td><td>{{ row.comment or "" }}</td></tr>
+                    {% else %}
+                    <tr><td colspan="5" class="text-secondary">{{ _('No products.') }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <div class="tab-pane fade" id="cases" role="tabpanel" aria-labelledby="cases-tab" tabindex="0">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+            <div class="text-secondary small">{{ plan.psur_cases|length }} {{ _('records') }}</div>
+            <div class="d-flex flex-wrap gap-2">
+                {% if has_permission('edit') %}
+                <form method="post" action="/psur/{{ plan.id }}/find-cases">
+                    <button class="btn btn-primary btn-sm icon-button" type="submit"><i data-lucide="search"></i><span>{{ _('Find ICSR cases for this PSUR') }}</span></button>
+                </form>
+                {% endif %}
+                {% if has_permission('export') %}
+                <a class="btn btn-outline-secondary btn-sm icon-button" href="/api/psur/{{ plan.id }}/cases/export.csv"><i data-lucide="download"></i><span>{{ _('CSV') }}</span></a>
+                {% endif %}
+            </div>
+        </div>
+        <section class="surface">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead><tr><th>{{ _('Case no.') }}</th><th>{{ _('Received') }}</th><th>{{ _('Seriousness') }}</th><th>{{ _('Listedness') }}</th><th>{{ _('Included') }}</th><th>{{ _('Reason') }}</th><th>{{ _('Assessment') }}</th><th>{{ _('Actions') }}</th></tr></thead>
+                    <tbody>
+                    {% for row in plan.psur_cases %}
+                    <tr>
+                        <form method="post" action="/psur/{{ plan.id }}/cases/{{ row.id }}">
+                            <td>
+                                {% if row.case %}<a href="/cases/{{ row.case_id }}">{{ row.case.case_number }}</a>{% else %}{{ row.case_id }}{% endif %}
+                                <input type="hidden" name="case_origin" value="{{ row.case_origin or '' }}">
+                            </td>
+                            <td>{{ (row.case.latest_received_date or row.case.initial_received_date) if row.case else "" }}</td>
+                            <td><input class="form-control form-control-sm" name="seriousness" value="{{ row.seriousness or '' }}"></td>
+                            <td><input class="form-control form-control-sm" name="listedness" value="{{ row.listedness or '' }}"></td>
+                            <td><label class="form-check"><input class="form-check-input" type="checkbox" name="case_included" value="true" {% if row.case_included %}checked{% endif %}> {{ _('Include') }}</label></td>
+                            <td><input class="form-control form-control-sm" name="reason_excluded" value="{{ row.reason_excluded or '' }}"></td>
+                            <td><input class="form-control form-control-sm" name="assessment_comment" value="{{ row.assessment_comment or '' }}"></td>
+                            <td>{% if has_permission('edit') %}<button class="btn btn-outline-primary btn-sm icon-only" type="submit" title="{{ _('Save') }}"><i data-lucide="save"></i></button>{% endif %}</td>
+                        </form>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="8" class="text-secondary">{{ _('No ICSR cases linked.') }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <div class="tab-pane fade" id="partner-requests" role="tabpanel" aria-labelledby="partner-requests-tab" tabindex="0">
+        {% if has_permission('create') or has_permission('create_related_requests') %}
+        <section class="surface mb-4">
+            <h2 class="h6 section-title">{{ _('Create partner requests') }}</h2>
+            <form class="row g-3" method="post" action="/psur/{{ plan.id }}/partner-requests">
+                <div class="col-lg-5">
+                    <label class="form-label">{{ _('Partners') }}</label>
+                    <div class="small-check-grid">
+                        {% for partner in partners %}
+                        <label class="form-check"><input class="form-check-input" type="checkbox" name="partner_ids" value="{{ partner.id }}"> {{ partner.partner_name }}</label>
+                        {% endfor %}
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">{{ _('Request type') }}</label>
+                    <select class="form-select" name="request_type">
+                        {% for type in partner_request_types %}
+                        <option value="{{ type }}">{{ _(type) }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2"><label class="form-label">{{ _('Request date') }}</label><input class="form-control" type="date" name="request_date"></div>
+                <div class="col-md-2"><label class="form-label">{{ _('Due date') }}</label><input class="form-control" type="date" name="due_date"></div>
+                <div class="col-md-1 d-flex align-items-end"><button class="btn btn-primary w-100 icon-only" type="submit" title="{{ _('Create') }}"><i data-lucide="send"></i></button></div>
+            </form>
+        </section>
+        {% endif %}
+        <section class="surface">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                <h2 class="h6 section-title mb-0">{{ _('Partner requests') }}</h2>
+                {% if has_permission('export') %}
+                <a class="btn btn-outline-secondary btn-sm icon-button" href="/api/psur/{{ plan.id }}/partner-requests/export.csv"><i data-lucide="download"></i><span>{{ _('CSV') }}</span></a>
+                {% endif %}
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead><tr><th>{{ _('Partner') }}</th><th>{{ _('Contact') }}</th><th>{{ _('Type') }}</th><th>{{ _('Dates') }}</th><th>{{ _('Status') }}</th><th>{{ _('Response') }}</th><th>{{ _('Document') }}</th><th>{{ _('Actions') }}</th></tr></thead>
+                    <tbody>
+                    {% for request_row in plan.partner_requests %}
+                    <tr>
+                        <form method="post" action="/psur/{{ plan.id }}/partner-requests/{{ request_row.id }}">
+                            <td><input type="hidden" name="partner_id" value="{{ request_row.partner_id }}">{{ request_row.partner.partner_name if request_row.partner else request_row.partner_id }}</td>
+                            <td>
+                                <select class="form-select form-select-sm" name="contact_person_id">
+                                    <option value="">{{ _('None') }}</option>
+                                    {% for contact in contacts %}
+                                    {% if contact.partner_id == request_row.partner_id %}
+                                    <option value="{{ contact.id }}" {% if request_row.contact_person_id == contact.id %}selected{% endif %}>{{ contact.last_name }} {{ contact.first_name }} / {{ contact.email }}</option>
+                                    {% endif %}
+                                    {% endfor %}
+                                </select>
+                            </td>
+                            <td>
+                                <select class="form-select form-select-sm" name="request_type">
+                                    {% for type in partner_request_types %}
+                                    <option value="{{ type }}" {% if request_row.request_type == type %}selected{% endif %}>{{ _(type) }}</option>
+                                    {% endfor %}
+                                </select>
+                            </td>
+                            <td>
+                                <div class="d-grid gap-1">
+                                    <input class="form-control form-control-sm" type="date" name="request_date" value="{{ request_row.request_date or '' }}">
+                                    <input class="form-control form-control-sm" type="date" name="due_date" value="{{ request_row.due_date or '' }}">
+                                </div>
+                            </td>
+                            <td>
+                                <select class="form-select form-select-sm" name="status_value">
+                                    {% for status in partner_request_statuses %}
+                                    <option value="{{ status }}" {% if request_row.status == status %}selected{% endif %}>{{ _(status) }}</option>
+                                    {% endfor %}
+                                </select>
+                            </td>
+                            <td><input class="form-control form-control-sm" name="response_summary" value="{{ request_row.response_summary or '' }}"></td>
+                            <td>
+                                <select class="form-select form-select-sm" name="document_id">
+                                    <option value="">{{ _('None') }}</option>
+                                    {% for document in plan.documents %}
+                                    <option value="{{ document.id }}" {% if request_row.document_id == document.id %}selected{% endif %}>{{ document.file_name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </td>
+                            <td>{% if has_permission('edit') or has_permission('comment') %}<button class="btn btn-outline-primary btn-sm icon-only" type="submit" title="{{ _('Save') }}"><i data-lucide="save"></i></button>{% endif %}</td>
+                        </form>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="8" class="text-secondary">{{ _('No partner requests.') }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <div class="tab-pane fade" id="sections" role="tabpanel" aria-labelledby="sections-tab" tabindex="0">
+        <section class="surface">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead><tr><th>{{ _('Code') }}</th><th>{{ _('Section') }}</th><th>{{ _('Status') }}</th><th>{{ _('Assigned') }}</th><th>{{ _('Reviewer') }}</th><th>{{ _('GPT') }}</th><th>{{ _('Confirmed') }}</th><th>{{ _('Actions') }}</th></tr></thead>
+                    <tbody>
+                    {% for section in plan.sections|sort(attribute="section_code") %}
+                    <tr>
+                        <td>{{ section.section_code }}</td>
+                        <td class="fw-medium">{{ _(section.section_title) }}</td>
+                        <td><span class="status-pill">{{ _(section.section_status) }}</span></td>
+                        <td>{{ section.assignee.full_name if section.assignee else "" }}</td>
+                        <td>{{ section.reviewer.full_name if section.reviewer else "" }}</td>
+                        <td>{% if section.gpt_generated %}{{ _('Draft') }}{% else %}{{ _('No') }}{% endif %}</td>
+                        <td>{% if section.human_confirmed %}{{ _('Yes') }}{% else %}{{ _('No') }}{% endif %}</td>
+                        <td><button class="btn btn-outline-primary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#section-edit-{{ section.id }}" title="{{ _('Edit') }}"><i data-lucide="pencil"></i></button></td>
+                    </tr>
+                    <tr class="collapse" id="section-edit-{{ section.id }}">
+                        <td colspan="8">
+                            <form class="row g-3" method="post" action="/psur/{{ plan.id }}/sections/{{ section.id }}">
+                                <div class="col-md-2">
+                                    <label class="form-label">{{ _('Status') }}</label>
+                                    <select class="form-select" name="section_status">
+                                        {% for status in section_status_options %}
+                                        <option value="{{ status }}" {% if section.section_status == status %}selected{% endif %}>{{ _(status) }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">{{ _('Assigned') }}</label>
+                                    <select class="form-select" name="assigned_to">
+                                        <option value="">{{ _('None') }}</option>
+                                        {% for user in users %}
+                                        <option value="{{ user.id }}" {% if section.assigned_to == user.id %}selected{% endif %}>{{ user.full_name or user.email }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">{{ _('Reviewer') }}</label>
+                                    <select class="form-select" name="reviewed_by">
+                                        <option value="">{{ _('None') }}</option>
+                                        {% for user in users %}
+                                        <option value="{{ user.id }}" {% if section.reviewed_by == user.id %}selected{% endif %}>{{ user.full_name or user.email }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-md-3"><label class="form-label">{{ _('Comment') }}</label><input class="form-control" name="comment" value="{{ section.comment or '' }}"></div>
+                                <div class="col-md-2"><label class="form-check mt-4"><input class="form-check-input" type="checkbox" name="human_confirmed" value="true" {% if section.human_confirmed %}checked{% endif %}> {{ _('Human confirmed') }}</label></div>
+                                <div class="col-md-1 d-flex align-items-end">{% if has_permission('edit') or has_permission('comment') or has_permission('approve') %}<button class="btn btn-primary w-100 icon-only" type="submit" title="{{ _('Save') }}"><i data-lucide="save"></i></button>{% endif %}</div>
+                                <div class="col-12">
+                                    <label class="form-label">{{ _('Section text') }}</label>
+                                    <textarea class="form-control" rows="6" name="section_text">{{ section.section_text or '' }}</textarea>
+                                </div>
+                            </form>
+                            {% if has_permission('edit') or has_permission('comment') %}
+                            <form class="mt-2" method="post" action="/psur/{{ plan.id }}/sections/{{ section.id }}/generate">
+                                <button class="btn btn-outline-secondary btn-sm icon-button" type="submit"><i data-lucide="sparkles"></i><span>{{ _('Generate draft for human review') }}</span></button>
+                            </form>
+                            {% endif %}
+                            {% if section.gpt_output_json %}
+                            <details class="mt-2">
+                                <summary class="small text-secondary">{{ _('GPT output JSON') }}</summary>
+                                <pre class="raw-text small mt-2">{{ section.gpt_output_json }}</pre>
+                            </details>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="8" class="text-secondary">{{ _('No sections.') }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <div class="tab-pane fade" id="documents" role="tabpanel" aria-labelledby="documents-tab" tabindex="0">
+        {% if has_permission('upload') or has_permission('create') %}
+        <section class="surface mb-4">
+            <h2 class="h6 section-title">{{ _('Add document') }}</h2>
+            <form class="row g-3" method="post" action="/psur/{{ plan.id }}/documents">
+                <div class="col-md-2">
+                    <label class="form-label">{{ _('Type') }}</label>
+                    <select class="form-select" name="document_type">
+                        {% for type in document_types %}
+                        <option value="{{ type }}">{{ _(type) }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3"><label class="form-label">{{ _('File name') }}</label><input class="form-control" name="file_name" required></div>
+                <div class="col-md-3"><label class="form-label">{{ _('Storage path') }}</label><input class="form-control" name="file_path"></div>
+                <div class="col-md-1"><label class="form-label">{{ _('Version') }}</label><input class="form-control" name="version_number"></div>
+                <div class="col-md-1"><label class="form-check mt-4"><input class="form-check-input" type="checkbox" name="is_final" value="true"> {{ _('Final') }}</label></div>
+                <div class="col-md-1"><label class="form-label">{{ _('Comment') }}</label><input class="form-control" name="comment"></div>
+                <div class="col-md-1 d-flex align-items-end"><button class="btn btn-primary w-100 icon-only" type="submit" title="{{ _('Save') }}"><i data-lucide="save"></i></button></div>
+            </form>
+        </section>
+        {% endif %}
+        <section class="surface">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead><tr><th>{{ _('File name') }}</th><th>{{ _('Type') }}</th><th>{{ _('Version') }}</th><th>{{ _('Final') }}</th><th>{{ _('Uploaded') }}</th><th>{{ _('Uploaded by') }}</th><th>{{ _('Comment') }}</th></tr></thead>
+                    <tbody>
+                    {% for document in plan.documents %}
+                    <tr><td class="fw-medium">{{ document.file_name }}</td><td>{{ _(document.document_type) }}</td><td>{{ document.version_number or "" }}</td><td>{% if document.is_final %}{{ _('Yes') }}{% else %}{{ _('No') }}{% endif %}</td><td>{{ document.uploaded_at or document.created_at }}</td><td>{{ document.uploader.email if document.uploader else "" }}</td><td>{{ document.comment or "" }}</td></tr>
+                    {% else %}
+                    <tr><td colspan="7" class="text-secondary">{{ _('No documents yet.') }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <div class="tab-pane fade" id="tasks" role="tabpanel" aria-labelledby="tasks-tab" tabindex="0">
+        {% if has_permission('create') or has_permission('create_related_requests') or has_permission('comment') %}
+        <section class="surface mb-4">
+            <h2 class="h6 section-title">{{ _('Add task') }}</h2>
+            <form class="row g-3" method="post" action="/psur/{{ plan.id }}/tasks">
+                <div class="col-md-3"><label class="form-label">{{ _('Title') }}</label><input class="form-control" name="title" required></div>
+                <div class="col-md-3"><label class="form-label">{{ _('Description') }}</label><input class="form-control" name="description"></div>
+                <div class="col-md-1"><label class="form-label">{{ _('Status') }}</label><input class="form-control" name="status_value" value="Open"></div>
+                <div class="col-md-1"><label class="form-label">{{ _('Priority') }}</label><input class="form-control" name="priority" value="Normal"></div>
+                <div class="col-md-2"><label class="form-label">{{ _('Due date') }}</label><input class="form-control" type="date" name="due_date"></div>
+                <div class="col-md-1">
+                    <label class="form-label">{{ _('Assigned') }}</label>
+                    <select class="form-select" name="assigned_to_user_id">
+                        <option value="">{{ _('None') }}</option>
+                        {% for user in users %}
+                        <option value="{{ user.id }}">{{ user.full_name or user.email }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-1 d-flex align-items-end"><button class="btn btn-primary w-100 icon-only" type="submit" title="{{ _('Save') }}"><i data-lucide="save"></i></button></div>
+            </form>
+        </section>
+        {% endif %}
+        <section class="surface">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead><tr><th>{{ _('Title') }}</th><th>{{ _('Status') }}</th><th>{{ _('Priority') }}</th><th>{{ _('Due date') }}</th><th>{{ _('Assigned') }}</th><th>{{ _('Description') }}</th></tr></thead>
+                    <tbody>
+                    {% for task in tasks %}
+                    <tr><td class="fw-medium">{{ task.title }}</td><td><span class="status-pill">{{ _(task.status) }}</span></td><td>{{ _(task.priority) }}</td><td>{{ task.due_date or "" }}</td><td>{{ task.assigned_to.full_name if task.assigned_to else "" }}</td><td>{{ task.description or "" }}</td></tr>
+                    {% else %}
+                    <tr><td colspan="6" class="text-secondary">{{ _('No tasks.') }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    {% if has_permission('audit_view') %}
+    <div class="tab-pane fade" id="audit" role="tabpanel" aria-labelledby="audit-tab" tabindex="0">
+        <section class="surface">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                <h2 class="h6 section-title mb-0">{{ _('Audit trail') }}</h2>
+                {% if has_permission('export') %}
+                <a class="btn btn-outline-secondary btn-sm icon-button" href="/api/psur/{{ plan.id }}/audit/export.csv"><i data-lucide="download"></i><span>{{ _('CSV') }}</span></a>
+                {% endif %}
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead><tr><th>{{ _('Timestamp') }}</th><th>{{ _('Action') }}</th><th>{{ _('Entity') }}</th><th>{{ _('Field') }}</th><th>{{ _('Old') }}</th><th>{{ _('New') }}</th><th>{{ _('User') }}</th><th>{{ _('Comment') }}</th></tr></thead>
+                    <tbody>
+                    {% for entry in audit_entries %}
+                    <tr>
+                        <td>{{ entry.changed_at or entry.timestamp }}</td>
+                        <td>{{ _(entry.action) }}</td>
+                        <td>{{ _(entry.entity_type) }}</td>
+                        <td>{{ entry.field_name or "" }}</td>
+                        <td>{{ entry.old_value or "" }}</td>
+                        <td>{{ entry.new_value or "" }}</td>
+                        <td>{{ entry.user.email if entry.user else "" }}</td>
+                        <td>{{ entry.comment or "" }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="8" class="text-secondary">{{ _('No audit entries.') }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+    (function () {
+        if (!window.location.hash || !window.bootstrap) {
+            return;
+        }
+        const trigger = document.querySelector(`[data-bs-target="${window.location.hash}"]`);
+        if (trigger) {
+            window.bootstrap.Tab.getOrCreateInstance(trigger).show();
+        }
+    })();
+</script>
+{% endblock %}

@@ -42,7 +42,7 @@ body {
     width: 264px;
     height: 100vh;
     padding: 0.7rem 0.7rem 0.6rem;
-    overflow: visible;
+    overflow: hidden;
     border-right: 1px solid var(--pv-line);
     background: var(--pv-surface);
     transition: width 0.18s ease, flex-basis 0.18s ease;
@@ -226,8 +226,9 @@ body {
     flex-direction: column;
     flex: 1;
     min-height: 0;
-    gap: 0.55rem;
-    padding-top: 0.5rem;
+    gap: 0.42rem;
+    padding-top: 0.42rem;
+    overflow: hidden;
 }
 
 .sidebar-section {
@@ -243,16 +244,18 @@ body {
 .sidebar-secondary {
     display: flex;
     flex-direction: column;
-    gap: 0.22rem;
+    gap: 0.16rem;
+    min-width: 0;
 }
 
 .sidebar-primary {
-    padding-bottom: 0.45rem;
+    padding-bottom: 0.35rem;
     border-bottom: 1px solid var(--pv-line);
 }
 
 .sidebar-secondary {
     min-height: 0;
+    overflow: hidden;
 }
 
 .sidebar-group-panel {
@@ -273,13 +276,13 @@ body {
     align-items: center;
     min-width: 0;
     gap: 0.55rem;
-    min-height: 32px;
-    padding: 0.35rem 0.5rem;
+    min-height: 28px;
+    padding: 0.28rem 0.45rem;
     border: 1px solid transparent;
     border-radius: 6px;
     color: var(--pv-ink);
     background: transparent;
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     font-weight: 600;
     line-height: 1.2;
     text-decoration: none;
@@ -294,7 +297,7 @@ body {
 
 .sidebar-sub-link {
     color: #384854;
-    font-size: 0.84rem;
+    font-size: 0.8rem;
     font-weight: 550;
 }
 
@@ -341,7 +344,7 @@ body {
 
 .sidebar-footer {
     margin-top: auto;
-    padding-top: 0.45rem;
+    padding-top: 0.35rem;
     border-top: 1px solid var(--pv-line);
 }
 
@@ -586,6 +589,17 @@ body {
     width: fit-content;
 }
 
+.empty-state {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.85rem;
+    border: 1px dashed var(--pv-line);
+    border-radius: 8px;
+    background: #fbfcfd;
+}
+
 .nav-tabs .nav-link {
     color: var(--pv-muted);
 }
@@ -607,13 +621,53 @@ body {
     }
 
     .app-topbar {
+        flex-wrap: wrap;
         min-height: 56px;
         padding: 0.65rem 0.85rem;
+    }
+
+    .topbar-spacer {
+        display: none;
+    }
+
+    .mobile-brand {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .app-topbar > .d-flex {
+        min-width: 0;
+        max-width: 100%;
+        width: 100%;
+        gap: 0.35rem !important;
+    }
+
+    .app-topbar .icon-button span {
+        display: none;
+    }
+
+    .app-topbar a[href="/docs"] {
+        display: none;
     }
 
     .app-content {
         padding-left: 0.85rem;
         padding-right: 0.85rem;
+        overflow-x: hidden;
+    }
+
+    .user-switcher {
+        min-width: 132px;
+        max-width: 150px;
+        flex: 1 1 132px;
+    }
+
+    .metric-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .page-actions {
+        width: 100%;
     }
 
     .surface {

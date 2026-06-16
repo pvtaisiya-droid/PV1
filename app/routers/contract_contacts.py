@@ -101,6 +101,9 @@ def create_contract_contact_form(
                 is_current=is_current,
             ),
         )
+    except ValueError as exc:
+        db.rollback()
+        return redirect_with_message("/contract-contacts", validation=str(exc))
     except IntegrityError:
         db.rollback()
         return redirect_with_message("/contract-contacts", error="Contact could not be saved.")
@@ -145,6 +148,9 @@ def edit_contract_contact_form(
                 is_current=is_current,
             ),
         )
+    except ValueError as exc:
+        db.rollback()
+        return redirect_with_message("/contract-contacts", validation=str(exc))
     except IntegrityError:
         db.rollback()
         return redirect_with_message("/contract-contacts", error="Contact could not be saved.")
@@ -193,7 +199,10 @@ def api_create_contract_contact(
     db: Session = Depends(get_db),
 ):
     validate_partner(db, payload.partner_id)
-    return crud.create_contract_contact(db, payload)
+    try:
+        return crud.create_contract_contact(db, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get(

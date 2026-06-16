@@ -102,6 +102,21 @@ class User(CommonMixin, Base):
         foreign_keys="UserRole.assigned_by_user_id",
         back_populates="assigned_by",
     )
+    responsible_psur_plans = relationship(
+        "PSURPlan",
+        foreign_keys="PSURPlan.responsible_user_id",
+        back_populates="responsible_user",
+    )
+    reviewer_psur_plans = relationship(
+        "PSURPlan",
+        foreign_keys="PSURPlan.reviewer_user_id",
+        back_populates="reviewer_user",
+    )
+    assigned_tasks = relationship(
+        "Task",
+        foreign_keys="Task.assigned_to_user_id",
+        back_populates="assigned_to",
+    )
 
 
 class UserRole(CommonMixin, Base):
@@ -159,6 +174,8 @@ class Partner(CommonMixin, Base):
     address = Column(Text, nullable=True)
     pv_responsible_person = Column(String(255), nullable=True)
     sdea_required = Column(Boolean, default=False, nullable=False)
+    created_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+    updated_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
 
     safety_reports = relationship("SafetyReport", back_populates="partner")
     cases = relationship("Case", back_populates="partner")
@@ -167,6 +184,16 @@ class Partner(CommonMixin, Base):
     contract_contacts = relationship("ContractContact", back_populates="partner")
     reconciliations = relationship("PartnerReconciliation", back_populates="partner")
     submissions = relationship("Submission", back_populates="recipient_partner")
+    psur_partner_requests = relationship("PSURPartnerRequest", back_populates="partner")
+    psmf_components = relationship("PSMFComponent", back_populates="partner")
+    documents = relationship(
+        "Attachment",
+        foreign_keys="Attachment.partner_id",
+        back_populates="partner",
+    )
+    incoming_requests = relationship("IncomingRequest", back_populates="partner")
+    creator = relationship("User", foreign_keys=[created_by])
+    updater = relationship("User", foreign_keys=[updated_by])
 
 
 class Substance(CommonMixin, Base):
@@ -186,6 +213,7 @@ class Substance(CommonMixin, Base):
     substance_type = Column(String(50), nullable=True)
 
     product_links = relationship("ProductSubstance", back_populates="substance")
+    psur_plans = relationship("PSURPlan", back_populates="active_substance")
 
 
 class Product(CommonMixin, Base):
@@ -208,6 +236,8 @@ class Product(CommonMixin, Base):
     authorization_country_code = Column(String(2), nullable=True)
     authorization_status = Column(String(50), nullable=True)
     is_company_product = Column(Boolean, default=True, nullable=False)
+    created_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+    updated_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
 
     mah_partner = relationship("Partner", back_populates="products")
     contracts = relationship("Contract", back_populates="product")
@@ -217,11 +247,22 @@ class Product(CommonMixin, Base):
         cascade="all, delete-orphan",
     )
     case_products = relationship("CaseProduct", back_populates="product")
+    psur_plans = relationship("PSURPlan", back_populates="product")
+    psur_products = relationship("PSURProduct", back_populates="product")
+    documents = relationship(
+        "Attachment",
+        foreign_keys="Attachment.product_id",
+        back_populates="product",
+    )
+    incoming_requests = relationship("IncomingRequest", back_populates="product")
+    creator = relationship("User", foreign_keys=[created_by])
+    updater = relationship("User", foreign_keys=[updated_by])
 
 
 class Contract(CommonMixin, Base):
     __tablename__ = "tblContracts"
     __table_args__ = (
+        UniqueConstraint("partner_id", "product_id", name="uq_contract_partner_product"),
         Index("ix_contract_partner_product", "partner_id", "product_id"),
         Index("ix_contract_valid_until", "valid_until"),
     )
@@ -232,9 +273,13 @@ class Contract(CommonMixin, Base):
     contract_number = Column(String(100), nullable=False, index=True)
     contract_date = Column(Date, nullable=False)
     valid_until = Column(Date, nullable=False)
+    created_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+    updated_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
 
     partner = relationship("Partner", back_populates="contracts")
     product = relationship("Product", back_populates="contracts")
+    creator = relationship("User", foreign_keys=[created_by])
+    updater = relationship("User", foreign_keys=[updated_by])
 
     @property
     def is_current(self) -> bool:
@@ -245,6 +290,7 @@ class Contract(CommonMixin, Base):
 class ContractContact(CommonMixin, Base):
     __tablename__ = "tblContractContacts"
     __table_args__ = (
+        UniqueConstraint("partner_id", "email", name="uq_contract_contact_partner_email"),
         Index("ix_contract_contact_partner", "partner_id"),
         Index("ix_contract_contact_current", "is_current"),
     )
@@ -258,6 +304,7 @@ class ContractContact(CommonMixin, Base):
     is_current = Column(Boolean, default=True, nullable=False)
 
     partner = relationship("Partner", back_populates="contract_contacts")
+    psur_partner_requests = relationship("PSURPartnerRequest", back_populates="contact_person")
 
 
 class PartnerReconciliation(CommonMixin, Base):
@@ -277,15 +324,25 @@ class PartnerReconciliation(CommonMixin, Base):
     prepared_by = Column(String(255), nullable=True)
     contact_name = Column(String(255), nullable=True)
     contact_email = Column(String(255), nullable=True)
+    products = Column(Text, nullable=True)
+    sent_date = Column(Date, nullable=True)
+    response_date = Column(Date, nullable=True)
+    discrepancy_description = Column(Text, nullable=True)
+    document_id = Column(String(36), ForeignKey("tblAttachments.id"), nullable=True)
     our_case_count = Column(Integer, default=0, nullable=False)
     partner_case_count = Column(Integer, default=0, nullable=False)
     matched_count = Column(Integer, default=0, nullable=False)
     discrepancy_count = Column(Integer, default=0, nullable=False)
     confirmed_by_user = Column(String(255), nullable=True)
     confirmed_at = Column(DateTime(timezone=True), nullable=True)
+    created_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+    updated_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
 
     partner = relationship("Partner", back_populates="reconciliations")
     contact = relationship("ContractContact")
+    response_document = relationship("Attachment", foreign_keys=[document_id])
+    creator = relationship("User", foreign_keys=[created_by])
+    updater = relationship("User", foreign_keys=[updated_by])
     items = relationship(
         "PartnerReconciliationItem",
         back_populates="reconciliation",
@@ -429,6 +486,8 @@ class Case(CommonMixin, Base):
     is_locked = Column(Boolean, default=False, nullable=False)
     locked_by_user_id = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
     locked_at = Column(DateTime(timezone=True), nullable=True)
+    created_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+    updated_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
 
     safety_report = relationship(
         "SafetyReport",
@@ -442,6 +501,8 @@ class Case(CommonMixin, Base):
         back_populates="assigned_cases",
     )
     locked_by = relationship("User", foreign_keys=[locked_by_user_id])
+    creator = relationship("User", foreign_keys=[created_by])
+    updater = relationship("User", foreign_keys=[updated_by])
     patients = relationship("Patient", back_populates="case", cascade="all, delete-orphan")
     case_products = relationship(
         "CaseProduct",
@@ -453,6 +514,276 @@ class Case(CommonMixin, Base):
     attachments = relationship("Attachment", back_populates="case")
     submissions = relationship("Submission", back_populates="case")
     audit_entries = relationship("AuditTrail", back_populates="case")
+    psur_cases = relationship("PSURCase", back_populates="case")
+
+
+class PSURPlan(CommonMixin, Base):
+    __tablename__ = "tblPSURPlans"
+    __table_args__ = (
+        Index("ix_psur_plan_substance_status", "active_substance_id", "status"),
+        Index("ix_psur_plan_product_period", "product_id", "reporting_period_start", "reporting_period_end"),
+        Index("ix_psur_plan_due", "due_date_submission"),
+    )
+
+    id = Column("psur_plan_id", String(36), primary_key=True, default=new_uuid)
+    active_substance_id = Column(
+        String(36),
+        ForeignKey("tblSubstances.id"),
+        nullable=False,
+        index=True,
+    )
+    product_id = Column(String(36), ForeignKey("tblProducts.id"), nullable=True, index=True)
+    psur_type = Column(String(50), default="PSUR", nullable=False, index=True)
+    reporting_period_start = Column(Date, nullable=False, index=True)
+    reporting_period_end = Column(Date, nullable=False, index=True)
+    data_lock_point = Column(Date, nullable=False, index=True)
+    due_date_internal = Column(Date, nullable=True, index=True)
+    due_date_submission = Column(Date, nullable=True, index=True)
+    frequency = Column(String(50), nullable=True)
+    status = Column(String(50), default="Planned", nullable=False, index=True)
+    responsible_user_id = Column(String(36), ForeignKey("tblUsers.id"), nullable=True, index=True)
+    reviewer_user_id = Column(String(36), ForeignKey("tblUsers.id"), nullable=True, index=True)
+    created_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+
+    active_substance = relationship("Substance", back_populates="psur_plans")
+    product = relationship("Product", back_populates="psur_plans")
+    responsible_user = relationship(
+        "User",
+        foreign_keys=[responsible_user_id],
+        back_populates="responsible_psur_plans",
+    )
+    reviewer_user = relationship(
+        "User",
+        foreign_keys=[reviewer_user_id],
+        back_populates="reviewer_psur_plans",
+    )
+    creator = relationship("User", foreign_keys=[created_by])
+    psur_products = relationship(
+        "PSURProduct",
+        back_populates="psur_plan",
+        cascade="all, delete-orphan",
+    )
+    psur_cases = relationship(
+        "PSURCase",
+        back_populates="psur_plan",
+        cascade="all, delete-orphan",
+    )
+    partner_requests = relationship(
+        "PSURPartnerRequest",
+        back_populates="psur_plan",
+        cascade="all, delete-orphan",
+    )
+    sections = relationship(
+        "PSURSection",
+        back_populates="psur_plan",
+        cascade="all, delete-orphan",
+    )
+    documents = relationship(
+        "PSURDocument",
+        back_populates="psur_plan",
+        cascade="all, delete-orphan",
+    )
+    tasks = relationship(
+        "Task",
+        primaryjoin="and_(Task.related_entity_type=='PSUR', foreign(Task.related_entity_id)==PSURPlan.id)",
+        viewonly=True,
+    )
+
+
+class PSURProduct(CommonMixin, Base):
+    __tablename__ = "tblPSURProducts"
+    __table_args__ = (
+        UniqueConstraint("psur_plan_id", "product_id", "country", name="uq_psur_product_scope"),
+        Index("ix_psur_product_plan", "psur_plan_id"),
+    )
+
+    id = Column("psur_product_id", String(36), primary_key=True, default=new_uuid)
+    psur_plan_id = Column(
+        String(36),
+        ForeignKey("tblPSURPlans.psur_plan_id"),
+        nullable=False,
+        index=True,
+    )
+    product_id = Column(String(36), ForeignKey("tblProducts.id"), nullable=False, index=True)
+    country = Column(String(100), nullable=True)
+    marketing_authorisation_number = Column(String(100), nullable=True)
+    included_in_report = Column(Boolean, default=True, nullable=False)
+    comment = Column(Text, nullable=True)
+
+    psur_plan = relationship("PSURPlan", back_populates="psur_products")
+    product = relationship("Product", back_populates="psur_products")
+
+
+class PSURCase(CommonMixin, Base):
+    __tablename__ = "tblPSURCases"
+    __table_args__ = (
+        UniqueConstraint("psur_plan_id", "case_id", name="uq_psur_case"),
+        Index("ix_psur_case_plan", "psur_plan_id"),
+        Index("ix_psur_case_included", "case_included"),
+    )
+
+    id = Column("psur_case_id", String(36), primary_key=True, default=new_uuid)
+    psur_plan_id = Column(
+        String(36),
+        ForeignKey("tblPSURPlans.psur_plan_id"),
+        nullable=False,
+        index=True,
+    )
+    case_id = Column(String(36), ForeignKey("tblCases.id"), nullable=False, index=True)
+    case_included = Column(Boolean, default=True, nullable=False)
+    reason_excluded = Column(Text, nullable=True)
+    seriousness = Column(String(50), nullable=True)
+    listedness = Column(String(50), nullable=True)
+    case_origin = Column(String(100), nullable=True)
+    assessment_comment = Column(Text, nullable=True)
+
+    psur_plan = relationship("PSURPlan", back_populates="psur_cases")
+    case = relationship("Case", back_populates="psur_cases")
+
+
+class PSURPartnerRequest(CommonMixin, Base):
+    __tablename__ = "tblPSURPartnerRequests"
+    __table_args__ = (
+        Index("ix_psur_partner_request_plan", "psur_plan_id"),
+        Index("ix_psur_partner_request_status", "status"),
+        Index("ix_psur_partner_request_due", "due_date"),
+    )
+
+    id = Column("psur_partner_request_id", String(36), primary_key=True, default=new_uuid)
+    psur_plan_id = Column(
+        String(36),
+        ForeignKey("tblPSURPlans.psur_plan_id"),
+        nullable=False,
+        index=True,
+    )
+    partner_id = Column(String(36), ForeignKey("tblPartners.id"), nullable=False, index=True)
+    contact_person_id = Column(
+        String(36),
+        ForeignKey("tblContractContacts.id"),
+        nullable=True,
+        index=True,
+    )
+    request_type = Column(String(100), default="Cases", nullable=False, index=True)
+    request_date = Column(Date, nullable=True)
+    due_date = Column(Date, nullable=True, index=True)
+    response_date = Column(Date, nullable=True)
+    status = Column(String(50), default="Not Sent", nullable=False, index=True)
+    response_summary = Column(Text, nullable=True)
+    document_id = Column(
+        String(36),
+        ForeignKey("tblPSURDocuments.psur_document_id"),
+        nullable=True,
+    )
+    created_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+
+    psur_plan = relationship("PSURPlan", back_populates="partner_requests")
+    partner = relationship("Partner", back_populates="psur_partner_requests")
+    contact_person = relationship("ContractContact", back_populates="psur_partner_requests")
+    document = relationship(
+        "PSURDocument",
+        foreign_keys=[document_id],
+        back_populates="partner_requests",
+    )
+    creator = relationship("User", foreign_keys=[created_by])
+
+
+class PSURSection(CommonMixin, Base):
+    __tablename__ = "tblPSURSections"
+    __table_args__ = (
+        UniqueConstraint("psur_plan_id", "section_code", name="uq_psur_section"),
+        Index("ix_psur_section_plan_status", "psur_plan_id", "section_status"),
+    )
+
+    id = Column("psur_section_id", String(36), primary_key=True, default=new_uuid)
+    psur_plan_id = Column(
+        String(36),
+        ForeignKey("tblPSURPlans.psur_plan_id"),
+        nullable=False,
+        index=True,
+    )
+    section_code = Column(String(50), nullable=False)
+    section_title = Column(String(255), nullable=False)
+    section_status = Column(String(50), default="Not Started", nullable=False, index=True)
+    assigned_to = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+    reviewed_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+    section_text = Column(Text, nullable=True)
+    comment = Column(Text, nullable=True)
+    gpt_generated = Column(Boolean, default=False, nullable=False)
+    gpt_prompt = Column(Text, nullable=True)
+    gpt_output_json = Column(Text, nullable=True)
+    human_confirmed = Column(Boolean, default=False, nullable=False)
+    confirmed_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+    confirmed_at = Column(DateTime(timezone=True), nullable=True)
+    last_updated_at = Column(DateTime(timezone=True), nullable=True)
+
+    psur_plan = relationship("PSURPlan", back_populates="sections")
+    assignee = relationship("User", foreign_keys=[assigned_to])
+    reviewer = relationship("User", foreign_keys=[reviewed_by])
+    confirmer = relationship("User", foreign_keys=[confirmed_by])
+
+
+class PSURDocument(CommonMixin, Base):
+    __tablename__ = "tblPSURDocuments"
+    __table_args__ = (
+        Index("ix_psur_document_plan", "psur_plan_id"),
+        Index("ix_psur_document_type", "document_type"),
+    )
+
+    id = Column("psur_document_id", String(36), primary_key=True, default=new_uuid)
+    psur_plan_id = Column(
+        String(36),
+        ForeignKey("tblPSURPlans.psur_plan_id"),
+        nullable=False,
+        index=True,
+    )
+    document_type = Column(String(100), default="Draft", nullable=False, index=True)
+    file_name = Column(String(255), nullable=False)
+    file_path = Column(String(500), nullable=True)
+    version_number = Column(String(50), nullable=True)
+    uploaded_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+    uploaded_at = Column(DateTime(timezone=True), nullable=True)
+    is_final = Column(Boolean, default=False, nullable=False)
+    comment = Column(Text, nullable=True)
+
+    psur_plan = relationship("PSURPlan", back_populates="documents")
+    uploader = relationship("User", foreign_keys=[uploaded_by])
+    partner_requests = relationship(
+        "PSURPartnerRequest",
+        foreign_keys="PSURPartnerRequest.document_id",
+        back_populates="document",
+    )
+
+
+class Task(CommonMixin, Base):
+    __tablename__ = "tblTasks"
+    __table_args__ = (
+        Index("ix_task_related_entity", "related_entity_type", "related_entity_id"),
+        Index("ix_task_status_due", "status", "due_date"),
+        Index("ix_task_assignee", "assigned_to_user_id"),
+    )
+
+    id = Column("task_id", String(36), primary_key=True, default=new_uuid)
+    title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    status = Column(String(50), default="Open", nullable=False, index=True)
+    priority = Column(String(50), default="Normal", nullable=False)
+    due_date = Column(Date, nullable=True, index=True)
+    assigned_to_user_id = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+    responsible_person = Column(String(255), nullable=True)
+    related_entity_type = Column(String(100), nullable=True, index=True)
+    related_entity_id = Column(String(36), nullable=True, index=True)
+    created_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+    updated_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+    comment = Column(Text, nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    assigned_to = relationship(
+        "User",
+        foreign_keys=[assigned_to_user_id],
+        back_populates="assigned_tasks",
+    )
+    creator = relationship("User", foreign_keys=[created_by])
+    updater = relationship("User", foreign_keys=[updated_by])
 
 
 class Patient(CommonMixin, Base):
@@ -590,16 +921,100 @@ class Attachment(CommonMixin, Base):
     )
     attachment_type = Column(String(100), nullable=True)
     file_name = Column(String(255), nullable=False)
+    document_title = Column(String(255), nullable=True)
+    document_type = Column(String(100), nullable=True)
+    related_object_type = Column(String(100), nullable=True)
+    related_object_id = Column(String(36), nullable=True)
+    partner_id = Column(String(36), ForeignKey("tblPartners.id"), nullable=True, index=True)
+    product_id = Column(String(36), ForeignKey("tblProducts.id"), nullable=True, index=True)
     mime_type = Column(String(100), nullable=True)
     file_size_bytes = Column(Integer, nullable=True)
     storage_path = Column(String(500), nullable=True)
+    file_url = Column(String(500), nullable=True)
+    document_version = Column(String(50), nullable=True)
+    document_date = Column(Date, nullable=True)
+    status = Column(String(50), default="draft", nullable=True)
+    comment = Column(Text, nullable=True)
     checksum_sha256 = Column(String(64), nullable=True)
     uploaded_by_user_id = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
     uploaded_at = Column(DateTime(timezone=True), nullable=True)
+    created_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+    updated_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
 
     case = relationship("Case", back_populates="attachments")
     safety_report = relationship("SafetyReport", back_populates="attachments")
-    uploaded_by = relationship("User")
+    partner = relationship("Partner", foreign_keys=[partner_id], back_populates="documents")
+    product = relationship("Product", foreign_keys=[product_id], back_populates="documents")
+    uploaded_by = relationship("User", foreign_keys=[uploaded_by_user_id])
+    creator = relationship("User", foreign_keys=[created_by])
+    updater = relationship("User", foreign_keys=[updated_by])
+
+
+class SOP(CommonMixin, Base):
+    __tablename__ = "tblSOPs"
+    __table_args__ = (
+        UniqueConstraint("sop_code", name="uq_sop_code"),
+        Index("ix_sop_status", "status"),
+        Index("ix_sop_document_type", "document_type"),
+        Index("ix_sop_process_area", "process_area"),
+        Index("ix_sop_next_review", "next_review_date"),
+    )
+
+    sop_code = Column(String(100), nullable=False, index=True)
+    title = Column(String(255), nullable=False, index=True)
+    document_type = Column(String(100), default="SOP", nullable=False, index=True)
+    version = Column(String(50), default="1.0", nullable=False)
+    status = Column(String(50), default="Draft", nullable=False, index=True)
+    process_area = Column(String(100), default="Other", nullable=False, index=True)
+    owner = Column(String(255), nullable=False, index=True)
+    reviewer = Column(String(255), nullable=True)
+    approver = Column(String(255), nullable=True)
+    approval_date = Column(Date, nullable=True)
+    effective_date = Column(Date, nullable=False)
+    next_review_date = Column(Date, nullable=False, index=True)
+    revision_reason = Column(Text, nullable=True)
+    file_path = Column(String(500), nullable=True)
+    file_url = Column(String(500), nullable=True)
+    description = Column(Text, nullable=True)
+    training_required = Column(Boolean, default=False, nullable=False)
+    created_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+    updated_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+
+    creator = relationship("User", foreign_keys=[created_by])
+    updater = relationship("User", foreign_keys=[updated_by])
+
+
+class IncomingRequest(CommonMixin, Base):
+    __tablename__ = "tblIncomingRequests"
+    __table_args__ = (
+        Index("ix_incoming_request_status", "status"),
+        Index("ix_incoming_request_partner", "partner_id"),
+        Index("ix_incoming_request_product", "product_id"),
+    )
+
+    source_text = Column(Text, nullable=False)
+    request_type = Column(String(100), nullable=True)
+    partner_id = Column(String(36), ForeignKey("tblPartners.id"), nullable=True, index=True)
+    product_id = Column(String(36), ForeignKey("tblProducts.id"), nullable=True, index=True)
+    active_substance = Column(String(255), nullable=True)
+    possible_icsr = Column(String(10), default="no", nullable=False)
+    patient_information = Column(Text, nullable=True)
+    adverse_event = Column(Text, nullable=True)
+    seriousness = Column(String(100), nullable=True)
+    seriousness_criteria = Column(Text, nullable=True)
+    missing_information = Column(Text, nullable=True)
+    recommended_next_action = Column(Text, nullable=True)
+    validity_assessment = Column(Text, nullable=True)
+    gpt_json_output = Column(Text, nullable=True)
+    human_confirmed = Column(Boolean, default=False, nullable=False)
+    status = Column(String(50), default="new", nullable=False, index=True)
+    created_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+    updated_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+
+    partner = relationship("Partner", back_populates="incoming_requests")
+    product = relationship("Product", back_populates="incoming_requests")
+    creator = relationship("User", foreign_keys=[created_by])
+    updater = relationship("User", foreign_keys=[updated_by])
 
 
 class Submission(CommonMixin, Base):
@@ -631,6 +1046,72 @@ class Submission(CommonMixin, Base):
     case = relationship("Case", back_populates="submissions")
     recipient_partner = relationship("Partner", back_populates="submissions")
     submitted_by = relationship("User")
+
+
+class PSMFComponent(CommonMixin, Base):
+    __tablename__ = "psmf_components"
+    __table_args__ = (
+        UniqueConstraint("code", name="uq_psmf_component_code"),
+        Index("ix_psmf_component_type_scope", "component_type", "scope"),
+        Index("ix_psmf_component_status", "status"),
+        Index("ix_psmf_component_partner", "partner_id"),
+    )
+
+    code = Column(String(100), nullable=False)
+    title = Column(String(255), nullable=False)
+    component_type = Column(String(50), default="MAIN_SECTION", nullable=False)
+    scope = Column(String(50), default="GLOBAL", nullable=False)
+    partner_id = Column(String(36), ForeignKey("tblPartners.id"), nullable=True)
+    description = Column(Text, nullable=True)
+    status = Column(String(50), default="draft", nullable=False, index=True)
+    current_version = Column(String(50), default="0.1", nullable=False)
+
+    partner = relationship("Partner", back_populates="psmf_components")
+    versions = relationship(
+        "PSMFComponentVersion",
+        back_populates="component",
+        cascade="all, delete-orphan",
+        order_by="PSMFComponentVersion.created_at.desc()",
+    )
+
+
+class PSMFComponentVersion(Base):
+    __tablename__ = "psmf_component_versions"
+    __table_args__ = (
+        UniqueConstraint("component_id", "version", name="uq_psmf_component_version"),
+        Index("ix_psmf_version_component", "component_id"),
+        Index("ix_psmf_version_status", "status"),
+    )
+
+    id = Column(String(36), primary_key=True, default=new_uuid)
+    component_id = Column(
+        String(36),
+        ForeignKey("psmf_components.id"),
+        nullable=False,
+        index=True,
+    )
+    version = Column(String(50), nullable=False)
+    content = Column(Text, nullable=False)
+    status = Column(String(50), default="draft", nullable=False)
+    change_summary = Column(Text, nullable=True)
+    created_by = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=utcnow,
+        onupdate=utcnow,
+        nullable=False,
+    )
+    approved_by = Column(String(255), nullable=True)
+    approved_at = Column(DateTime(timezone=True), nullable=True)
+    is_locked = Column(Boolean, default=False, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    is_deleted = Column(Boolean, default=False, nullable=False)
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+    deleted_by = Column(String(36), nullable=True)
+    delete_reason = Column(Text, nullable=True)
+
+    component = relationship("PSMFComponent", back_populates="versions")
 
 
 class AuditTrail(CommonMixin, Base):

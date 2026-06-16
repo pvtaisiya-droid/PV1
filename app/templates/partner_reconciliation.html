@@ -257,6 +257,10 @@
                     </select>
                 </div>
                 <div class="col-md-3">
+                    <label class="form-label">{{ _('Products in reconciliation') }}</label>
+                    <input class="form-control" name="products" value="{% if reconciliation %}{{ reconciliation.products or '' }}{% elif preview %}{{ preview.products|map(attribute='product_name')|join(', ') }}{% endif %}">
+                </div>
+                <div class="col-md-3">
                     <label class="form-label">{{ _('Search') }}</label>
                     <input class="form-control" name="search" value="{{ search }}">
                 </div>
@@ -290,6 +294,62 @@
                 {{ _('Current status') }}: <span class="status-pill">{{ _(reconciliation.reconciliation_status) }}</span>
             </div>
             {% endif %}
+            <div class="border-top mt-3 pt-3">
+                <form class="row g-2 align-items-end" method="post" action="/partner-reconciliation/{{ reconciliation.id }}/status">
+                    <div class="col-md-2">
+                        <label class="form-label">{{ _('Status') }}</label>
+                        <select class="form-select" name="reconciliation_status">
+                            {% for status in record_status_options %}
+                            <option value="{{ status }}" {% if reconciliation.reconciliation_status == status %}selected{% endif %}>{{ _(status) }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">{{ _('Sent date') }}</label>
+                        <input class="form-control" type="date" name="sent_date" value="{{ reconciliation.sent_date or '' }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">{{ _('Response date') }}</label>
+                        <input class="form-control" type="date" name="response_date" value="{{ reconciliation.response_date or '' }}">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">{{ _('Products') }}</label>
+                        <input class="form-control" name="products" value="{{ reconciliation.products or '' }}">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">{{ _('Discrepancy description') }}</label>
+                        <input class="form-control" name="discrepancy_description" value="{{ reconciliation.discrepancy_description or '' }}">
+                    </div>
+                    <div class="col-md-2">
+                        <button class="btn btn-outline-primary w-100 icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Save') }}</span></button>
+                    </div>
+                </form>
+                <div class="row g-2 align-items-end mt-2">
+                    <div class="col-md-7">
+                        <form class="row g-2 align-items-end" method="post" action="/partner-reconciliation/{{ reconciliation.id }}/response" enctype="multipart/form-data">
+                            <div class="col-md-6">
+                                <label class="form-label">{{ _('Partner response file') }}</label>
+                                <input class="form-control" type="file" name="response_file" required>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">{{ _('Discrepancy description') }}</label>
+                                <input class="form-control" name="discrepancy_description" value="{{ reconciliation.discrepancy_description or '' }}">
+                            </div>
+                            <div class="col-md-2">
+                                <button class="btn btn-outline-primary w-100 icon-only" type="submit" title="{{ _('Save') }}"><i data-lucide="upload"></i></button>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="col-md-5">
+                        <form method="post" action="/partner-reconciliation/{{ reconciliation.id }}/task">
+                            <button class="btn btn-outline-secondary icon-button" type="submit" {% if not reconciliation.discrepancy_description and not reconciliation.discrepancy_count %}disabled{% endif %}><i data-lucide="list-plus"></i><span>{{ _('Create discrepancy task') }}</span></button>
+                            {% if reconciliation.response_document %}
+                            <a class="btn btn-outline-secondary icon-button" href="/documents/{{ reconciliation.response_document.id }}/download"><i data-lucide="download"></i><span>{{ _('Partner response') }}</span></a>
+                            {% endif %}
+                        </form>
+                    </div>
+                </div>
+            </div>
             {% endif %}
         </section>
 

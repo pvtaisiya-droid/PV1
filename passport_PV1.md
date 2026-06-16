@@ -1,7 +1,7 @@
 # Паспорт проекта PV1
 
 Дата актуализации: 2026-06-15
-Текущая версия паспорта: 0.8
+Текущая версия паспорта: 1.0
 Статус проекта: MVP core создан, требуется дальнейшее развитие и валидация.
 
 ## 1. Название проекта
@@ -21,7 +21,9 @@ PV1 — это локально запускаемый MVP веб-системы
 - ведение препаратов в кейсе;
 - ведение нежелательных реакций;
 - создание submissions;
-- ведение audit trail для ключевых действий.
+- ведение audit trail для ключевых действий;
+- загрузку, связь с case/safety report и скачивание документов-вложений;
+- light MVP-блок МФСФ/PSMF как набор управляемых компонентов и версий.
 
 Система построена как база для дальнейшего расширения: PBRER/PSUR, RMP, literature, signal detection, MedDRA coding, PostgreSQL migration и GPT/AI extraction.
 
@@ -46,7 +48,7 @@ PV1 — это локально запускаемый MVP веб-системы
 | Структура проекта | Реализовано | Создано FastAPI-приложение в папке `pv_mvp`. |
 | База данных | Реализовано | SQLAlchemy ORM + SQLite `pv_system.db`. |
 | ORM-модели | Реализовано | Созданы основные MVP-таблицы. |
-| Web UI | Реализовано частично | Есть единый shell с компактной двухуровневой боковой навигацией, рабочие страницы Dashboard, Safety Reports/PV Intake, Cases/ICSRs, Partners, Products, Substances, Contracts, Contract contacts, Partner Reconciliation, Submissions; для будущих модулей добавлены страницы-заглушки. Интерфейс двуязычный RU/EN, русский язык по умолчанию. |
+| Web UI | Реализовано частично | Есть единый shell с компактной двухуровневой боковой навигацией, рабочие страницы Dashboard, Safety Reports/PV Intake, Cases/ICSRs, Partners, Products, Substances, Contracts, Contract contacts, Partner Reconciliation, Submissions, Documents, Audit Log, Users & Roles, PSUR/PBRER и light MVP-блок МФСФ/PSMF; для части будущих модулей остаются страницы-заглушки. Интерфейс двуязычный RU/EN, русский язык по умолчанию. |
 | JSON API | Реализовано частично | Есть основные API-группы для partners, products, substances, product-substances, contracts, contract contacts, safety reports, cases, submissions. |
 | Audit trail | Реализовано частично | Добавлен рабочий раздел Audit Log с таблицей событий, поиском, фильтрами по пользователю, модулю, действию и датам, просмотром деталей; аудит фиксирует actor/time/source module и old/new значения для ключевых действий MVP. |
 | Seed data | Реализовано | `python -m app.seed` создает тестовый набор данных. |
@@ -67,6 +69,7 @@ PV1 — это локально запускаемый MVP веб-системы
 - оформление UI по брендбуку ARS PharmRussia: логотип, основной синий `#36A0DE`, градиентный синий `#008DC6`, серый `#D8D9DB`, шрифтовой стек с `Univia Pro`;
 - Swagger UI `/docs`;
 - seed-данные с валидным safety report, case, patient, product, reaction и submission;
+- light MVP МФСФ/PSMF с 3 тестовыми компонентами, простым версионированием, сборкой партнерского МФСФ и HTML-экспортом;
 - audit trail для создания safety report, triage, создания case, изменения статуса case, добавления patient/product/reaction/follow-up/submission.
 
 Что находится в процессе или требует усиления:
@@ -171,11 +174,14 @@ pv_mvp/
 | `app/schemas.py` | Pydantic-схемы для API и service layer. |
 | `app/crud.py` | Бизнес-операции и работа с ORM. |
 | `app/audit.py` | Создание audit trail записей. |
+| `app/psmf.py` | Сервисная логика light MVP МФСФ/PSMF: компоненты, версии, seed, сборка партнерского МФСФ и HTML-экспорт. |
 | `app/i18n.py` | RU/EN словарь интерфейса, выбор языка по query/cookie, Jinja helper для переводов и ссылок переключения языка. |
 | `app/templating.py` | Единый `Jinja2Templates` для HTML UI с подключенными i18n globals. |
 | `app/seed.py` | Создание тестовых данных. |
 | `app/routers/*.py` | HTML routes и JSON API endpoints; `placeholders.py` содержит временные страницы для будущих разделов. |
 | `app/templates/*.html` | Jinja2 templates для web UI. |
+| `app/routers/psmf.py` | HTML routes блока МФСФ/PSMF и действия над версиями компонентов. |
+| `app/templates/psmf.html` | UI МФСФ/PSMF с вкладками Overview, Components, Partner PSMF и Audit. |
 | `app/static/style.css` | Пользовательские стили поверх Bootstrap 5 с цветами ARS PharmRussia. |
 | `app/static/brand/ars-pharmrussia-logo.png` | Логотип ARS PharmRussia, извлеченный из брендбука и используемый в navbar на белом фоне. |
 | `app/ai/*` | Заготовка будущего AI/GPT extraction модуля. |
@@ -236,8 +242,8 @@ SQLite используется только для разработки, лок
 | `tblSubstances` | Активные вещества. | M-M с products через `tblProductSubstances`. |
 | `tblProducts` | Лекарственные продукты. | M-M с substances; 1-M с case products. |
 | `tblProductSubstances` | Связь продукт-вещества. | Связывает `tblProducts` и `tblSubstances`. |
-| `tblContracts` | Договоры с партнерами по ЛП. | M-1 к `tblPartners`, M-1 к `tblProducts`; статус "действителен сейчас" вычисляется по датам. |
-| `tblContractContacts` | Контактные лица по договорам. | M-1 к `tblPartners`; хранит ФИО, email, должность, актуальность. |
+| `tblContracts` | Договоры с партнерами по ЛП. | M-1 к `tblPartners`, M-1 к `tblProducts`; связь `partner_id + product_id` защищена от дублей, статус "действителен сейчас" вычисляется по датам. |
+| `tblContractContacts` | Контактные лица по договорам. | M-1 к `tblPartners`; хранит ФИО, email, должность, актуальность; пара `partner_id + email` защищена от дублей. |
 | `tblSafetyReports` | Входящие safety reports до создания ICSR case. | Может быть связан с partner и 0..1 case. |
 | `tblCases` | Центральная таблица ICSR cases. | Связана с patients, case products, reactions, follow-ups, attachments, submissions, audit. |
 | `tblPatients` | Пациенты в составе case. | M-1 к `tblCases`. |
@@ -245,8 +251,10 @@ SQLite используется только для разработки, лок
 | `tblReactions` | Нежелательные реакции/adverse events. | M-1 к `tblCases`. |
 | `tblCaseProductReactionAssessments` | Оценка связи препарат-реакция. | Связывает `tblCaseProducts` и `tblReactions`. |
 | `tblFollowUps` | Follow-up информация по case. | M-1 к `tblCases`. |
-| `tblAttachments` | Метаданные вложений. | Может ссылаться на case или safety report. |
+| `tblAttachments` | Документы-вложения и их метаданные. | Может ссылаться на case или safety report; хранит имя файла, MIME-тип, локальный путь, размер и SHA-256 checksum. |
 | `tblSubmissions` | Отправки наружу. | В MVP связана с case; оставлены поля `pbrer_id`, `rmp_id` для будущего. |
+| `psmf_components` | Компоненты МФСФ/PSMF: основной раздел, общее приложение или партнер-специфичное приложение. | Может ссылаться на `tblPartners`; имеет текущий статус и номер текущей версии. |
+| `psmf_component_versions` | Версии текстов компонентов МФСФ/PSMF. | M-1 к `psmf_components`; хранит content, status, author/reviewer metadata, lock-флаг. |
 | `tblAuditTrail` | Audit trail / Audit Log. | Логирует действия по entity, case, user/changed_by, changed_at, source_module, old/new values и comment. |
 
 Ключевые индексы реализованы для:
@@ -256,6 +264,8 @@ SQLite используется только для разработки, лок
 - `tblProducts`: product code, name, normalized name, authorization fields;
 - `tblSubstances`: substance name, normalized name, INN, ATC, CAS;
 - `tblReactions`: case, reported term, MedDRA PT/SOC, seriousness;
+- `psmf_components`: component type/scope, status, partner;
+- `psmf_component_versions`: component, version, status;
 - `tblAuditTrail`: entity, case/time, user, timestamp, action.
 
 ## 9. Основной бизнес-процесс
@@ -304,13 +314,13 @@ Incoming safety information
 | Products | `/products` | Список products и форма добавления ЛП. |
 | Substances | `/substances` | Список веществ, добавление вещества и связь вещества с ЛП. |
 | Contracts | `/contracts` | Список договоров, создание договора с привязкой к партнеру и ЛП, автоматический статус действительности. |
-| Contract contacts | `/contract-contacts` | Список контактных лиц по договорам и создание контакта с привязкой к партнеру. |
+| Contract contacts | `/contract-contacts` | Список контактных лиц по договорам и создание контакта с привязкой к партнеру; дубли `partner + email` блокируются. |
 | Submissions | `/submissions` | Список submissions, создание submission для case, изменение статуса. |
 | PSUR / PBRER | `/psur` | Страница-заглушка для будущего модуля ПООБ/PSUR/PBRER. |
 | RMP | `/rmp` | Страница-заглушка для будущего модуля ПУР/RMP. |
-| PSMF | `/psmf` | Страница-заглушка для будущего модуля МФСФ/PSMF. |
-| Documents | `/documents` | Страница-заглушка для будущего реестра документов и вложений. |
-| Audit Log | `/audit-log` | Страница-заглушка для будущего единого журнала действий. |
+| МФСФ / PSMF | `/psmf` | Рабочий light MVP-блок МФСФ/PSMF: обзор, компоненты, партнерская сборка и журнал аудита. |
+| Documents | `/documents` | Рабочий реестр документов: загрузка файла, связь с case или safety report, фильтры, скачивание и soft delete. |
+| Audit Log | `/audit-log` | Рабочий единый журнал действий с поиском, фильтрами и деталями событий. |
 | Users & Roles | `/users-roles` | Рабочий MVP-раздел управления пользователями, множественными ролями и permissions. Доступен пользователям с `manage_users`; поддерживает создание пользователя, назначение/снятие ролей, изменение permissions роли и archive пользователя при наличии `soft_delete`. |
 | Settings | `/settings` | Страница-заглушка для будущих настроек. |
 
@@ -341,6 +351,18 @@ Swagger UI доступен по адресу:
 | `GET` | `/health` | Health check. |
 
 Отдельный JSON endpoint для dashboard statistics пока не реализован. При необходимости его следует добавить и отразить в этом паспорте.
+
+### МФСФ / PSMF
+
+| Method | Endpoint | Назначение |
+|---|---|---|
+| `GET` | `/psmf` | HTML-раздел МФСФ/PSMF с вкладками обзор, компоненты, партнерский МФСФ и журнал аудита. |
+| `POST` | `/psmf/components/{component_id}/save` | Сохранение текста черновика компонента МФСФ. |
+| `POST` | `/psmf/components/{component_id}/submit` | Перевод черновика компонента в статус "На проверке". |
+| `POST` | `/psmf/components/{component_id}/approve` | Утверждение компонента в статусе "На проверке". |
+| `POST` | `/psmf/components/{component_id}/new-version` | Создание новой черновой версии из последней утвержденной версии. |
+| `POST` | `/psmf/partner-preview` | Формирование предварительного партнерского МФСФ и audit-события. |
+| `GET` | `/psmf/partner-preview/download` | Скачивание предварительного партнерского МФСФ как HTML. |
 
 ### Partners
 
@@ -377,6 +399,8 @@ HTML-страница `/substances` управляет веществами и �
 | `GET` | `/api/contract-contacts` |
 | `POST` | `/api/contract-contacts` |
 | `GET` | `/api/contract-contacts/{contact_id}` |
+
+Для `POST /api/contracts` и `POST /api/contract-contacts` действует серверная проверка дублей: одна активная связь `partner + product` для договора и один активный контакт `partner + email`.
 
 ### Users / Roles / Permissions
 
@@ -428,6 +452,15 @@ HTML-раздел `/users-roles` доступен только при permission
 | `POST` | `/api/submissions` |
 | `PATCH` | `/api/submissions/{submission_id}/status` |
 
+### Documents / Attachments
+
+| Method | Endpoint | Назначение |
+|---|---|---|
+| `GET` | `/documents` | HTML-реестр документов с поиском и фильтрами по типу, партнеру, ЛП и датам. |
+| `POST` | `/documents` | Multipart upload файла с опциональным display name, типом документа и связью с case или safety report. |
+| `GET` | `/documents/{document_id}/download` | Скачивание сохраненного файла из локального хранилища `uploads/documents`. |
+| `POST` | `/documents/{document_id}/delete` | Soft delete записи документа при наличии permission `soft_delete`. |
+
 ## 12. Audit Trail и GxP-подход
 
 Система должна сохранять audit trail для критичных действий. Текущая таблица: `tblAuditTrail`.
@@ -447,6 +480,9 @@ HTML-раздел `/users-roles` доступен только при permission
 - создание контактного лица по договору;
 - создание submission;
 - изменение статуса submission;
+- загрузка документа;
+- скачивание документа;
+- soft delete документа;
 - создание пользователя;
 - назначение роли пользователю;
 - снятие роли с пользователя;
@@ -679,6 +715,7 @@ DATABASE_URL=postgresql+psycopg://user:password@host:5432/pv_system
 |---|---|---|
 | MVP core | Tables, ORM, CRUD, UI, API, seed, audit trail | В основном реализовано |
 | UI improvement | Filters, search, better validation messages, pagination | Запланировано |
+| МФСФ / PSMF | Light MVP компонентов, версий, партнерской сборки и HTML preview; полноценный PSMF Builder остается будущим расширением | Light MVP реализован |
 | PBRER / PSUR | Schedule, reports, linked products/cases/literature | Запланировано |
 | RMP | RMP records, safety concerns | Запланировано |
 | Literature | Sources, articles, literature screening | Запланировано |
@@ -851,6 +888,56 @@ Seed data расширены партнерами, продуктами, кон�
 - изменение permissions роли и назначение/снятие ролей фиксируются в audit trail;
 - soft delete поля `deleted_at`, `deleted_by`, `delete_reason` добавлены в общий `CommonMixin`; archive пользователя реализован в Users & Roles.
 
+## 21.3. Light MVP МФСФ / PSMF
+
+Добавлен рабочий light MVP-блок **«МФСФ / PSMF»** для демонстрации мастер-файла системы фармаконадзора как набора управляемых компонентов, а не одного Word-документа.
+
+Ключевые файлы:
+
+- `app/psmf.py` — сервисная логика PSMF: списки, статистика, статусные переходы, версия, seed, сборка партнерского МФСФ и HTML-экспорт.
+- `app/routers/psmf.py` — HTML routes `/psmf`, действия над компонентами, генерация preview и скачивание HTML.
+- `app/templates/psmf.html` — UI с вкладками Overview, Components, Partner PSMF и Audit.
+- `app/models.py` — ORM-модели `PSMFComponent` и `PSMFComponentVersion`.
+
+Новые таблицы:
+
+- `psmf_components` — компонент МФСФ с кодом, названием, типом `MAIN_SECTION`/`ANNEX`, scope `GLOBAL`/`PARTNER_SPECIFIC`, optional partner, описанием, статусом и текущей версией.
+- `psmf_component_versions` — версии текстов компонентов с content, status, change summary, created/approved metadata и lock-флагом.
+
+Статусы light MVP:
+
+- `draft` — черновик, текст можно редактировать и сохранить.
+- `under_review` — на проверке, текст read-only, доступно утверждение.
+- `approved` — утверждено, прямое редактирование запрещено, доступно создание новой версии.
+
+Seed при `init_db()` идемпотентно создает:
+
+- партнеров `Партнер 1` и `Партнер 2`, если их еще нет;
+- общий раздел МФСФ `1` в статусе `approved`;
+- общее приложение `Приложение А-1` в статусе `approved`;
+- партнер-специфичное приложение `Приложение Б-1.1` для `Партнер 1` в статусе `draft`;
+- audit-события создания компонентов с `source_module = "PSMF"`.
+
+Логика партнерской сборки:
+
+- для любого партнера включаются все `GLOBAL`-компоненты со статусом `approved`;
+- дополнительно включаются `PARTNER_SPECIFIC`-компоненты выбранного партнера;
+- для партнера без partner-specific приложения показывается предупреждение;
+- для неутвержденных компонентов показывается предупреждение;
+- preview можно скачать как простой HTML-файл; PDF/DOCX пока не реализуются.
+
+Audit:
+
+- используется единый `tblAuditTrail`, отдельный `psmf_audit_trail` не создавался;
+- PSMF-события пишутся с `source_module = "PSMF"`;
+- типы объектов: `PSMF_COMPONENT`, `PSMF_VERSION`, `PARTNER_PSMF_PREVIEW`, `PARTNER_PSMF_EXPORT`.
+
+## 21.4. Documents / Attachments MVP
+
+Раздел **Documents** переведен из заглушки в рабочий MVP-реестр вложений. Файлы загружаются через HTML multipart form, сохраняются локально в `uploads/documents`, а в `tblAttachments` хранится запись с display name, типом, связью с case или safety report, MIME-типом, размером, SHA-256 checksum и путем хранения. Скачивание выполняется через `/documents/{document_id}/download`; путь дополнительно проверяется, чтобы отдавать только файлы из разрешенной директории. Создание и скачивание документов пишутся в `tblAuditTrail` с `source_module = "Documents"`.
+
+Для production остаются отдельные вопросы: вынести стратегию хранения в конфигурацию, определить лимиты размера/типы файлов, добавить антивирусную проверку и immutable/versioned storage для GxP-сценариев.
+
 ## 22. Журнал изменений
 
 | Дата | Версия / этап | Что изменено | Автор / источник изменения |
@@ -866,6 +953,8 @@ Seed data расширены партнерами, продуктами, кон�
 | 2026-06-14 | 0.6 / compact two-level sidebar | Левое меню переработано в компактную двухуровневую навигацию: главные группы и вложенные пункты выбранной группы, убрана внутренняя прокрутка сайдбара, добавлен режим сворачивания до иконок и сохранен мобильный drawer. | Codex по запросу пользователя |
 | 2026-06-14 | 0.7 / RBAC MVP | Добавлены таблицы roles, permissions, user_roles и role_permissions; реализованы несколько ролей у пользователя, permission-aware навигация и формы, раздел Users & Roles, текущий пользователь через cookie для MVP-тестирования, серверные permission checks для ключевых действий и audit для назначения ролей/permissions. | Codex по запросу пользователя |
 | 2026-06-15 | 0.8 / Audit Log | Расширен существующий audit trail до рабочего раздела Audit Log: добавлены поля changed_by, changed_at, source_module и comment, SQLite-дорасширение схемы, фильтры по пользователю/модулю/действию/дате, поиск, раскрытие деталей события и более точное логирование old/new значений для справочников, ИСНР, сверок, документов, пользователей и ролей. | Codex по запросу пользователя |
+| 2026-06-15 | 0.9 / PSMF light MVP | Добавлен рабочий блок «МФСФ / PSMF»: таблицы `psmf_components` и `psmf_component_versions`, 3 демо-компонента, вкладки обзора/компонентов/партнерского МФСФ/аудита, статусные действия, preview-сборка для партнера, HTML-экспорт и audit-события с `source_module = "PSMF"`. | Codex по запросу пользователя |
+| 2026-06-15 | 1.0 / Documents and link deduplication | Исправлены проверки пункта 10 и 13: блокируются дубли `partner + product` в договорах и `partner + email` в контактах, раздел Documents поддерживает реальную загрузку файла, связь с case/safety report, скачивание, checksum/size metadata и audit-событие скачивания. | Codex по запросу пользователя |
 
 ## 23. Open questions
 
@@ -878,8 +967,9 @@ Seed data расширены партнерами, продуктами, кон�
 | MedDRA | Открыто | Нужно решить источник словаря, лицензирование, coding workflow. |
 | PBRER / PSUR | Открыто | Нужно уточнить scope первой версии periodic reports. |
 | RMP | Открыто | Нужно определить минимальную модель RMP и safety concerns. |
+| МФСФ / PSMF | Частично закрыто | Light MVP реализован; для production нужны роли PSMF Owner/Reviewer/QPPV, полный workflow, immutable snapshots и DOCX/PDF export. |
 | Импорт Access базы | Открыто | Нужно получить структуру старой базы, mapping таблиц и правила очистки данных. |
-| Attachments | Открыто | Сейчас реализованы метаданные; нужна стратегия хранения файлов. |
+| Attachments | Частично закрыто | MVP upload/download реализован с локальным хранилищем `uploads/documents`; для production нужно определить конфигурацию storage, лимиты, контроль типов файлов, антивирусную проверку и immutable/versioned хранение. |
 | Audit immutability | Открыто | Нужно усилить защиту audit trail от изменения/удаления. |
 | Тестирование | Открыто | Нужно добавить automated tests для ключевых workflows. |
 | Валидация данных | Открыто | Требуется расширить бизнес-валидацию форм и API. |

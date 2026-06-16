@@ -1,13 +1,14 @@
 from datetime import date
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from app import crud, schemas
 from app.auth import require_any_permission
 from app.database import get_db
 from app.templating import templates
+from app.ui_helpers import redirect_with_message
 
 
 router = APIRouter()
@@ -24,6 +25,9 @@ def contracts_page(request: Request, db: Session = Depends(get_db)):
             "partners": crud.list_partners(db),
             "products": crud.list_products(db),
             "active_page": "contracts",
+            "message": request.query_params.get("message"),
+            "error": request.query_params.get("error"),
+            "validation": request.query_params.get("validation"),
         },
     )
 
@@ -42,18 +46,22 @@ def create_contract_form(
     db: Session = Depends(get_db),
 ):
     validate_contract_references(db, partner_id, product_id)
-    crud.create_contract(
-        db,
-        schemas.ContractCreate(
-            partner_id=partner_id,
-            product_id=product_id,
-            contract_type=contract_type,
-            contract_number=contract_number,
-            contract_date=contract_date,
-            valid_until=valid_until,
-        ),
-    )
-    return RedirectResponse("/contracts", status_code=status.HTTP_303_SEE_OTHER)
+    try:
+        crud.create_contract(
+            db,
+            schemas.ContractCreate(
+                partner_id=partner_id,
+                product_id=product_id,
+                contract_type=contract_type,
+                contract_number=contract_number,
+                contract_date=contract_date,
+                valid_until=valid_until,
+            ),
+        )
+    except ValueError as exc:
+        db.rollback()
+        return redirect_with_message("/contracts", validation=str(exc))
+    return redirect_with_message("/contracts", message="Contract saved.")
 
 
 @router.get("/api/contracts", response_model=list[schemas.ContractRead])
@@ -69,7 +77,10 @@ def api_list_contracts(db: Session = Depends(get_db)):
 )
 def api_create_contract(payload: schemas.ContractCreate, db: Session = Depends(get_db)):
     validate_contract_references(db, payload.partner_id, payload.product_id)
-    return crud.create_contract(db, payload)
+    try:
+        return crud.create_contract(db, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get("/api/contracts/{contract_id}", response_model=schemas.ContractRead)

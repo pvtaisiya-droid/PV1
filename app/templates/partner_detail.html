@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+{% block title %}{{ partner.partner_name }} - {{ _('Partners') }}{% endblock %}
+
+{% macro empty_state(text, href, label) -%}
+<div class="empty-state">
+    <span class="status-pill">{{ _(text) }}</span>
+    <a class="btn btn-outline-primary btn-sm icon-button" href="{{ href }}"><i data-lucide="plus"></i><span>{{ _(label) }}</span></a>
+</div>
+{%- endmacro %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+        <div class="text-secondary small">{{ _('Partner card') }}</div>
+        <h1 class="h3 mb-1">{{ partner.partner_name }}</h1>
+        <div class="d-flex flex-wrap gap-2">
+            <span class="status-pill">{{ partner.partner_code }}</span>
+            <span class="badge text-bg-light">{{ _(partner.partner_type) }}</span>
+            <span class="badge text-bg-light">{{ _(partner.reconciliation_frequency) }}</span>
+        </div>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+        <a class="btn btn-outline-secondary btn-sm icon-button" href="/partners"><i data-lucide="arrow-left"></i><span>{{ _('Partners') }}</span></a>
+        <a class="btn btn-primary btn-sm icon-button" href="/partner-reconciliation?partner_id={{ partner.id }}"><i data-lucide="git-compare-arrows"></i><span>{{ _('Reconciliation') }}</span></a>
+    </div>
+</div>
+
+{% if message %}
+<div class="alert alert-success py-2" role="status">{{ _(message) }}</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-danger py-2" role="alert">{{ _(error) }}</div>
+{% endif %}
+{% if validation %}
+<div class="alert alert-warning py-2" role="alert">{{ _(validation) }}</div>
+{% endif %}
+
+<ul class="nav nav-tabs mb-3" role="tablist">
+    <li class="nav-item" role="presentation"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#general" type="button" role="tab">{{ _('General information') }}</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#contacts" type="button" role="tab">{{ _('Contacts') }}</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#products" type="button" role="tab">{{ _('Related products') }}</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#agreements" type="button" role="tab">{{ _('PV agreements') }}</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#reconciliations" type="button" role="tab">{{ _('Reconciliations') }}</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#documents" type="button" role="tab">{{ _('Documents') }}</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tasks" type="button" role="tab">{{ _('Tasks') }}</button></li>
+    {% if has_permission('audit_view') %}
+    <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#audit" type="button" role="tab">{{ _('Audit history') }}</button></li>
+    {% endif %}
+</ul>
+
+<div class="tab-content">
+    <div class="tab-pane fade show active" id="general" role="tabpanel" tabindex="0">
+        <section class="surface">
+            <div class="row g-3">
+                <div class="col-md-3"><span class="text-secondary small">{{ _('Partner code') }}</span><div class="fw-semibold">{{ partner.partner_code }}</div></div>
+                <div class="col-md-3"><span class="text-secondary small">{{ _('Status') }}</span><div>{{ _(partner.partner_type) }}</div></div>
+                <div class="col-md-3"><span class="text-secondary small">{{ _('Country') }}</span><div>{{ partner.country_code or "" }}</div></div>
+                <div class="col-md-3"><span class="text-secondary small">{{ _('Region') }}</span><div>{{ partner.region or "" }}</div></div>
+                <div class="col-md-3"><span class="text-secondary small">{{ _('Email') }}</span><div>{{ partner.email or "" }}</div></div>
+                <div class="col-md-3"><span class="text-secondary small">{{ _('Phone') }}</span><div>{{ partner.phone or "" }}</div></div>
+                <div class="col-md-3"><span class="text-secondary small">{{ _('PV responsible') }}</span><div>{{ partner.pv_responsible_person or "" }}</div></div>
+                <div class="col-md-3"><span class="text-secondary small">{{ _('SDEA required') }}</span><div>{% if partner.sdea_required %}{{ _('Yes') }}{% else %}{{ _('No') }}{% endif %}</div></div>
+                <div class="col-12"><span class="text-secondary small">{{ _('Address') }}</span><div>{{ partner.address or "" }}</div></div>
+            </div>
+        </section>
+    </div>
+
+    <div class="tab-pane fade" id="contacts" role="tabpanel" tabindex="0">
+        <section class="surface">
+            <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
+                <h2 class="h6 section-title mb-0">{{ _('Contacts') }}</h2>
+                <a class="btn btn-outline-primary btn-sm icon-button" href="/contract-contacts"><i data-lucide="plus"></i><span>{{ _('Add') }}</span></a>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead><tr><th>{{ _('Name') }}</th><th>{{ _('Email') }}</th><th>{{ _('Position') }}</th><th>{{ _('Current?') }}</th></tr></thead>
+                    <tbody>
+                    {% for contact in contacts %}
+                    <tr><td class="fw-medium">{{ contact.last_name }} {{ contact.first_name }} {{ contact.patronymic or "" }}</td><td><a href="mailto:{{ contact.email }}">{{ contact.email }}</a></td><td>{{ contact.position }}</td><td>{% if contact.is_current %}<span class="badge text-bg-success">{{ _('Yes') }}</span>{% else %}<span class="badge text-bg-secondary">{{ _('No') }}</span>{% endif %}</td></tr>
+                    {% else %}
+                    <tr><td colspan="4">{{ empty_state('No contacts yet.', '/contract-contacts', 'Add contact') }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <div class="tab-pane fade" id="products" role="tabpanel" tabindex="0">
+        <section class="surface">
+            <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
+                <h2 class="h6 section-title mb-0">{{ _('Related products') }}</h2>
+                <a class="btn btn-outline-primary btn-sm icon-button" href="/products"><i data-lucide="plus"></i><span>{{ _('Add') }}</span></a>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead><tr><th>{{ _('Code') }}</th><th>{{ _('Name') }}</th><th>{{ _('Substances') }}</th><th>{{ _('Status') }}</th></tr></thead>
+                    <tbody>
+                    {% for product in products %}
+                    <tr><td class="fw-medium">{{ product.product_code }}</td><td>{{ product.product_name }}</td><td>{% for link in product.substance_links %}<span class="badge text-bg-light">{{ link.substance.substance_name }}</span>{% endfor %}</td><td><span class="status-pill">{{ _(product.authorization_status) if product.authorization_status else _('None') }}</span></td></tr>
+                    {% else %}
+                    <tr><td colspan="4">{{ empty_state('No related products yet.', '/products', 'Add Product') }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <div class="tab-pane fade" id="agreements" role="tabpanel" tabindex="0">
+        <section class="surface">
+            <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
+                <h2 class="h6 section-title mb-0">{{ _('PV agreements') }}</h2>
+                <a class="btn btn-outline-primary btn-sm icon-button" href="/contracts"><i data-lucide="plus"></i><span>{{ _('Add') }}</span></a>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead><tr><th>{{ _('Product') }}</th><th>{{ _('Type') }}</th><th>{{ _('Contract number') }}</th><th>{{ _('Dates') }}</th><th>{{ _('Valid now?') }}</th></tr></thead>
+                    <tbody>
+                    {% for contract in contracts %}
+                    <tr><td>{{ contract.product.product_name if contract.product else "" }}</td><td>{{ _(contract.contract_type) }}</td><td class="fw-medium">{{ contract.contract_number }}</td><td>{{ contract.contract_date }} - {{ contract.valid_until }}</td><td>{% if contract.is_current %}<span class="badge text-bg-success">{{ _('Yes') }}</span>{% else %}<span class="badge text-bg-secondary">{{ _('No') }}</span>{% endif %}</td></tr>
+                    {% else %}
+                    <tr><td colspan="5">{{ empty_state('No contracts yet.', '/contracts', 'Add Contract') }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <div class="tab-pane fade" id="reconciliations" role="tabpanel" tabindex="0">
+        <section class="surface">
+            <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
+                <h2 class="h6 section-title mb-0">{{ _('Reconciliations') }}</h2>
+                <a class="btn btn-outline-primary btn-sm icon-button" href="/partner-reconciliation?partner_id={{ partner.id }}"><i data-lucide="plus"></i><span>{{ _('Add') }}</span></a>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead><tr><th>{{ _('Period') }}</th><th>{{ _('Products') }}</th><th>{{ _('Status') }}</th><th>{{ _('Discrepancies') }}</th><th>{{ _('Actions') }}</th></tr></thead>
+                    <tbody>
+                    {% for reconciliation in reconciliations %}
+                    <tr><td>{{ reconciliation.period_start }} - {{ reconciliation.period_end }}</td><td>{{ reconciliation.products or "" }}</td><td><span class="status-pill">{{ _(reconciliation.reconciliation_status) }}</span></td><td>{{ reconciliation.discrepancy_count }}</td><td><a class="btn btn-outline-primary btn-sm icon-button" href="/partner-reconciliation?reconciliation_id={{ reconciliation.id }}"><i data-lucide="eye"></i><span>{{ _('View') }}</span></a></td></tr>
+                    {% else %}
+                    <tr><td colspan="5">{{ empty_state('No reconciliations yet.', '/partner-reconciliation?partner_id=' ~ partner.id, 'Add') }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <div class="tab-pane fade" id="documents" role="tabpanel" tabindex="0">
+        <section class="surface">
+            <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
+                <h2 class="h6 section-title mb-0">{{ _('Documents') }}</h2>
+                <a class="btn btn-outline-primary btn-sm icon-button" href="/documents"><i data-lucide="plus"></i><span>{{ _('Add') }}</span></a>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead><tr><th>{{ _('Title') }}</th><th>{{ _('Type') }}</th><th>{{ _('Version') }}</th><th>{{ _('Status') }}</th><th>{{ _('Date') }}</th></tr></thead>
+                    <tbody>
+                    {% for document in documents %}
+                    <tr><td class="fw-medium">{{ document.document_title or document.file_name }}</td><td>{{ _(document.document_type or document.attachment_type) }}</td><td>{{ document.document_version or document.version }}</td><td><span class="status-pill">{{ _(document.status) }}</span></td><td>{{ document.document_date or document.uploaded_at or document.created_at }}</td></tr>
+                    {% else %}
+                    <tr><td colspan="5">{{ empty_state('No documents yet.', '/documents', 'Add document') }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <div class="tab-pane fade" id="tasks" role="tabpanel" tabindex="0">
+        <section class="surface">
+            <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
+                <h2 class="h6 section-title mb-0">{{ _('Tasks') }}</h2>
+                <a class="btn btn-outline-primary btn-sm icon-button" href="/tasks"><i data-lucide="plus"></i><span>{{ _('Add') }}</span></a>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead><tr><th>{{ _('Title') }}</th><th>{{ _('Responsible') }}</th><th>{{ _('Due date') }}</th><th>{{ _('Status') }}</th></tr></thead>
+                    <tbody>
+                    {% for task in tasks %}
+                    <tr><td class="fw-medium">{{ task.title }}</td><td>{{ task.responsible_person or (task.assigned_to.full_name if task.assigned_to else '') }}</td><td>{{ task.due_date or "" }}</td><td><span class="status-pill">{{ _(task.status) }}</span></td></tr>
+                    {% else %}
+                    <tr><td colspan="4">{{ empty_state('No tasks.', '/tasks', 'Add task') }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    {% if has_permission('audit_view') %}
+    <div class="tab-pane fade" id="audit" role="tabpanel" tabindex="0">
+        <section class="surface">
+            <h2 class="h6 section-title">{{ _('Audit history') }}</h2>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead><tr><th>{{ _('Timestamp') }}</th><th>{{ _('Action') }}</th><th>{{ _('Field') }}</th><th>{{ _('New') }}</th><th>{{ _('User') }}</th></tr></thead>
+                    <tbody>
+                    {% for entry in audit_entries %}
+                    <tr><td>{{ entry.changed_at or entry.timestamp }}</td><td><span class="status-pill">{{ _(entry.action) }}</span></td><td>{{ entry.field_name or "" }}</td><td>{{ entry.new_value or "" }}</td><td>{{ entry.user.email if entry.user else entry.changed_by or "" }}</td></tr>
+                    {% else %}
+                    <tr><td colspan="5" class="text-secondary">{{ _('No changes yet.') }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

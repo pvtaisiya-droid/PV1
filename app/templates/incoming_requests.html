@@ -1,0 +1,229 @@
+{% extends "base.html" %}
+{% block title %}{{ _('Incoming Requests') }} - {{ _('PV MVP') }}{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+        <h1 class="h3 mb-1">{{ _('Incoming Requests') }}</h1>
+        <div class="text-secondary small">{{ incoming_requests|length }} {{ _('records') }}</div>
+    </div>
+</div>
+
+{% if message %}
+<div class="alert alert-success py-2" role="status">{{ _(message) }}</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-danger py-2" role="alert">{{ _(error) }}</div>
+{% endif %}
+{% if validation %}
+<div class="alert alert-warning py-2" role="alert">{{ _(validation) }}</div>
+{% endif %}
+
+<div class="row g-3 mb-4">
+    <div class="col-xl-5">
+        <section class="surface h-100">
+            <h2 class="h6 section-title">{{ _('Source request') }}</h2>
+            <form method="post" action="/incoming-requests/analyze">
+                <label class="form-label">{{ _('Email or request text') }}</label>
+                <textarea class="form-control mb-3" name="source_text" rows="13" required>{{ source_text }}</textarea>
+                <button class="btn btn-primary icon-button" type="submit"><i data-lucide="sparkles"></i><span>{{ _('Analyze with GPT') }}</span></button>
+            </form>
+        </section>
+    </div>
+    <div class="col-xl-7">
+        <section class="surface h-100">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                <h2 class="h6 section-title mb-0">{{ _('Human review draft') }}</h2>
+                {% if draft %}<span class="status-pill">{{ _('Mock analysis') }}</span>{% endif %}
+            </div>
+            {% if draft %}
+            <form class="row g-3" method="post" action="/incoming-requests/confirm">
+                <div class="col-12">
+                    <label class="form-label">{{ _('Source text') }}</label>
+                    <textarea class="form-control" name="source_text" rows="3" required>{{ source_text }}</textarea>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">{{ _('Request type') }}</label>
+                    <input class="form-control" name="request_type" value="{{ draft.request_type }}">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">{{ _('Partner') }}</label>
+                    <select class="form-select" name="partner_id">
+                        <option value="">{{ _('None') }}</option>
+                        {% for partner in partners %}
+                        <option value="{{ partner.id }}" {% if draft.partner_id == partner.id %}selected{% endif %}>{{ partner.partner_name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">{{ _('Product') }}</label>
+                    <select class="form-select" name="product_id">
+                        <option value="">{{ _('None') }}</option>
+                        {% for product in products %}
+                        <option value="{{ product.id }}" {% if draft.product_id == product.id %}selected{% endif %}>{{ product.product_name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">{{ _('Active substance') }}</label>
+                    <input class="form-control" name="active_substance" value="{{ draft.active_substance }}">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">{{ _('Possible ICSR') }}</label>
+                    <select class="form-select" name="possible_icsr">
+                        <option value="yes" {% if draft.possible_icsr == 'yes' %}selected{% endif %}>{{ _('yes') }}</option>
+                        <option value="no" {% if draft.possible_icsr != 'yes' %}selected{% endif %}>{{ _('no') }}</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">{{ _('Status') }}</label>
+                    <select class="form-select" name="status_value">
+                        {% for status in status_options %}
+                        <option value="{{ status }}" {% if status == 'confirmed' %}selected{% endif %}>{{ _(status) }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">{{ _('Patient information') }}</label>
+                    <textarea class="form-control" name="patient_information" rows="2">{{ draft.patient_information }}</textarea>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">{{ _('Adverse event') }}</label>
+                    <textarea class="form-control" name="adverse_event" rows="2">{{ draft.adverse_event }}</textarea>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">{{ _('Seriousness') }}</label>
+                    <input class="form-control" name="seriousness" value="{{ draft.seriousness }}">
+                </div>
+                <div class="col-md-8">
+                    <label class="form-label">{{ _('Seriousness criteria') }}</label>
+                    <input class="form-control" name="seriousness_criteria" value="{{ draft.seriousness_criteria }}">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">{{ _('Missing information') }}</label>
+                    <textarea class="form-control" name="missing_information" rows="2">{{ draft.missing_information }}</textarea>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">{{ _('Recommended next action') }}</label>
+                    <textarea class="form-control" name="recommended_next_action" rows="2">{{ draft.recommended_next_action }}</textarea>
+                </div>
+                <div class="col-12">
+                    <label class="form-label">{{ _('Validity assessment') }}</label>
+                    <textarea class="form-control" name="validity_assessment" rows="2">{{ draft.validity_assessment }}</textarea>
+                </div>
+                <div class="col-12">
+                    <label class="form-label">{{ _('GPT JSON output') }}</label>
+                    <textarea class="form-control font-monospace small" name="gpt_json_output" rows="5">{{ draft.gpt_json_output }}</textarea>
+                </div>
+                <div class="col-12 d-flex flex-wrap gap-2">
+                    <button class="btn btn-primary icon-button" type="submit"><i data-lucide="check"></i><span>{{ _('Confirm and Save') }}</span></button>
+                    <a class="btn btn-outline-secondary icon-button" href="/incoming-requests"><i data-lucide="x"></i><span>{{ _('Cancel') }}</span></a>
+                </div>
+            </form>
+            {% else %}
+            <div class="empty-state">
+                <span class="status-pill">{{ _('Human confirmation required') }}</span>
+                <p class="mb-0 text-secondary">{{ _('Paste source text and run analysis. Nothing is saved until Confirm and Save.') }}</p>
+            </div>
+            {% endif %}
+        </section>
+    </div>
+</div>
+
+<section class="surface mb-4">
+    <h2 class="h6 section-title">{{ _('Filters') }}</h2>
+    <form class="row g-2 align-items-end" method="get" action="/incoming-requests">
+        <div class="col-md-6">
+            <label class="form-label">{{ _('Search') }}</label>
+            <input class="form-control" name="search" value="{{ filters.search }}" placeholder="{{ _('Source text') }} / {{ _('Product') }} / {{ _('Adverse event') }}">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Status') }}</label>
+            <select class="form-select" name="status_filter">
+                <option value="">{{ _('All') }}</option>
+                {% for status in status_options %}
+                <option value="{{ status }}" {% if filters.status_filter == status %}selected{% endif %}>{{ _(status) }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-3 d-flex flex-wrap gap-2">
+            <button class="btn btn-primary icon-button" type="submit"><i data-lucide="search"></i><span>{{ _('Search') }}</span></button>
+            <a class="btn btn-outline-secondary icon-button" href="/incoming-requests"><i data-lucide="x"></i><span>{{ _('Cancel') }}</span></a>
+        </div>
+    </form>
+</section>
+
+<section class="surface">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead>
+            <tr>
+                <th>{{ _('Created') }}</th>
+                <th>{{ _('Request type') }}</th>
+                <th>{{ _('Partner') }}</th>
+                <th>{{ _('Product') }}</th>
+                <th>{{ _('Possible ICSR') }}</th>
+                <th>{{ _('Adverse event') }}</th>
+                <th>{{ _('Status') }}</th>
+                <th>{{ _('Actions') }}</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for item in incoming_requests %}
+            <tr>
+                <td>{{ item.created_at }}</td>
+                <td class="fw-medium">{{ item.request_type or "" }}</td>
+                <td>{{ item.partner.partner_name if item.partner else "" }}</td>
+                <td>{{ item.product.product_name if item.product else "" }}</td>
+                <td><span class="badge {% if item.possible_icsr == 'yes' %}text-bg-warning{% else %}text-bg-light{% endif %}">{{ _(item.possible_icsr) }}</span></td>
+                <td>{{ item.adverse_event or "" }}</td>
+                <td><span class="status-pill">{{ _(item.status) }}</span></td>
+                <td>
+                    <div class="d-flex flex-wrap gap-1">
+                        <button class="btn btn-outline-secondary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#incoming-view-{{ item.id }}" title="{{ _('View') }}"><i data-lucide="eye"></i></button>
+                        {% if has_permission('edit') or has_permission('comment') %}
+                        <form class="d-flex gap-1" method="post" action="/incoming-requests/{{ item.id }}/status">
+                            <select class="form-select form-select-sm" name="status_value">
+                                {% for status in status_options %}
+                                <option value="{{ status }}" {% if item.status == status %}selected{% endif %}>{{ _(status) }}</option>
+                                {% endfor %}
+                            </select>
+                            <button class="btn btn-outline-primary btn-sm icon-only" type="submit" title="{{ _('Save') }}"><i data-lucide="save"></i></button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </td>
+            </tr>
+            <tr class="collapse" id="incoming-view-{{ item.id }}">
+                <td colspan="8">
+                    <div class="row g-3 small">
+                        <div class="col-lg-4">
+                            <span class="text-secondary">{{ _('Source text') }}</span>
+                            <div class="raw-text mt-1">{{ item.source_text }}</div>
+                        </div>
+                        <div class="col-lg-4">
+                            <span class="text-secondary">{{ _('Assessment') }}</span>
+                            <dl class="compact-dl mt-1">
+                                <dt>{{ _('Patient information') }}</dt><dd>{{ item.patient_information or "" }}</dd>
+                                <dt>{{ _('Seriousness') }}</dt><dd>{{ item.seriousness or "" }}</dd>
+                                <dt>{{ _('Seriousness criteria') }}</dt><dd>{{ item.seriousness_criteria or "" }}</dd>
+                                <dt>{{ _('Missing information') }}</dt><dd>{{ item.missing_information or "" }}</dd>
+                                <dt>{{ _('Recommended next action') }}</dt><dd>{{ item.recommended_next_action or "" }}</dd>
+                                <dt>{{ _('Validity assessment') }}</dt><dd>{{ item.validity_assessment or "" }}</dd>
+                            </dl>
+                        </div>
+                        <div class="col-lg-4">
+                            <span class="text-secondary">{{ _('GPT JSON output') }}</span>
+                            <pre class="raw-text mt-1 mb-0">{{ item.gpt_json_output or "" }}</pre>
+                        </div>
+                    </div>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="8" class="text-secondary">{% if filters.active and total_count %}{{ _('No records match the filters.') }}{% else %}{{ _('No incoming requests yet.') }}{% endif %}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

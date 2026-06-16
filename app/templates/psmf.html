@@ -1,0 +1,411 @@
+{% extends "base.html" %}
+{% block title %}МФСФ / PSMF - {{ _('PV MVP') }}{% endblock %}
+
+{% block content %}
+{% set selected_partner_id = request.query_params.get('partner_id', '') %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+        <h1 class="h3 mb-1">МФСФ / PSMF</h1>
+        <div class="text-secondary small">Light MVP-блок мастер-файла системы фармаконадзора</div>
+    </div>
+</div>
+
+{% if message %}
+<div class="alert alert-success py-2" role="status">{{ message }}</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-danger py-2" role="alert">{{ error }}</div>
+{% endif %}
+{% if validation %}
+<div class="alert alert-warning py-2" role="alert">{{ validation }}</div>
+{% endif %}
+
+<ul class="nav nav-tabs mb-4">
+    <li class="nav-item"><a class="nav-link {% if tab == 'overview' %}active{% endif %}" href="/psmf?tab=overview">Обзор</a></li>
+    <li class="nav-item"><a class="nav-link {% if tab == 'components' %}active{% endif %}" href="/psmf?tab=components">Компоненты МФСФ</a></li>
+    <li class="nav-item"><a class="nav-link {% if tab == 'partner' %}active{% endif %}" href="/psmf?tab=partner">Партнерский МФСФ</a></li>
+    <li class="nav-item"><a class="nav-link {% if tab == 'audit' %}active{% endif %}" href="/psmf?tab=audit">Журнал аудита</a></li>
+</ul>
+
+{% if tab == 'overview' %}
+<section class="surface mb-4">
+    <p class="mb-0">
+        Модуль МФСФ в MVP-версии демонстрирует хранение мастер-файла системы
+        фармаконадзора как набора отдельных компонентов. Каждый компонент может
+        иметь статус, версию и историю изменений. В дальнейшем модуль может быть
+        расширен до полноценного PSMF Builder.
+    </p>
+</section>
+
+<section class="metric-grid" aria-label="Показатели МФСФ">
+    <a class="metric-card" href="/psmf?tab=components">
+        <span>Всего компонентов МФСФ</span>
+        <strong>{{ stats.total }}</strong>
+    </a>
+    <a class="metric-card" href="/psmf?tab=components&scope=GLOBAL">
+        <span>Общие компоненты</span>
+        <strong>{{ stats.global }}</strong>
+    </a>
+    <a class="metric-card" href="/psmf?tab=components&scope=PARTNER_SPECIFIC">
+        <span>Партнер-специфичные компоненты</span>
+        <strong>{{ stats.partner_specific }}</strong>
+    </a>
+    <a class="metric-card warning" href="/psmf?tab=components&status_filter=draft">
+        <span>Черновики</span>
+        <strong>{{ stats.draft }}</strong>
+    </a>
+    <a class="metric-card warning" href="/psmf?tab=components&status_filter=under_review">
+        <span>На проверке</span>
+        <strong>{{ stats.under_review }}</strong>
+    </a>
+    <a class="metric-card" href="/psmf?tab=components&status_filter=approved">
+        <span>Утверждено</span>
+        <strong>{{ stats.approved }}</strong>
+    </a>
+</section>
+{% endif %}
+
+{% if tab == 'components' %}
+<section class="surface mb-4">
+    <h2 class="h6 section-title">Фильтры</h2>
+    <form class="row g-2 align-items-end" method="get" action="/psmf">
+        <input type="hidden" name="tab" value="components">
+        <div class="col-md-3">
+            <label class="form-label">Поиск</label>
+            <input class="form-control" name="search" value="{{ filters.search }}" placeholder="Код / название / описание">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">Тип</label>
+            <select class="form-select" name="component_type">
+                <option value="">Все</option>
+                {% for option in type_options %}
+                <option value="{{ option }}" {% if filters.component_type == option %}selected{% endif %}>{{ option }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">Scope</label>
+            <select class="form-select" name="scope">
+                <option value="">Все</option>
+                {% for option in scope_options %}
+                <option value="{{ option }}" {% if filters.scope == option %}selected{% endif %}>{{ option }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">Статус</label>
+            <select class="form-select" name="status_filter">
+                <option value="">Все</option>
+                {% for option in status_options %}
+                <option value="{{ option }}" {% if filters.status_filter == option %}selected{% endif %}>{{ status_labels.get(option, option) }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">Партнер</label>
+            <select class="form-select" name="partner_filter">
+                <option value="">Все</option>
+                {% for partner in partners %}
+                <option value="{{ partner.id }}" {% if filters.partner_filter == partner.id %}selected{% endif %}>{{ partner.partner_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-1 d-flex gap-2">
+            <button class="btn btn-primary icon-only" type="submit" title="Найти"><i data-lucide="search"></i></button>
+            <a class="btn btn-outline-secondary icon-only" href="/psmf?tab=components" title="Сбросить"><i data-lucide="x"></i></a>
+        </div>
+    </form>
+</section>
+
+<section class="surface mb-4">
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle">
+            <thead>
+            <tr>
+                <th>Код</th>
+                <th>Название</th>
+                <th>Тип</th>
+                <th>Scope</th>
+                <th>Партнер</th>
+                <th>Статус</th>
+                <th>Версия</th>
+                <th>Дата изменения</th>
+                <th>Действия</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for component in components %}
+            <tr>
+                <td class="fw-medium">{{ component.code }}</td>
+                <td>
+                    <div class="fw-medium">{{ component.title }}</div>
+                    <div class="text-secondary small">{{ component.description }}</div>
+                </td>
+                <td>{{ component.component_type }}</td>
+                <td>{{ component.scope }}</td>
+                <td>{{ component.partner.partner_name if component.partner else "Не применяется" }}</td>
+                <td><span class="status-pill">{{ status_labels.get(component.status, component.status) }}</span></td>
+                <td>{{ component.current_version }}</td>
+                <td class="text-nowrap">{{ component.updated_at }}</td>
+                <td>
+                    <div class="d-flex flex-wrap gap-1">
+                        <a class="btn btn-outline-primary btn-sm" href="/psmf?tab=components&component_id={{ component.id }}"><i data-lucide="eye"></i> Открыть</a>
+                        {% if component.status == 'draft' %}
+                        <a class="btn btn-outline-secondary btn-sm" href="/psmf?tab=components&component_id={{ component.id }}"><i data-lucide="pencil"></i> Редактировать</a>
+                        <form method="post" action="/psmf/components/{{ component.id }}/submit">
+                            <button class="btn btn-outline-primary btn-sm" type="submit"><i data-lucide="send"></i> На проверку</button>
+                        </form>
+                        {% elif component.status == 'under_review' %}
+                        <form method="post" action="/psmf/components/{{ component.id }}/approve">
+                            <button class="btn btn-outline-primary btn-sm" type="submit"><i data-lucide="check"></i> Утвердить</button>
+                        </form>
+                        {% elif component.status == 'approved' %}
+                        <form method="post" action="/psmf/components/{{ component.id }}/new-version">
+                            <button class="btn btn-outline-primary btn-sm" type="submit"><i data-lucide="copy-plus"></i> Новая версия</button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="9" class="text-secondary">Компоненты МФСФ не найдены.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+{% if selected_component and selected_version %}
+<section class="surface">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+        <div>
+            <h2 class="h5 mb-1">{{ selected_component.code }}. {{ selected_component.title }}</h2>
+            <div class="text-secondary small">
+                {{ selected_component.component_type }} / {{ selected_component.scope }} /
+                {{ status_labels.get(selected_component.status, selected_component.status) }} /
+                версия {{ selected_version.version }}
+            </div>
+        </div>
+        <span class="status-pill">{{ status_labels.get(selected_component.status, selected_component.status) }}</span>
+    </div>
+
+    {% if selected_component.status == 'draft' %}
+    <form method="post" action="/psmf/components/{{ selected_component.id }}/save">
+        <div class="mb-3">
+            <label class="form-label">Текст компонента</label>
+            <textarea class="form-control" name="content" rows="8">{{ selected_version.content }}</textarea>
+        </div>
+        <div class="mb-3">
+            <label class="form-label">Краткое описание изменения</label>
+            <input class="form-control" name="change_summary" value="{{ selected_version.change_summary or '' }}">
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <button class="btn btn-primary" type="submit"><i data-lucide="save"></i> Сохранить</button>
+        </div>
+    </form>
+    <form class="mt-2" method="post" action="/psmf/components/{{ selected_component.id }}/submit">
+        <button class="btn btn-outline-primary" type="submit"><i data-lucide="send"></i> Отправить на проверку</button>
+    </form>
+    {% else %}
+    <div class="mb-3">
+        <label class="form-label">Текст компонента</label>
+        <textarea class="form-control" rows="8" readonly>{{ selected_version.content }}</textarea>
+    </div>
+    {% if selected_component.status == 'under_review' %}
+    <form method="post" action="/psmf/components/{{ selected_component.id }}/approve">
+        <button class="btn btn-primary" type="submit"><i data-lucide="check"></i> Утвердить</button>
+    </form>
+    {% elif selected_component.status == 'approved' %}
+    <form method="post" action="/psmf/components/{{ selected_component.id }}/new-version">
+        <button class="btn btn-outline-primary" type="submit"><i data-lucide="copy-plus"></i> Создать новую версию</button>
+    </form>
+    {% endif %}
+    {% endif %}
+</section>
+{% endif %}
+{% endif %}
+
+{% if tab == 'partner' %}
+<section class="surface mb-4">
+    <h2 class="h6 section-title">Выбор партнера</h2>
+    <form class="row g-2 align-items-end" method="get" action="/psmf">
+        <input type="hidden" name="tab" value="partner">
+        <div class="col-md-5">
+            <label class="form-label">Партнер</label>
+            <select class="form-select" name="partner_id" required>
+                <option value="">Выберите партнера</option>
+                {% for partner in partners %}
+                <option value="{{ partner.id }}" {% if selected_partner_id == partner.id %}selected{% endif %}>{{ partner.partner_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <button class="btn btn-primary w-100" type="submit"><i data-lucide="list-checks"></i> Показать сборку</button>
+        </div>
+    </form>
+</section>
+
+{% if partner_preview %}
+<section class="surface mb-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <div>
+            <h2 class="h5 mb-1">В предварительный МФСФ будут включены:</h2>
+            <div class="text-secondary small">{{ partner_preview.partner.partner_name }}</div>
+        </div>
+        <form method="post" action="/psmf/partner-preview">
+            <input type="hidden" name="partner_id" value="{{ partner_preview.partner.id }}">
+            <button class="btn btn-primary" type="submit"><i data-lucide="file-text"></i> Сформировать предварительный МФСФ</button>
+        </form>
+    </div>
+    <div class="table-responsive mb-3">
+        <table class="table table-sm table-hover align-middle">
+            <thead>
+            <tr>
+                <th>Код</th>
+                <th>Название</th>
+                <th>Тип</th>
+                <th>Scope</th>
+                <th>Версия</th>
+                <th>Статус</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for row in partner_preview.rows %}
+            <tr>
+                <td class="fw-medium">{{ row.component.code }}</td>
+                <td>{{ row.component.title }}</td>
+                <td>{{ row.component.component_type }}</td>
+                <td>{{ row.component.scope }}</td>
+                <td>{{ row.version.version }}</td>
+                <td><span class="status-pill">{{ status_labels.get(row.component.status, row.component.status) }}</span></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" class="text-secondary">Нет компонентов для сборки.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% if partner_preview.warnings %}
+    <div class="alert alert-warning mb-0">
+        <div class="fw-medium mb-1">Предупреждения</div>
+        <ul class="mb-0">
+            {% for warning in partner_preview.warnings %}
+            <li>{{ warning }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+</section>
+
+{% if show_preview %}
+<section class="surface">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+        <div>
+            <h2 class="h4 mb-1">МФСФ для {{ partner_preview.partner.partner_name }}</h2>
+            <div class="text-secondary small">Дата формирования: {{ partner_preview.generated_at }}</div>
+        </div>
+        <a class="btn btn-outline-primary" href="/psmf/partner-preview/download?partner_id={{ partner_preview.partner.id }}"><i data-lucide="download"></i> Скачать HTML</a>
+    </div>
+    <h3 class="h6 section-title">Список включенных компонентов</h3>
+    <ul>
+        {% for row in partner_preview.rows %}
+        <li>{{ row.component.code }} - {{ row.component.title }} (версия {{ row.version.version }})</li>
+        {% endfor %}
+    </ul>
+    {% for row in partner_preview.rows %}
+    <div class="border-top pt-3 mt-3">
+        <h3 class="h5">{{ row.component.code }}. {{ row.component.title }}</h3>
+        <div class="text-secondary small mb-2">{{ row.component.component_type }} / {{ row.component.scope }} / версия {{ row.version.version }}</div>
+        <div class="raw-text">{{ row.content }}</div>
+    </div>
+    {% endfor %}
+    <div class="border-top pt-3 mt-3">
+        <h3 class="h6 section-title">Блок предупреждений</h3>
+        {% if partner_preview.warnings %}
+        <ul class="mb-0">
+            {% for warning in partner_preview.warnings %}
+            <li>{{ warning }}</li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="mb-0 text-secondary">Предупреждений нет.</p>
+        {% endif %}
+    </div>
+</section>
+{% endif %}
+{% endif %}
+{% endif %}
+
+{% if tab == 'audit' %}
+<section class="surface mb-4">
+    <h2 class="h6 section-title">Фильтры аудита</h2>
+    <form class="row g-2 align-items-end" method="get" action="/psmf">
+        <input type="hidden" name="tab" value="audit">
+        <div class="col-md-3">
+            <label class="form-label">Модуль</label>
+            <select class="form-select" name="audit_module">
+                <option value="">Все</option>
+                {% for module in audit_module_options %}
+                <option value="{{ module }}" {% if audit_filters.audit_module == module %}selected{% endif %}>{{ module }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Действие</label>
+            <select class="form-select" name="audit_action">
+                <option value="">Все</option>
+                {% for action in audit_action_options %}
+                <option value="{{ action }}" {% if audit_filters.audit_action == action %}selected{% endif %}>{{ action_labels.get(action, action) }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">Дата от</label>
+            <input class="form-control" type="date" name="audit_date_from" value="{{ audit_filters.audit_date_from }}">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">Дата до</label>
+            <input class="form-control" type="date" name="audit_date_to" value="{{ audit_filters.audit_date_to }}">
+        </div>
+        <div class="col-md-2 d-flex gap-2">
+            <button class="btn btn-primary icon-only" type="submit" title="Найти"><i data-lucide="search"></i></button>
+            <a class="btn btn-outline-secondary icon-only" href="/psmf?tab=audit" title="Сбросить"><i data-lucide="x"></i></a>
+        </div>
+    </form>
+</section>
+
+<section class="surface">
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle">
+            <thead>
+            <tr>
+                <th>Дата/время</th>
+                <th>Модуль</th>
+                <th>Пользователь</th>
+                <th>Действие</th>
+                <th>Объект</th>
+                <th>Детали</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for entry in audit_entries %}
+            <tr>
+                <td class="text-nowrap">{{ entry.changed_at or entry.timestamp }}</td>
+                <td>{{ entry.source_module }}</td>
+                <td>{% if entry.user %}{{ entry.user.full_name or entry.user.email }}{% else %}Demo User{% endif %}</td>
+                <td><span class="status-pill">{{ action_labels.get(entry.action, entry.action) }}</span></td>
+                <td>
+                    <div class="fw-medium">{{ entry.entity_type }}</div>
+                    <div class="text-secondary small">{{ entry.entity_id }}</div>
+                </td>
+                <td>{{ entry.comment or entry.new_value or entry.old_value or "" }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" class="text-secondary">Записей аудита по выбранным фильтрам нет.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endif %}
+{% endblock %}

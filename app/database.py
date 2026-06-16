@@ -36,12 +36,14 @@ def get_db() -> Generator[Session, None, None]:
 
 def init_db() -> None:
     from app import models  # noqa: F401
+    from app.psmf import ensure_psmf_seed_data
     from app.rbac import ensure_rbac_defaults
 
     Base.metadata.create_all(bind=engine)
     ensure_sqlite_schema()
     with SessionLocal() as db:
         ensure_rbac_defaults(db)
+        ensure_psmf_seed_data(db)
 
 
 def ensure_sqlite_schema() -> None:
@@ -55,6 +57,7 @@ def ensure_sqlite_schema() -> None:
     with engine.begin() as connection:
         ensure_soft_delete_columns(inspector, connection)
         ensure_audit_log_columns(inspector, connection)
+        ensure_mvp_module_columns(inspector, connection)
 
         columns = {column["name"] for column in inspector.get_columns("tblPartners")}
         if "reconciliation_frequency" not in columns:
@@ -200,6 +203,16 @@ def ensure_soft_delete_columns(inspector, connection) -> None:
         "tblFollowUps",
         "tblAttachments",
         "tblSubmissions",
+        "tblPSURPlans",
+        "tblPSURProducts",
+        "tblPSURCases",
+        "tblPSURPartnerRequests",
+        "tblPSURSections",
+        "tblPSURDocuments",
+        "tblTasks",
+        "tblSOPs",
+        "psmf_components",
+        "psmf_component_versions",
         "tblAuditTrail",
     ]
     for table_name in table_names:
@@ -211,3 +224,84 @@ def ensure_soft_delete_columns(inspector, connection) -> None:
                 connection.execute(
                     text(f'ALTER TABLE "{table_name}" ADD COLUMN {column_name} {ddl}')
                 )
+
+
+def ensure_mvp_module_columns(inspector, connection) -> None:
+    table_columns = {
+        "tblPartners": {
+            "created_by": "VARCHAR(36)",
+            "updated_by": "VARCHAR(36)",
+        },
+        "tblProducts": {
+            "created_by": "VARCHAR(36)",
+            "updated_by": "VARCHAR(36)",
+        },
+        "tblContracts": {
+            "created_by": "VARCHAR(36)",
+            "updated_by": "VARCHAR(36)",
+        },
+        "tblCases": {
+            "created_by": "VARCHAR(36)",
+            "updated_by": "VARCHAR(36)",
+        },
+        "tblPartnerReconciliations": {
+            "products": "TEXT",
+            "sent_date": "DATE",
+            "response_date": "DATE",
+            "discrepancy_description": "TEXT",
+            "document_id": "VARCHAR(36)",
+            "created_by": "VARCHAR(36)",
+            "updated_by": "VARCHAR(36)",
+        },
+        "tblAttachments": {
+            "document_title": "VARCHAR(255)",
+            "document_type": "VARCHAR(100)",
+            "related_object_type": "VARCHAR(100)",
+            "related_object_id": "VARCHAR(36)",
+            "partner_id": "VARCHAR(36)",
+            "product_id": "VARCHAR(36)",
+            "file_url": "VARCHAR(500)",
+            "document_version": "VARCHAR(50)",
+            "document_date": "DATE",
+            "status": "VARCHAR(50)",
+            "comment": "TEXT",
+            "created_by": "VARCHAR(36)",
+            "updated_by": "VARCHAR(36)",
+        },
+        "tblTasks": {
+            "responsible_person": "VARCHAR(255)",
+            "updated_by": "VARCHAR(36)",
+            "comment": "TEXT",
+        },
+        "tblSOPs": {
+            "sop_code": "VARCHAR(100)",
+            "title": "VARCHAR(255)",
+            "document_type": "VARCHAR(100)",
+            "status": "VARCHAR(50)",
+            "process_area": "VARCHAR(100)",
+            "owner": "VARCHAR(255)",
+            "reviewer": "VARCHAR(255)",
+            "approver": "VARCHAR(255)",
+            "approval_date": "DATE",
+            "effective_date": "DATE",
+            "next_review_date": "DATE",
+            "revision_reason": "TEXT",
+            "file_path": "VARCHAR(500)",
+            "file_url": "VARCHAR(500)",
+            "description": "TEXT",
+            "training_required": "BOOLEAN",
+            "created_by": "VARCHAR(36)",
+            "updated_by": "VARCHAR(36)",
+        },
+    }
+    for table_name, columns_to_add in table_columns.items():
+        if not inspector.has_table(table_name):
+            continue
+        columns = {column["name"] for column in inspector.get_columns(table_name)}
+        for column_name, ddl in columns_to_add.items():
+            if column_name in columns:
+                continue
+            connection.execute(
+                text(f'ALTER TABLE "{table_name}" ADD COLUMN {column_name} {ddl}')
+            )
+            columns.add(column_name)

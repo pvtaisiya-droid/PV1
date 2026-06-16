@@ -16,5 +16,12 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(
         request,
         "dashboard.html",
-        {"request": request, "stats": crud.dashboard_stats(db), "active_page": "dashboard"},
+        {
+            "request": request,
+            "stats": crud.dashboard_stats(db),
+            "upcoming_deadlines": crud.dashboard_upcoming_deadlines(db),
+            "overdue_tasks": crud.dashboard_overdue_tasks(db),
+            "recent_changes": crud.dashboard_recent_changes(db),
+            "active_page": "dashboard",
+        },
     )

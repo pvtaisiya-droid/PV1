@@ -1,0 +1,261 @@
+{% extends "base.html" %}
+{% block title %}{{ _('PSUR / PBRER') }} - {{ _('PV MVP') }}{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+        <h1 class="h3 mb-1">{{ _('PSUR / PBRER') }}</h1>
+        <div class="text-secondary small">{{ plans|length }} {{ _('records') }}</div>
+    </div>
+</div>
+
+{% if message %}
+<div class="alert alert-success py-2" role="status">{{ _(message) }}</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-danger py-2" role="alert">{{ _(error) }}</div>
+{% endif %}
+{% if validation %}
+<div class="alert alert-warning py-2" role="alert">{{ _(validation) }}</div>
+{% endif %}
+
+<section class="metric-grid mb-4" aria-label="{{ _('Dashboard') }}">
+    <a class="metric-card" href="/psur">
+        <span>{{ _('Total planned reports') }}</span>
+        <strong>{{ stats.total_planned_reports }}</strong>
+    </a>
+    <a class="metric-card" href="/psur?status_filter=Data+Collection">
+        <span>{{ _('Reports in progress') }}</span>
+        <strong>{{ stats.reports_in_progress }}</strong>
+    </a>
+    <a class="metric-card" href="/psur?status_filter=Under+Review">
+        <span>{{ _('Reports under review') }}</span>
+        <strong>{{ stats.reports_under_review }}</strong>
+    </a>
+    <a class="metric-card" href="/psur?status_filter=Approved">
+        <span>{{ _('Approved reports') }}</span>
+        <strong>{{ stats.approved_reports }}</strong>
+    </a>
+    <a class="metric-card" href="/psur?status_filter=Submitted">
+        <span>{{ _('Submitted reports') }}</span>
+        <strong>{{ stats.submitted_reports }}</strong>
+    </a>
+    <a class="metric-card danger" href="/psur?overdue_only=true">
+        <span>{{ _('Overdue reports') }}</span>
+        <strong>{{ stats.overdue_reports }}</strong>
+    </a>
+    <a class="metric-card warning" href="/psur">
+        <span>{{ _('Upcoming DLP') }}</span>
+        <strong>{{ stats.upcoming_dlp }}</strong>
+    </a>
+    <a class="metric-card warning" href="/psur">
+        <span>{{ _('Upcoming submission deadline') }}</span>
+        <strong>{{ stats.upcoming_submission_deadline }}</strong>
+    </a>
+    <a class="metric-card danger" href="/psur">
+        <span>{{ _('Overdue partner requests') }}</span>
+        <strong>{{ stats.overdue_partner_requests }}</strong>
+    </a>
+</section>
+
+<section class="surface mb-4">
+    <h2 class="h6 section-title">{{ _('Filters') }}</h2>
+    <form class="row g-2 align-items-end" method="get" action="/psur">
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Search') }}</label>
+            <input class="form-control" name="search" value="{{ filters.search }}" placeholder="{{ _('Substance') }} / {{ _('Product') }} / {{ _('User') }}">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Active substance') }}</label>
+            <select class="form-select" name="active_substance_id">
+                <option value="">{{ _('All') }}</option>
+                {% for substance in substances %}
+                <option value="{{ substance.id }}" {% if filters.active_substance_id == substance.id %}selected{% endif %}>{{ substance.substance_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Product') }}</label>
+            <select class="form-select" name="product_id">
+                <option value="">{{ _('All') }}</option>
+                {% for product in products %}
+                <option value="{{ product.id }}" {% if filters.product_id == product.id %}selected{% endif %}>{{ product.product_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Status') }}</label>
+            <select class="form-select" name="status_filter">
+                <option value="">{{ _('All') }}</option>
+                {% for status in psur_status_options %}
+                <option value="{{ status }}" {% if filters.status_filter == status %}selected{% endif %}>{{ _(status) }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Responsible') }}</label>
+            <select class="form-select" name="responsible_user_id">
+                <option value="">{{ _('All') }}</option>
+                {% for user in users %}
+                <option value="{{ user.id }}" {% if filters.responsible_user_id == user.id %}selected{% endif %}>{{ user.full_name or user.email }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-1 d-flex gap-2">
+            <button class="btn btn-primary icon-only" type="submit" title="{{ _('Search') }}"><i data-lucide="search"></i></button>
+            <a class="btn btn-outline-secondary icon-only" href="/psur" title="{{ _('Cancel') }}"><i data-lucide="x"></i></a>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Period from') }}</label>
+            <input class="form-control" type="date" name="period_from" value="{{ filters.period_from }}">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Period to') }}</label>
+            <input class="form-control" type="date" name="period_to" value="{{ filters.period_to }}">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Due from') }}</label>
+            <input class="form-control" type="date" name="due_from" value="{{ filters.due_from }}">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Due to') }}</label>
+            <input class="form-control" type="date" name="due_to" value="{{ filters.due_to }}">
+        </div>
+        <div class="col-md-2">
+            <label class="form-check mt-4">
+                <input class="form-check-input" type="checkbox" name="overdue_only" value="true" {% if filters.overdue_only %}checked{% endif %}>
+                {{ _('Overdue only') }}
+            </label>
+        </div>
+    </form>
+</section>
+
+{% if has_permission('create') %}
+<section class="surface mb-4">
+    <h2 class="h6 section-title">{{ _('Create PSUR plan') }}</h2>
+    <form class="row g-3" method="post" action="/psur">
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Active substance') }}</label>
+            <select class="form-select" name="active_substance_id" required>
+                <option value="">{{ _('Select substance') }}</option>
+                {% for substance in substances %}
+                <option value="{{ substance.id }}">{{ substance.substance_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Product') }}</label>
+            <select class="form-select" name="product_id">
+                <option value="">{{ _('None') }}</option>
+                {% for product in products %}
+                <option value="{{ product.id }}">{{ product.product_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Type') }}</label>
+            <select class="form-select" name="psur_type">
+                {% for type in psur_type_options %}
+                <option value="{{ type }}">{{ _(type) }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Frequency') }}</label>
+            <input class="form-control" name="frequency" placeholder="annual / 6 months">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Responsible') }}</label>
+            <select class="form-select" name="responsible_user_id">
+                <option value="">{{ _('None') }}</option>
+                {% for user in users %}
+                <option value="{{ user.id }}">{{ user.full_name or user.email }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Period start') }}</label>
+            <input class="form-control" type="date" name="reporting_period_start" required>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Period end') }}</label>
+            <input class="form-control" type="date" name="reporting_period_end" required>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Data lock point') }}</label>
+            <input class="form-control" type="date" name="data_lock_point" required>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Internal due') }}</label>
+            <input class="form-control" type="date" name="due_date_internal">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Submission due') }}</label>
+            <input class="form-control" type="date" name="due_date_submission">
+        </div>
+        <div class="col-md-1">
+            <label class="form-label">{{ _('Reviewer') }}</label>
+            <select class="form-select" name="reviewer_user_id">
+                <option value="">{{ _('None') }}</option>
+                {% for user in users %}
+                <option value="{{ user.id }}">{{ user.full_name or user.email }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-1 d-flex align-items-end">
+            <button class="btn btn-primary w-100 icon-only" type="submit" title="{{ _('Save') }}"><i data-lucide="save"></i></button>
+        </div>
+    </form>
+</section>
+{% endif %}
+
+<section class="surface">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead>
+            <tr>
+                <th>{{ _('Type') }}</th>
+                <th>{{ _('Active substance') }}</th>
+                <th>{{ _('Product') }}</th>
+                <th>{{ _('Period') }}</th>
+                <th>{{ _('DLP') }}</th>
+                <th>{{ _('Submission due') }}</th>
+                <th>{{ _('Status') }}</th>
+                <th>{{ _('Responsible') }}</th>
+                <th>{{ _('Actions') }}</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for plan in plans %}
+            {% set is_overdue = plan.due_date_submission and plan.due_date_submission < today and plan.status not in ['Submitted', 'Archived'] %}
+            <tr>
+                <td class="fw-medium">{{ _(plan.psur_type) }}</td>
+                <td>{{ plan.active_substance.substance_name if plan.active_substance else "" }}</td>
+                <td>{{ plan.product.product_name if plan.product else "" }}</td>
+                <td>{{ plan.reporting_period_start }} - {{ plan.reporting_period_end }}</td>
+                <td>{{ plan.data_lock_point }}</td>
+                <td class="{% if is_overdue %}text-danger fw-semibold{% endif %}">{{ plan.due_date_submission or "" }}</td>
+                <td><span class="status-pill">{{ _(plan.status) }}</span></td>
+                <td>{{ plan.responsible_user.full_name if plan.responsible_user else "" }}</td>
+                <td>
+                    <div class="d-flex flex-wrap justify-content-end gap-1">
+                        <a class="btn btn-outline-primary btn-sm icon-only" href="/psur/{{ plan.id }}" title="{{ _('View') }}"><i data-lucide="eye"></i></a>
+                        {% if has_permission('export') %}
+                        <a class="btn btn-outline-secondary btn-sm icon-only" href="/api/psur/{{ plan.id }}/summary.rtf" title="{{ _('Export summary') }}"><i data-lucide="download"></i></a>
+                        {% endif %}
+                        {% if has_permission('soft_delete') %}
+                        <form method="post" action="/psur/{{ plan.id }}/delete">
+                            <button class="btn btn-outline-danger btn-sm icon-only" type="submit" title="{{ _('Delete') }}"><i data-lucide="trash-2"></i></button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="9" class="text-secondary">{% if filters.active and total_count %}{{ _('No records match the filters.') }}{% else %}{{ _('No PSUR plans yet.') }}{% endif %}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

@@ -93,12 +93,12 @@
             {% for partner in partners %}
             <tr>
                 <td class="fw-medium">{{ partner.partner_code }}</td>
-                <td>{{ partner.partner_name }}</td>
+                <td><a class="fw-medium" href="/partners/{{ partner.id }}">{{ partner.partner_name }}</a></td>
                 <td><span class="badge text-bg-light">{{ _(partner.partner_type) }}</span></td>
                 <td>{{ _(partner.reconciliation_frequency) }}</td>
                 <td>
                     <div class="d-flex flex-wrap gap-1">
-                        <button class="btn btn-outline-secondary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#partner-view-{{ partner.id }}" title="{{ _('View') }}"><i data-lucide="eye"></i></button>
+                        <a class="btn btn-outline-secondary btn-sm icon-only" href="/partners/{{ partner.id }}" title="{{ _('View') }}"><i data-lucide="eye"></i></a>
                         {% if has_permission('edit') or has_permission('manage_reference_data') %}
                         <button class="btn btn-outline-primary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#partner-edit-{{ partner.id }}" title="{{ _('Edit') }}"><i data-lucide="pencil"></i></button>
                         {% endif %}

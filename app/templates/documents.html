@@ -71,14 +71,73 @@
 {% if has_permission('upload') or has_permission('create') %}
 <section class="surface mb-4">
     <h2 class="h6 section-title">{{ _('Add document') }}</h2>
-    <form class="row g-3" method="post" action="/documents">
+    <form class="row g-3" method="post" action="/documents" enctype="multipart/form-data">
         <div class="col-md-3">
-            <label class="form-label">{{ _('File name') }}</label>
-            <input class="form-control" name="file_name" required>
+            <label class="form-label">{{ _('Document title') }}</label>
+            <input class="form-control" name="document_title" required>
         </div>
         <div class="col-md-2">
             <label class="form-label">{{ _('Type') }}</label>
-            <input class="form-control" name="attachment_type" placeholder="source / export / qc">
+            <select class="form-select" name="document_type">
+                {% for type in type_options %}
+                <option value="{{ type }}" {% if type == 'other' %}selected{% endif %}>{{ _(type) }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Partner') }}</label>
+            <select class="form-select" name="partner_id">
+                <option value="">{{ _('None') }}</option>
+                {% for partner in partners %}
+                <option value="{{ partner.id }}">{{ partner.partner_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Product') }}</label>
+            <select class="form-select" name="product_id">
+                <option value="">{{ _('None') }}</option>
+                {% for product in products %}
+                <option value="{{ product.id }}">{{ product.product_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-1">
+            <label class="form-label">{{ _('Version') }}</label>
+            <input class="form-control" name="document_version" placeholder="1.0">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Status') }}</label>
+            <select class="form-select" name="document_status">
+                {% for status in status_options %}
+                <option value="{{ status }}" {% if status == 'draft' %}selected{% endif %}>{{ _(status) }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Related object type') }}</label>
+            <select class="form-select" name="related_object_type">
+                <option value="">{{ _('None') }}</option>
+                {% for type in related_object_types %}
+                <option value="{{ type }}">{{ _(type) }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Related object ID') }}</label>
+            <input class="form-control" name="related_object_id">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Document date') }}</label>
+            <input class="form-control" type="date" name="document_date">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Upload file') }}</label>
+            <input class="form-control" type="file" name="document_file">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('File URL') }}</label>
+            <input class="form-control" name="file_url" placeholder="https://...">
         </div>
         <div class="col-md-2">
             <label class="form-label">{{ _('Case') }}</label>
@@ -98,12 +157,12 @@
                 {% endfor %}
             </select>
         </div>
-        <div class="col-md-2">
-            <label class="form-label">{{ _('Storage path') }}</label>
-            <input class="form-control" name="storage_path">
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Comment') }}</label>
+            <input class="form-control" name="comment">
         </div>
         <div class="col-md-1 d-flex align-items-end">
-            <button class="btn btn-primary w-100 icon-only" type="submit" title="{{ _('Save') }}"><i data-lucide="save"></i></button>
+            <button class="btn btn-primary w-100 icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Save') }}</span></button>
         </div>
     </form>
 </section>
@@ -114,36 +173,56 @@
         <table class="table table-hover align-middle">
             <thead>
             <tr>
-                <th>{{ _('File name') }}</th>
+                <th>{{ _('Title') }}</th>
                 <th>{{ _('Type') }}</th>
-                <th>{{ _('Case') }}</th>
-                <th>{{ _('Safety report') }}</th>
                 <th>{{ _('Partner') }}</th>
                 <th>{{ _('Product') }}</th>
-                <th>{{ _('Uploaded') }}</th>
+                <th>{{ _('Related object') }}</th>
+                <th>{{ _('Version') }}</th>
+                <th>{{ _('Status') }}</th>
+                <th>{{ _('Document date') }}</th>
                 <th>{{ _('Actions') }}</th>
             </tr>
             </thead>
             <tbody>
             {% for document in documents %}
             <tr>
-                <td class="fw-medium">{{ document.file_name }}</td>
-                <td>{{ _(document.attachment_type) }}</td>
-                <td>{{ document.case.case_number if document.case else "" }}</td>
-                <td>{{ document.safety_report.safety_report_number if document.safety_report else "" }}</td>
+                <td class="fw-medium">{{ document.document_title or document.file_name }}</td>
+                <td>{{ _(document.document_type or document.attachment_type) }}</td>
                 <td>
-                    {% if document.case and document.case.partner %}{{ document.case.partner.partner_name }}{% elif document.safety_report and document.safety_report.partner %}{{ document.safety_report.partner.partner_name }}{% endif %}
+                    {% if document.partner %}{{ document.partner.partner_name }}{% elif document.case and document.case.partner %}{{ document.case.partner.partner_name }}{% elif document.safety_report and document.safety_report.partner %}{{ document.safety_report.partner.partner_name }}{% endif %}
                 </td>
                 <td>
-                    {% if document.case %}
+                    {% if document.product %}
+                    {{ document.product.product_name }}
+                    {% elif document.case %}
                     {% for row in document.case.case_products %}
                     <span class="badge text-bg-light">{{ row.product.product_name if row.product else row.reported_product_name }}</span>
                     {% endfor %}
                     {% endif %}
                 </td>
-                <td>{{ document.uploaded_at or document.created_at }}</td>
+                <td>
+                    {% if document.related_object_type %}
+                    <span class="badge text-bg-light">{{ _(document.related_object_type) }}</span>
+                    <div class="text-secondary small text-break">{{ document.related_object_id or "" }}</div>
+                    {% elif document.case %}
+                    <span class="badge text-bg-light">{{ _('Case') }}</span>
+                    <div class="text-secondary small">{{ document.case.case_number }}</div>
+                    {% elif document.safety_report %}
+                    <span class="badge text-bg-light">{{ _('SafetyReport') }}</span>
+                    <div class="text-secondary small">{{ document.safety_report.safety_report_number }}</div>
+                    {% endif %}
+                </td>
+                <td>{{ document.document_version or document.version }}</td>
+                <td><span class="status-pill">{{ _(document.status) }}</span></td>
+                <td>{{ document.document_date or document.uploaded_at or document.created_at }}</td>
                 <td>
                     <div class="d-flex flex-wrap gap-1">
+                        {% if document.storage_path %}
+                        <a class="btn btn-outline-primary btn-sm icon-only" href="/documents/{{ document.id }}/download" title="{{ _('Download') }}"><i data-lucide="download"></i></a>
+                        {% elif document.file_url %}
+                        <a class="btn btn-outline-primary btn-sm icon-only" href="{{ document.file_url }}" title="{{ _('Open') }}"><i data-lucide="external-link"></i></a>
+                        {% endif %}
                         {% if document.case %}
                         <a class="btn btn-outline-primary btn-sm icon-only" href="/cases/{{ document.case_id }}" title="{{ _('View') }}"><i data-lucide="eye"></i></a>
                         {% elif document.safety_report %}
@@ -160,16 +239,22 @@
                 </td>
             </tr>
             <tr class="collapse" id="document-view-{{ document.id }}">
-                <td colspan="8">
+                <td colspan="9">
                     <div class="row g-2 small">
+                        <div class="col-md-3"><span class="text-secondary">{{ _('File name') }}</span><div>{{ document.file_name or "" }}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('File URL') }}</span><div class="text-break">{{ document.file_url or "" }}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Comment') }}</span><div>{{ document.comment or "" }}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Uploaded') }}</span><div>{{ document.uploaded_at or document.created_at }}</div></div>
                         <div class="col-md-4"><span class="text-secondary">{{ _('Storage path') }}</span><div>{{ document.storage_path or "" }}</div></div>
-                        <div class="col-md-4"><span class="text-secondary">{{ _('MIME type') }}</span><div>{{ document.mime_type or "" }}</div></div>
+                        <div class="col-md-2"><span class="text-secondary">{{ _('MIME type') }}</span><div>{{ document.mime_type or "" }}</div></div>
+                        <div class="col-md-2"><span class="text-secondary">{{ _('Size') }}</span><div>{{ document.file_size_bytes or "" }}</div></div>
+                        <div class="col-md-4"><span class="text-secondary">{{ _('Checksum') }}</span><div class="text-break">{{ document.checksum_sha256 or "" }}</div></div>
                         <div class="col-md-4"><span class="text-secondary">{{ _('Uploaded by') }}</span><div>{{ document.uploaded_by.email if document.uploaded_by else "" }}</div></div>
                     </div>
                 </td>
             </tr>
             {% else %}
-            <tr><td colspan="8" class="text-secondary">{% if filters.active and total_count %}{{ _('No records match the filters.') }}{% else %}{{ _('No documents yet.') }}{% endif %}</td></tr>
+            <tr><td colspan="9" class="text-secondary">{% if filters.active and total_count %}{{ _('No records match the filters.') }}{% else %}{{ _('No documents yet.') }}{% endif %}</td></tr>
             {% endfor %}
             </tbody>
         </table>

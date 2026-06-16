@@ -12,6 +12,7 @@ PERMISSION_DEFINITIONS = [
     ("soft_delete", "Soft delete", "Archive records without physical deletion."),
     ("approve", "Approve", "Approve or sign off records and documents."),
     ("comment", "Comment", "Add review comments."),
+    ("create_related_requests", "Create related requests", "Create related partner requests without editing controlled content."),
     ("upload", "Upload", "Upload documents and attachments."),
     ("export", "Export", "Export reports and datasets."),
     ("audit_view", "Audit view", "View audit trail entries."),
@@ -64,6 +65,15 @@ ROLE_PRESETS = {
             "comment",
             "export",
             "audit_view",
+        },
+    },
+    "initiator": {
+        "name": "Initiator / Request initiator",
+        "description": "Can create related requests and comments without editing PSUR content.",
+        "permissions": {
+            "view",
+            "comment",
+            "create_related_requests",
         },
     },
     "readonly_auditor": {

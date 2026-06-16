@@ -1,6 +1,6 @@
 from datetime import date, timedelta
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.orm import Session
 
@@ -13,11 +13,19 @@ from app.reconciliation import (
     contact_full_name,
 )
 from app.reconciliation_excel import build_reconciliation_workbook
+from app.routers.placeholders import store_document_file
 from app.templating import templates
 from app.ui_helpers import redirect_with_message
 
 
 router = APIRouter()
+RECONCILIATION_RECORD_STATUSES = [
+    "draft",
+    "sent",
+    "response_received",
+    "discrepancy_found",
+    "closed",
+]
 
 
 @router.get("/partner-reconciliation", response_class=HTMLResponse)
@@ -38,6 +46,7 @@ def partner_reconciliation_page(
     context.update(
         {
             "status_options": RECONCILIATION_STATUSES,
+            "record_status_options": RECONCILIATION_RECORD_STATUSES,
             "status_filter": status_filter or "",
             "product_filter": product_id or "",
             "search": search or "",
@@ -128,6 +137,7 @@ def save_partner_reconciliation(
     contact_id: str | None = Form(None),
     language: str = Form("ru"),
     prepared_by: str | None = Form(None),
+    products: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     preview = build_reconciliation_preview(
@@ -147,6 +157,7 @@ def save_partner_reconciliation(
             period_end=period_end,
             language=language,
             prepared_by=prepared_by,
+            products=products or product_names(preview["products"]),
         ),
         preview["items"],
     )
@@ -172,6 +183,138 @@ def confirm_partner_reconciliation(
     return redirect_with_message(
         f"/partner-reconciliation?reconciliation_id={reconciliation_id}",
         message="Reconciliation confirmed.",
+    )
+
+
+@router.post(
+    "/partner-reconciliation/{reconciliation_id}/status",
+    dependencies=[Depends(require_any_permission("edit", "comment"))],
+)
+def update_partner_reconciliation_status_form(
+    reconciliation_id: str,
+    request: Request,
+    reconciliation_status: str = Form(...),
+    sent_date: str | None = Form(None),
+    response_date: str | None = Form(None),
+    products: str | None = Form(None),
+    discrepancy_description: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    reconciliation = crud.get_partner_reconciliation(db, reconciliation_id)
+    if not reconciliation:
+        raise HTTPException(status_code=404, detail="Reconciliation not found")
+    if reconciliation_status not in RECONCILIATION_RECORD_STATUSES:
+        return redirect_with_message(
+            f"/partner-reconciliation?reconciliation_id={reconciliation_id}",
+            validation="Invalid reconciliation status.",
+        )
+    current_user = getattr(request.state, "current_user", None)
+    crud.update_partner_reconciliation_status(
+        db,
+        reconciliation,
+        reconciliation_status=reconciliation_status,
+        sent_date=optional_date(sent_date),
+        response_date=optional_date(response_date),
+        products=products,
+        discrepancy_description=discrepancy_description,
+        changed_by_user_id=current_user.id if current_user else None,
+    )
+    return redirect_with_message(
+        f"/partner-reconciliation?reconciliation_id={reconciliation_id}",
+        message="Reconciliation status saved.",
+    )
+
+
+@router.post(
+    "/partner-reconciliation/{reconciliation_id}/response",
+    dependencies=[Depends(require_any_permission("upload", "edit"))],
+)
+def upload_partner_reconciliation_response(
+    reconciliation_id: str,
+    request: Request,
+    response_file: UploadFile = File(...),
+    discrepancy_description: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    reconciliation = crud.get_partner_reconciliation(db, reconciliation_id)
+    if not reconciliation:
+        raise HTTPException(status_code=404, detail="Reconciliation not found")
+    try:
+        stored_file = store_document_file(response_file)
+    except ValueError as exc:
+        return redirect_with_message(
+            f"/partner-reconciliation?reconciliation_id={reconciliation_id}",
+            validation=str(exc),
+        )
+    current_user = getattr(request.state, "current_user", None)
+    document = crud.create_attachment(
+        db,
+        file_name=response_file.filename or f"partner_response_{reconciliation_id}",
+        attachment_type="partner response",
+        document_title=response_file.filename or "Partner response",
+        document_type="partner response",
+        related_object_type="Reconciliation",
+        related_object_id=reconciliation.id,
+        partner_id=reconciliation.partner_id,
+        mime_type=response_file.content_type or "application/octet-stream",
+        file_size_bytes=stored_file["file_size_bytes"],
+        storage_path=stored_file["storage_path"],
+        status="active",
+        comment="Partner response file linked to reconciliation.",
+        checksum_sha256=stored_file["checksum_sha256"],
+        uploaded_by_user_id=current_user.id if current_user else None,
+    )
+    crud.update_partner_reconciliation_status(
+        db,
+        reconciliation,
+        reconciliation_status=(
+            "discrepancy_found"
+            if (discrepancy_description or "").strip()
+            else "response_received"
+        ),
+        response_date=date.today(),
+        discrepancy_description=discrepancy_description,
+        document_id=document.id,
+        changed_by_user_id=current_user.id if current_user else None,
+    )
+    return redirect_with_message(
+        f"/partner-reconciliation?reconciliation_id={reconciliation_id}",
+        message="Partner response saved.",
+    )
+
+
+@router.post(
+    "/partner-reconciliation/{reconciliation_id}/task",
+    dependencies=[Depends(require_any_permission("create", "create_related_requests", "comment"))],
+)
+def create_partner_reconciliation_task(
+    reconciliation_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    reconciliation = crud.get_partner_reconciliation(db, reconciliation_id)
+    if not reconciliation:
+        raise HTTPException(status_code=404, detail="Reconciliation not found")
+    current_user = getattr(request.state, "current_user", None)
+    partner_name = reconciliation.partner.partner_name if reconciliation.partner else "partner"
+    crud.create_task(
+        db,
+        schemas.TaskCreate(
+            title=f"Resolve reconciliation discrepancies: {partner_name}",
+            description=reconciliation.discrepancy_description,
+            status="new",
+            priority="high",
+            due_date=date.today() + timedelta(days=7),
+            responsible_person=reconciliation.prepared_by,
+            related_entity_type="PartnerReconciliation",
+            related_entity_id=reconciliation.id,
+            comment="Created from reconciliation discrepancy.",
+        ),
+        created_by_user_id=current_user.id if current_user else None,
+    )
+    return redirect_with_message(
+        f"/partner-reconciliation?reconciliation_id={reconciliation_id}",
+        message="Task saved.",
     )
 
 
@@ -357,3 +500,13 @@ def get_value(item, field: str):
     if isinstance(item, dict):
         return item.get(field)
     return getattr(item, field, None)
+
+
+def product_names(products: list) -> str:
+    return ", ".join(product.product_name for product in products)
+
+
+def optional_date(value: str | None) -> date | None:
+    if not value:
+        return None
+    return date.fromisoformat(value)
