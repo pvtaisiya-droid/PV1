@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}{{ sop.sop_code }} - {{ _('SOPs and Instructions') }}{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+        <div class="text-secondary small">{{ _('SOP card') }}</div>
+        <h1 class="h3 mb-1">{{ sop.sop_code }} · {{ sop.title }}</h1>
+        <div class="d-flex flex-wrap gap-2">
+            <span class="status-pill">{{ _(sop.status) }}</span>
+            <span class="badge text-bg-light">{{ _(sop.document_type) }}</span>
+            <span class="badge text-bg-light">{{ _(sop.process_area) }}</span>
+        </div>
+    </div>
+    <a class="btn btn-outline-secondary btn-sm icon-button" href="/sops"><i data-lucide="arrow-left"></i><span>{{ _('SOPs and Instructions') }}</span></a>
+</div>
+
+{% if message %}<div class="alert alert-success py-2" role="status">{{ _(message) }}</div>{% endif %}
+{% if error %}<div class="alert alert-danger py-2" role="alert">{{ _(error) }}</div>{% endif %}
+{% if validation %}<div class="alert alert-warning py-2" role="alert">{{ _(validation) }}</div>{% endif %}
+
+<ul class="nav nav-tabs mb-3" role="tablist">
+    <li class="nav-item" role="presentation"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#general" type="button" role="tab">{{ _('General information') }}</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#file-version" type="button" role="tab">{{ _('File and version') }}</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#processes" type="button" role="tab">{{ _('Related processes') }}</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#training" type="button" role="tab">{{ _('Training') }}</button></li>
+    {% if has_permission('audit_view') %}
+    <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#audit" type="button" role="tab">{{ _('Audit history') }}</button></li>
+    {% endif %}
+    <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#comments" type="button" role="tab">{{ _('Comments') }}</button></li>
+</ul>
+
+<div class="tab-content">
+    <div class="tab-pane fade show active" id="general" role="tabpanel" tabindex="0">
+        <section class="surface">
+            <div class="row g-3">
+                <div class="col-md-3"><span class="text-secondary small">{{ _('SOP code') }}</span><div class="fw-semibold">{{ sop.sop_code }}</div></div>
+                <div class="col-md-3"><span class="text-secondary small">{{ _('Document type') }}</span><div>{{ _(sop.document_type) }}</div></div>
+                <div class="col-md-3"><span class="text-secondary small">{{ _('Status') }}</span><div>{{ _(sop.status) }}</div></div>
+                <div class="col-md-3"><span class="text-secondary small">{{ _('Process area') }}</span><div>{{ _(sop.process_area) }}</div></div>
+                <div class="col-md-3"><span class="text-secondary small">{{ _('Owner') }}</span><div>{{ sop.owner }}</div></div>
+                <div class="col-md-3"><span class="text-secondary small">{{ _('Reviewer') }}</span><div>{{ sop.reviewer or "" }}</div></div>
+                <div class="col-md-3"><span class="text-secondary small">{{ _('Approver') }}</span><div>{{ sop.approver or "" }}</div></div>
+                <div class="col-md-3"><span class="text-secondary small">{{ _('Approval date') }}</span><div>{{ sop.approval_date or "" }}</div></div>
+                <div class="col-12"><span class="text-secondary small">{{ _('Description') }}</span><div>{{ sop.description or "" }}</div></div>
+            </div>
+        </section>
+    </div>
+
+    <div class="tab-pane fade" id="file-version" role="tabpanel" tabindex="0">
+        <section class="surface">
+            <div class="row g-3">
+                <div class="col-md-2"><span class="text-secondary small">{{ _('Version') }}</span><div class="fw-semibold">{{ sop.version }}</div></div>
+                <div class="col-md-3"><span class="text-secondary small">{{ _('Effective date') }}</span><div>{{ sop.effective_date }}</div></div>
+                <div class="col-md-3"><span class="text-secondary small">{{ _('Next review date') }}</span><div>{{ sop.next_review_date }}</div></div>
+                <div class="col-md-4"><span class="text-secondary small">{{ _('Revision reason') }}</span><div>{{ sop.revision_reason or "" }}</div></div>
+                <div class="col-md-6"><span class="text-secondary small">{{ _('File path') }}</span><div class="text-break">{{ sop.file_path or "" }}</div></div>
+                <div class="col-md-6"><span class="text-secondary small">{{ _('File URL') }}</span><div class="text-break">{% if sop.file_url %}<a href="{{ sop.file_url }}">{{ sop.file_url }}</a>{% endif %}</div></div>
+            </div>
+            <div class="table-responsive mt-3">
+                <table class="table table-sm align-middle">
+                    <thead><tr><th>{{ _('Title') }}</th><th>{{ _('Type') }}</th><th>{{ _('Version') }}</th><th>{{ _('Date') }}</th><th>{{ _('Actions') }}</th></tr></thead>
+                    <tbody>
+                    {% for document in documents %}
+                    <tr>
+                        <td class="fw-medium">{{ document.document_title or document.file_name }}</td>
+                        <td>{{ _(document.document_type) }}</td>
+                        <td>{{ document.document_version or "" }}</td>
+                        <td>{{ document.document_date or document.uploaded_at or document.created_at }}</td>
+                        <td>{% if document.storage_path %}<a class="btn btn-outline-primary btn-sm icon-only" href="/documents/{{ document.id }}/download" title="{{ _('Download') }}"><i data-lucide="download"></i></a>{% endif %}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="5" class="text-secondary">{{ _('No files linked yet.') }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <div class="tab-pane fade" id="processes" role="tabpanel" tabindex="0">
+        <section class="surface">
+            <h2 class="h6 section-title">{{ _('Related processes') }}</h2>
+            <div class="empty-state">
+                <span class="status-pill">{{ _(sop.process_area) }}</span>
+                <p class="mb-0 text-secondary">{{ _('Related process links can be expanded in the next MVP phase.') }}</p>
+            </div>
+        </section>
+    </div>
+
+    <div class="tab-pane fade" id="training" role="tabpanel" tabindex="0">
+        <section class="surface">
+            <h2 class="h6 section-title">{{ _('Training') }}</h2>
+            <div class="empty-state">
+                <span class="status-pill">{% if sop.training_required %}{{ _('Training required') }}{% else %}{{ _('Training not required') }}{% endif %}</span>
+                <p class="mb-0 text-secondary">{{ _('Training tracking will be added in the next phase.') }}</p>
+            </div>
+        </section>
+    </div>
+
+    {% if has_permission('audit_view') %}
+    <div class="tab-pane fade" id="audit" role="tabpanel" tabindex="0">
+        <section class="surface">
+            <h2 class="h6 section-title">{{ _('Audit history') }}</h2>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead><tr><th>{{ _('Timestamp') }}</th><th>{{ _('Action') }}</th><th>{{ _('Field') }}</th><th>{{ _('New') }}</th><th>{{ _('User') }}</th></tr></thead>
+                    <tbody>
+                    {% for entry in audit_entries %}
+                    <tr><td>{{ entry.changed_at or entry.timestamp }}</td><td><span class="status-pill">{{ _(entry.action) }}</span></td><td>{{ entry.field_name or "" }}</td><td>{{ entry.new_value or "" }}</td><td>{{ entry.user.email if entry.user else entry.changed_by or "" }}</td></tr>
+                    {% else %}
+                    <tr><td colspan="5" class="text-secondary">{{ _('No changes yet.') }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+    {% endif %}
+
+    <div class="tab-pane fade" id="comments" role="tabpanel" tabindex="0">
+        <section class="surface">
+            <h2 class="h6 section-title">{{ _('Comments') }}</h2>
+            <div class="empty-state">
+                <span class="status-pill">{{ _('No comments yet.') }}</span>
+                <p class="mb-0 text-secondary">{{ _('Comments can be added in a later workflow phase.') }}</p>
+            </div>
+        </section>
+    </div>
+</div>
+{% endblock %}

@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import crud, schemas
-from app.auth import USER_COOKIE, require_permission
+from app.auth import DEMO_USER_SWITCH_ENABLED, USER_COOKIE, require_permission
 from app.database import get_db
 from app.models import Role, User
 from app.templating import templates
@@ -49,6 +49,11 @@ def switch_user(
     next_url: str = Form("/"),
     db: Session = Depends(get_db),
 ):
+    if not DEMO_USER_SWITCH_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Demo user switch is disabled.",
+        )
     user = crud.get_user(db, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")

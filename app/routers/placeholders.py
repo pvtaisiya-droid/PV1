@@ -1,4 +1,5 @@
 import hashlib
+import os
 import re
 import uuid
 from datetime import date
@@ -24,6 +25,37 @@ from app.ui_helpers import (
 
 router = APIRouter()
 UPLOAD_ROOT = (Path.cwd() / "uploads" / "documents").resolve()
+
+
+def configured_upload_limit() -> int:
+    try:
+        value = int(os.getenv("PV_MAX_UPLOAD_BYTES", str(25 * 1024 * 1024)))
+    except ValueError:
+        return 25 * 1024 * 1024
+    return max(1024 * 1024, value)
+
+
+MAX_UPLOAD_BYTES = configured_upload_limit()
+ALLOWED_UPLOAD_EXTENSIONS = {
+    ".csv",
+    ".doc",
+    ".docx",
+    ".eml",
+    ".jpeg",
+    ".jpg",
+    ".json",
+    ".ods",
+    ".odt",
+    ".pdf",
+    ".png",
+    ".ppt",
+    ".pptx",
+    ".rtf",
+    ".txt",
+    ".xls",
+    ".xlsx",
+    ".xml",
+}
 DOCUMENT_TYPES = [
     "PV agreement",
     "reconciliation form",
@@ -43,6 +75,7 @@ RELATED_OBJECT_TYPES = [
     "SafetyReport",
     "Reconciliation",
     "IncomingRequest",
+    "SOP",
     "Other",
 ]
 
@@ -423,25 +456,44 @@ def safe_storage_name(filename: str | None) -> str:
     return (base_name or "document")[:160]
 
 
-def store_document_file(document_file: UploadFile) -> dict[str, object]:
-    if not safe_display_name(document_file.filename):
+def validate_upload_name(filename: str | None) -> str:
+    display_name = safe_display_name(filename)
+    if not display_name:
         raise ValueError("Select a file to upload.")
+    suffix = Path(display_name).suffix.lower()
+    if suffix not in ALLOWED_UPLOAD_EXTENSIONS:
+        allowed = ", ".join(sorted(ALLOWED_UPLOAD_EXTENSIONS))
+        raise ValueError(f"Unsupported file type. Allowed: {allowed}.")
+    return display_name
+
+
+def store_document_file(document_file: UploadFile) -> dict[str, object]:
+    display_name = validate_upload_name(document_file.filename)
 
     UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
-    target = (UPLOAD_ROOT / f"{uuid.uuid4().hex}_{safe_storage_name(document_file.filename)}").resolve()
+    target = (UPLOAD_ROOT / f"{uuid.uuid4().hex}_{safe_storage_name(display_name)}").resolve()
     if not is_relative_to(target, UPLOAD_ROOT):
         raise ValueError("Invalid file name.")
 
     checksum = hashlib.sha256()
     file_size = 0
+    too_large = False
     with target.open("wb") as output:
         while True:
             chunk = document_file.file.read(1024 * 1024)
             if not chunk:
                 break
+            if file_size + len(chunk) > MAX_UPLOAD_BYTES:
+                too_large = True
+                break
             file_size += len(chunk)
             checksum.update(chunk)
             output.write(chunk)
+
+    if too_large:
+        target.unlink(missing_ok=True)
+        max_mb = max(1, MAX_UPLOAD_BYTES // (1024 * 1024))
+        raise ValueError(f"Uploaded file exceeds {max_mb} MB.")
 
     if file_size == 0:
         target.unlink(missing_ok=True)

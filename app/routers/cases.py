@@ -190,11 +190,14 @@ def change_case_status_form(
     case = crud.get_case(db, case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
-    crud.update_case_status(
-        db,
-        case,
-        schemas.CaseStatusUpdate(workflow_status=workflow_status, change_reason=change_reason),
-    )
+    try:
+        crud.update_case_status(
+            db,
+            case,
+            schemas.CaseStatusUpdate(workflow_status=workflow_status, change_reason=change_reason),
+        )
+    except ValueError as exc:
+        return redirect_with_message(f"/cases/{case_id}", validation=str(exc))
     return redirect_with_message(f"/cases/{case_id}", message="Case saved.")
 
 
@@ -209,12 +212,15 @@ def delete_case_form(
     if not case:
         return redirect_with_message("/cases", error="Case not found.")
     current_user = getattr(request.state, "current_user", None)
-    crud.delete_case(
-        db,
-        case,
-        deleted_by_user_id=current_user.id if current_user else None,
-        delete_reason=delete_reason,
-    )
+    try:
+        crud.delete_case(
+            db,
+            case,
+            deleted_by_user_id=current_user.id if current_user else None,
+            delete_reason=delete_reason,
+        )
+    except ValueError as exc:
+        return redirect_with_message(f"/cases/{case_id}", validation=str(exc))
     return redirect_with_message("/cases", message="Case deleted.")
 
 
@@ -235,21 +241,24 @@ def add_patient_form(
     case = crud.get_case(db, case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
-    crud.add_patient(
-        db,
-        case,
-        schemas.PatientCreate(
-            patient_initials=patient_initials,
-            patient_identifier=patient_identifier,
-            sex=sex,
-            age_value=age_value,
-            age_unit=age_unit,
-            weight_kg=weight_kg,
-            height_cm=height_cm,
-            pregnancy_status=pregnancy_status,
-            medical_history_text=medical_history_text,
-        ),
-    )
+    try:
+        crud.add_patient(
+            db,
+            case,
+            schemas.PatientCreate(
+                patient_initials=patient_initials,
+                patient_identifier=patient_identifier,
+                sex=sex,
+                age_value=age_value,
+                age_unit=age_unit,
+                weight_kg=weight_kg,
+                height_cm=height_cm,
+                pregnancy_status=pregnancy_status,
+                medical_history_text=medical_history_text,
+            ),
+        )
+    except ValueError as exc:
+        return redirect_with_message(f"/cases/{case_id}", validation=str(exc))
     return redirect_with_message(f"/cases/{case_id}", message="Patient saved.")
 
 
@@ -269,20 +278,23 @@ def add_case_product_form(
     case = crud.get_case(db, case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
-    crud.add_case_product(
-        db,
-        case,
-        schemas.CaseProductCreate(
-            product_id=product_id,
-            reported_product_name=reported_product_name,
-            active_substance_text=active_substance_text,
-            drug_role=drug_role,
-            dose_value=dose_value,
-            dose_unit=dose_unit,
-            route=route,
-            frequency=frequency,
-        ),
-    )
+    try:
+        crud.add_case_product(
+            db,
+            case,
+            schemas.CaseProductCreate(
+                product_id=product_id,
+                reported_product_name=reported_product_name,
+                active_substance_text=active_substance_text,
+                drug_role=drug_role,
+                dose_value=dose_value,
+                dose_unit=dose_unit,
+                route=route,
+                frequency=frequency,
+            ),
+        )
+    except ValueError as exc:
+        return redirect_with_message(f"/cases/{case_id}", validation=str(exc))
     return redirect_with_message(f"/cases/{case_id}", message="Product saved.")
 
 
@@ -306,24 +318,27 @@ def add_reaction_form(
     case = crud.get_case(db, case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
-    crud.add_reaction(
-        db,
-        case,
-        schemas.ReactionCreate(
-            reported_term=reported_term,
-            verbatim_term=verbatim_term,
-            meddra_pt_code=meddra_pt_code,
-            meddra_pt_name=meddra_pt_name,
-            outcome=outcome,
-            is_serious=is_serious,
-            seriousness_death=seriousness_death,
-            seriousness_life_threatening=seriousness_life_threatening,
-            seriousness_hospitalization=seriousness_hospitalization,
-            seriousness_disability=seriousness_disability,
-            seriousness_congenital_anomaly=seriousness_congenital_anomaly,
-            seriousness_other_medically_important=seriousness_other_medically_important,
-        ),
-    )
+    try:
+        crud.add_reaction(
+            db,
+            case,
+            schemas.ReactionCreate(
+                reported_term=reported_term,
+                verbatim_term=verbatim_term,
+                meddra_pt_code=meddra_pt_code,
+                meddra_pt_name=meddra_pt_name,
+                outcome=outcome,
+                is_serious=is_serious,
+                seriousness_death=seriousness_death,
+                seriousness_life_threatening=seriousness_life_threatening,
+                seriousness_hospitalization=seriousness_hospitalization,
+                seriousness_disability=seriousness_disability,
+                seriousness_congenital_anomaly=seriousness_congenital_anomaly,
+                seriousness_other_medically_important=seriousness_other_medically_important,
+            ),
+        )
+    except ValueError as exc:
+        return redirect_with_message(f"/cases/{case_id}", validation=str(exc))
     return redirect_with_message(f"/cases/{case_id}", message="Reaction saved.")
 
 
@@ -339,16 +354,19 @@ def add_followup_form(
     case = crud.get_case(db, case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
-    crud.add_followup(
-        db,
-        case,
-        schemas.FollowUpCreate(
-            received_date=received_date or None,
-            source_type=source_type,
-            description=description,
-            significant_new_information=significant_new_information,
-        ),
-    )
+    try:
+        crud.add_followup(
+            db,
+            case,
+            schemas.FollowUpCreate(
+                received_date=received_date or None,
+                source_type=source_type,
+                description=description,
+                significant_new_information=significant_new_information,
+            ),
+        )
+    except ValueError as exc:
+        return redirect_with_message(f"/cases/{case_id}", validation=str(exc))
     return redirect_with_message(f"/cases/{case_id}", message="Follow-up saved.")
 
 
@@ -366,18 +384,21 @@ def add_submission_form(
     case = crud.get_case(db, case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
-    crud.create_submission_for_case(
-        db,
-        case,
-        schemas.SubmissionCreate(
-            recipient_partner_id=recipient_partner_id,
-            recipient_type=recipient_type,
-            submission_type=submission_type,
-            submission_format=submission_format,
-            submission_status=submission_status,
-            due_date=due_date or None,
-        ),
-    )
+    try:
+        crud.create_submission_for_case(
+            db,
+            case,
+            schemas.SubmissionCreate(
+                recipient_partner_id=recipient_partner_id,
+                recipient_type=recipient_type,
+                submission_type=submission_type,
+                submission_format=submission_format,
+                submission_status=submission_status,
+                due_date=due_date or None,
+            ),
+        )
+    except ValueError as exc:
+        return redirect_with_message(f"/cases/{case_id}", validation=str(exc))
     return redirect_with_message(f"/cases/{case_id}", message="Submission saved.")
 
 
@@ -434,7 +455,10 @@ def api_update_case_status(
     case = crud.get_case(db, case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
-    return crud.update_case_status(db, case, payload)
+    try:
+        return crud.update_case_status(db, case, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post(
@@ -450,7 +474,10 @@ def api_add_patient(
     case = crud.get_case(db, case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
-    return crud.add_patient(db, case, payload)
+    try:
+        return crud.add_patient(db, case, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post(
@@ -466,7 +493,10 @@ def api_add_case_product(
     case = crud.get_case(db, case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
-    return crud.add_case_product(db, case, payload)
+    try:
+        return crud.add_case_product(db, case, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post(
@@ -482,7 +512,10 @@ def api_add_reaction(
     case = crud.get_case(db, case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
-    return crud.add_reaction(db, case, payload)
+    try:
+        return crud.add_reaction(db, case, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post(
@@ -498,7 +531,10 @@ def api_add_followup(
     case = crud.get_case(db, case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
-    return crud.add_followup(db, case, payload)
+    try:
+        return crud.add_followup(db, case, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post(
@@ -514,4 +550,7 @@ def api_add_submission(
     case = crud.get_case(db, case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
-    return crud.create_submission_for_case(db, case, payload)
+    try:
+        return crud.create_submission_for_case(db, case, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

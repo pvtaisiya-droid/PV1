@@ -10,6 +10,7 @@
     <div class="d-flex flex-wrap gap-2 page-actions">
         <a class="btn btn-primary btn-sm icon-button" href="/incoming-requests"><i data-lucide="inbox"></i><span>{{ _('Incoming Requests') }}</span></a>
         <a class="btn btn-outline-primary btn-sm icon-button" href="/tasks"><i data-lucide="list-checks"></i><span>{{ _('Tasks') }}</span></a>
+        <a class="btn btn-outline-primary btn-sm icon-button" href="/sops"><i data-lucide="scroll-text"></i><span>{{ _('SOPs') }}</span></a>
     </div>
 </div>
 
@@ -41,6 +42,22 @@
     <a class="metric-card warning" href="/incoming-requests?status_filter=needs_review">
         <span>{{ _('Incoming requests needing review') }}</span>
         <strong>{{ stats.incoming_requests_needing_review }}</strong>
+    </a>
+    <a class="metric-card" href="/sops?status_filter=Effective">
+        <span>{{ _('Effective SOPs') }}</span>
+        <strong>{{ stats.effective_sops }}</strong>
+    </a>
+    <a class="metric-card warning" href="/sops?status_filter=Requires+Review">
+        <span>{{ _('SOPs requiring review') }}</span>
+        <strong>{{ stats.sops_requiring_review }}</strong>
+    </a>
+    <a class="metric-card warning" href="/sops?status_filter=Under+Approval">
+        <span>{{ _('SOPs under approval') }}</span>
+        <strong>{{ stats.sops_under_approval }}</strong>
+    </a>
+    <a class="metric-card" href="/sops">
+        <span>{{ _('SOP reviews due in 60 days') }}</span>
+        <strong>{{ stats.sops_review_due_60_days }}</strong>
     </a>
 </div>
 

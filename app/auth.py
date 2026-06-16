@@ -1,3 +1,4 @@
+import os
 from collections.abc import Callable
 from contextvars import ContextVar
 
@@ -12,6 +13,13 @@ from app.rbac import permission_codes_for_user, role_names_for_user, user_state
 
 USER_COOKIE = "pv_user_id"
 CURRENT_USER_ID: ContextVar[str | None] = ContextVar("pv_current_user_id", default=None)
+TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
+DEMO_USER_SWITCH_ENABLED = (
+    os.getenv("PV_DEMO_USER_SWITCH", "true").lower() in TRUTHY_ENV_VALUES
+)
+ALLOW_QUERY_USER_SWITCH = (
+    os.getenv("PV_ALLOW_QUERY_USER_SWITCH", "").lower() in TRUTHY_ENV_VALUES
+)
 
 
 def get_request_user_id() -> str | None:
@@ -34,8 +42,12 @@ def load_user(db, user_id: str | None = None, email: str | None = None) -> User 
 
 
 async def access_middleware(request: Request, call_next: Callable):
-    requested_user = request.query_params.get("as_user")
-    selected_user_id = request.cookies.get(USER_COOKIE)
+    requested_user = (
+        request.query_params.get("as_user")
+        if DEMO_USER_SWITCH_ENABLED and ALLOW_QUERY_USER_SWITCH
+        else None
+    )
+    selected_user_id = request.cookies.get(USER_COOKIE) if DEMO_USER_SWITCH_ENABLED else None
     selected_user = None
     user_token = None
 
@@ -51,18 +63,24 @@ async def access_middleware(request: Request, call_next: Callable):
             request.state.current_user = user_state(selected_user)
             request.state.current_role_names = role_names_for_user(selected_user)
             request.state.permission_codes = permission_codes_for_user(selected_user)
-            request.state.available_users = [
-                user_state(user)
-                for user in db.query(User)
-                .filter(User.is_deleted.is_(False), User.is_active.is_(True))
-                .order_by(User.full_name, User.email)
-                .all()
-            ]
+            request.state.demo_user_switch_enabled = DEMO_USER_SWITCH_ENABLED
+            request.state.available_users = (
+                [
+                    user_state(user)
+                    for user in db.query(User)
+                    .filter(User.is_deleted.is_(False), User.is_active.is_(True))
+                    .order_by(User.full_name, User.email)
+                    .all()
+                ]
+                if DEMO_USER_SWITCH_ENABLED
+                else []
+            )
             user_token = CURRENT_USER_ID.set(selected_user.id if selected_user else None)
     else:
         request.state.current_user = None
         request.state.current_role_names = []
         request.state.permission_codes = set()
+        request.state.demo_user_switch_enabled = DEMO_USER_SWITCH_ENABLED
         request.state.available_users = []
         user_token = CURRENT_USER_ID.set(None)
 

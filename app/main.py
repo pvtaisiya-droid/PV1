@@ -19,6 +19,7 @@ from app.routers import (
     psmf,
     psur,
     safety_reports,
+    sops,
     substances,
     submissions,
     tasks,
@@ -51,6 +52,7 @@ app.include_router(partners.router)
 app.include_router(partner_reconciliation.router)
 app.include_router(incoming_requests.router)
 app.include_router(tasks.router)
+app.include_router(sops.router)
 app.include_router(psur.router)
 app.include_router(psmf.router)
 app.include_router(products.router)

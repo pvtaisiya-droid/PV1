@@ -1,0 +1,225 @@
+{% extends "base.html" %}
+{% block title %}{{ _('SOPs and Instructions') }} - {{ _('PV MVP') }}{% endblock %}
+
+{% macro sop_form(action, sop=None) -%}
+<form class="row g-3" method="post" action="{{ action }}" enctype="multipart/form-data">
+    <div class="col-md-2">
+        <label class="form-label">{{ _('SOP code') }}</label>
+        <input class="form-control" name="sop_code" value="{{ sop.sop_code if sop else '' }}" required>
+    </div>
+    <div class="col-md-4">
+        <label class="form-label">{{ _('Title') }}</label>
+        <input class="form-control" name="title" value="{{ sop.title if sop else '' }}" required>
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">{{ _('Document type') }}</label>
+        <select class="form-select" name="document_type">
+            {% for type in document_type_options %}
+            <option value="{{ type }}" {% if (sop and sop.document_type == type) or (not sop and type == 'SOP') %}selected{% endif %}>{{ _(type) }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-1">
+        <label class="form-label">{{ _('Version') }}</label>
+        <input class="form-control" name="version" value="{{ sop.version if sop else '1.0' }}" required>
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">{{ _('Status') }}</label>
+        <select class="form-select" name="status_value">
+            {% for status in status_options %}
+            <option value="{{ status }}" {% if (sop and sop.status == status) or (not sop and status == 'Draft') %}selected{% endif %}>{{ _(status) }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">{{ _('Process area') }}</label>
+        <select class="form-select" name="process_area">
+            {% for area in process_area_options %}
+            <option value="{{ area }}" {% if (sop and sop.process_area == area) or (not sop and area == 'Other') %}selected{% endif %}>{{ _(area) }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">{{ _('Owner') }}</label>
+        <input class="form-control" name="owner" value="{{ sop.owner if sop else '' }}" required>
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">{{ _('Effective date') }}</label>
+        <input class="form-control" type="date" name="effective_date" value="{{ sop.effective_date if sop else '' }}" required>
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">{{ _('Next review date') }}</label>
+        <input class="form-control" type="date" name="next_review_date" value="{{ sop.next_review_date if sop else '' }}" required>
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">{{ _('Training required') }}</label>
+        <select class="form-select" name="training_required">
+            <option value="true" {% if sop and sop.training_required %}selected{% endif %}>{{ _('yes') }}</option>
+            <option value="false" {% if not sop or not sop.training_required %}selected{% endif %}>{{ _('no') }}</option>
+        </select>
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">{{ _('Reviewer') }}</label>
+        <input class="form-control" name="reviewer" value="{{ (sop.reviewer or '') if sop else '' }}">
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">{{ _('Approver') }}</label>
+        <input class="form-control" name="approver" value="{{ (sop.approver or '') if sop else '' }}">
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">{{ _('Approval date') }}</label>
+        <input class="form-control" type="date" name="approval_date" value="{{ (sop.approval_date or '') if sop else '' }}">
+    </div>
+    <div class="col-md-4">
+        <label class="form-label">{{ _('Revision reason') }}</label>
+        <input class="form-control" name="revision_reason" value="{{ (sop.revision_reason or '') if sop else '' }}">
+    </div>
+    <div class="col-md-4">
+        <label class="form-label">{{ _('File') }}</label>
+        <input class="form-control" type="file" name="sop_file">
+    </div>
+    <div class="col-md-4">
+        <label class="form-label">{{ _('File URL') }}</label>
+        <input class="form-control" name="file_url" value="{{ (sop.file_url or '') if sop else '' }}" placeholder="https://...">
+    </div>
+    <div class="col-md-8">
+        <label class="form-label">{{ _('Description') }}</label>
+        <input class="form-control" name="description" value="{{ (sop.description or '') if sop else '' }}">
+    </div>
+    <div class="col-md-4 d-flex align-items-end gap-2">
+        <button class="btn btn-primary icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Save') }}</span></button>
+        <a class="btn btn-outline-secondary icon-button" href="/sops"><i data-lucide="x"></i><span>{{ _('Cancel') }}</span></a>
+    </div>
+</form>
+{%- endmacro %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+        <h1 class="h3 mb-1">{{ _('SOPs and Instructions') }}</h1>
+        <div class="text-secondary small">{{ sops|length }} {{ _('records') }}</div>
+    </div>
+</div>
+
+{% if message %}<div class="alert alert-success py-2" role="status">{{ _(message) }}</div>{% endif %}
+{% if error %}<div class="alert alert-danger py-2" role="alert">{{ _(error) }}</div>{% endif %}
+{% if validation %}<div class="alert alert-warning py-2" role="alert">{{ _(validation) }}</div>{% endif %}
+
+<section class="surface mb-4">
+    <h2 class="h6 section-title">{{ _('Filters') }}</h2>
+    <form class="row g-2 align-items-end" method="get" action="/sops">
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Search') }}</label>
+            <input class="form-control" name="search" value="{{ filters.search }}" placeholder="{{ _('SOP code') }} / {{ _('Title') }} / {{ _('Process area') }}">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Status') }}</label>
+            <select class="form-select" name="status_filter">
+                <option value="">{{ _('All') }}</option>
+                {% for status in status_options %}
+                <option value="{{ status }}" {% if filters.status_filter == status %}selected{% endif %}>{{ _(status) }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Document type') }}</label>
+            <select class="form-select" name="document_type">
+                <option value="">{{ _('All') }}</option>
+                {% for type in document_type_options %}
+                <option value="{{ type }}" {% if filters.document_type == type %}selected{% endif %}>{{ _(type) }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Process area') }}</label>
+            <select class="form-select" name="process_area">
+                <option value="">{{ _('All') }}</option>
+                {% for area in process_area_options %}
+                <option value="{{ area }}" {% if filters.process_area == area %}selected{% endif %}>{{ _(area) }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-1">
+            <label class="form-label">{{ _('Owner') }}</label>
+            <select class="form-select" name="owner">
+                <option value="">{{ _('All') }}</option>
+                {% for owner in owner_options %}
+                <option value="{{ owner }}" {% if filters.owner == owner %}selected{% endif %}>{{ owner }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-1">
+            <label class="form-label">{{ _('Review by') }}</label>
+            <input class="form-control" type="date" name="next_review_to" value="{{ filters.next_review_to }}">
+        </div>
+        <div class="col-md-1 d-flex gap-1">
+            <button class="btn btn-primary icon-only" type="submit" title="{{ _('Search') }}"><i data-lucide="search"></i></button>
+            <a class="btn btn-outline-secondary icon-only" href="/sops" title="{{ _('Cancel') }}"><i data-lucide="x"></i></a>
+        </div>
+    </form>
+</section>
+
+{% if has_permission('create') or has_permission('manage_reference_data') %}
+<section class="surface mb-4">
+    <h2 class="h6 section-title">{{ _('Add SOP') }}</h2>
+    {{ sop_form('/sops') }}
+</section>
+{% endif %}
+
+<section class="surface">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead>
+            <tr>
+                <th>{{ _('SOP code') }}</th>
+                <th>{{ _('Title') }}</th>
+                <th>{{ _('Document type') }}</th>
+                <th>{{ _('Version') }}</th>
+                <th>{{ _('Status') }}</th>
+                <th>{{ _('Process area') }}</th>
+                <th>{{ _('Owner') }}</th>
+                <th>{{ _('Effective date') }}</th>
+                <th>{{ _('Next review date') }}</th>
+                <th>{{ _('Training required') }}</th>
+                <th>{{ _('File') }}</th>
+                <th>{{ _('Actions') }}</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for sop in sops %}
+            <tr>
+                <td class="fw-medium">{{ sop.sop_code }}</td>
+                <td><a href="/sops/{{ sop.id }}">{{ sop.title }}</a></td>
+                <td>{{ _(sop.document_type) }}</td>
+                <td>{{ sop.version }}</td>
+                <td><span class="status-pill">{{ _(sop.status) }}</span></td>
+                <td>{{ _(sop.process_area) }}</td>
+                <td>{{ sop.owner }}</td>
+                <td>{{ sop.effective_date }}</td>
+                <td>{{ sop.next_review_date }}</td>
+                <td>{% if sop.training_required %}<span class="badge text-bg-warning">{{ _('yes') }}</span>{% else %}<span class="badge text-bg-light">{{ _('no') }}</span>{% endif %}</td>
+                <td>
+                    {% if sop.file_url %}<a href="{{ sop.file_url }}" title="{{ _('Open') }}"><i data-lucide="external-link"></i></a>{% elif sop.file_path %}<span class="badge text-bg-light">{{ _('File') }}</span>{% endif %}
+                </td>
+                <td>
+                    <div class="d-flex flex-wrap gap-1">
+                        <a class="btn btn-outline-secondary btn-sm icon-only" href="/sops/{{ sop.id }}" title="{{ _('View') }}"><i data-lucide="eye"></i></a>
+                        {% if has_permission('edit') or has_permission('manage_reference_data') %}
+                        <button class="btn btn-outline-primary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#sop-edit-{{ sop.id }}" title="{{ _('Edit') }}"><i data-lucide="pencil"></i></button>
+                        {% endif %}
+                    </div>
+                </td>
+            </tr>
+            {% if has_permission('edit') or has_permission('manage_reference_data') %}
+            <tr class="collapse" id="sop-edit-{{ sop.id }}">
+                <td colspan="12">{{ sop_form('/sops/' ~ sop.id ~ '/edit', sop) }}</td>
+            </tr>
+            {% endif %}
+            {% else %}
+            <tr><td colspan="12" class="text-secondary">{% if filters.active and total_count %}{{ _('No records match the filters.') }}{% else %}{{ _('No SOPs yet.') }}{% endif %}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

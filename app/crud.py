@@ -72,6 +72,34 @@ AUDIT_EXCLUDED_FIELDS = {
     "product_name_normalized",
     "substance_name_normalized",
 }
+CASE_LOCKED_STATUSES = {"submitted", "closed"}
+
+
+def normalized_status(value: str | None) -> str:
+    return (value or "").strip().lower()
+
+
+def case_is_controlled(case: Case) -> bool:
+    return bool(case.is_locked) or normalized_status(case.workflow_status) in CASE_LOCKED_STATUSES
+
+
+def assert_case_editable(case: Case) -> None:
+    if case_is_controlled(case):
+        raise ValueError(
+            "Case is submitted, closed, or locked. Reopen it with a change reason before editing."
+        )
+
+
+def apply_case_lock_state(case: Case, next_status: str, actor_id: str | None) -> None:
+    status_code = normalized_status(next_status)
+    if status_code in CASE_LOCKED_STATUSES:
+        case.is_locked = True
+        case.locked_by_user_id = actor_id
+        case.locked_at = utcnow()
+    elif status_code == "reopened":
+        case.is_locked = False
+        case.locked_by_user_id = None
+        case.locked_at = None
 
 
 def audit_user_id(db: Session) -> str | None:
@@ -1423,8 +1451,23 @@ def create_case_from_report(db: Session, report: SafetyReport) -> Case:
 
 
 def update_case_status(db: Session, case: Case, payload: schemas.CaseStatusUpdate) -> Case:
+    next_status = payload.workflow_status
+    next_status_code = normalized_status(next_status)
+    if case_is_controlled(case) and next_status_code != "reopened":
+        raise ValueError(
+            "Case is submitted, closed, or locked. Reopen it before changing status."
+        )
+    if case_is_controlled(case) and next_status_code == "reopened" and not (
+        payload.change_reason or ""
+    ).strip():
+        raise ValueError("Change reason is required to reopen a controlled case.")
+
+    actor_id = audit_user_id(db)
     old_status = case.workflow_status
-    case.workflow_status = payload.workflow_status
+    old_locked = case.is_locked
+    case.workflow_status = next_status
+    apply_case_lock_state(case, next_status, actor_id)
+    case.updated_by = actor_id
     case.version += 1
     log_audit(
         db,
@@ -1436,8 +1479,21 @@ def update_case_status(db: Session, case: Case, payload: schemas.CaseStatusUpdat
         old_value=old_status,
         new_value=case.workflow_status,
         change_reason=payload.change_reason,
-        user_id=audit_user_id(db),
+        user_id=actor_id,
     )
+    if old_locked != case.is_locked:
+        log_audit(
+            db,
+            entity_type="Case",
+            entity_id=case.id,
+            action="lock" if case.is_locked else "unlock",
+            case_id=case.id,
+            field_name="is_locked",
+            old_value=old_locked,
+            new_value=case.is_locked,
+            change_reason=payload.change_reason,
+            user_id=actor_id,
+        )
     db.commit()
     db.refresh(case)
     return case
@@ -1450,6 +1506,8 @@ def delete_case(
     deleted_by_user_id: str | None = None,
     delete_reason: str | None = None,
 ) -> Case:
+    if case_is_controlled(case) and not (delete_reason or "").strip():
+        raise ValueError("Delete reason is required for submitted, closed, or locked cases.")
     case.is_deleted = True
     case.is_active = False
     case.deleted_at = utcnow()
@@ -1472,6 +1530,7 @@ def delete_case(
 
 
 def add_patient(db: Session, case: Case, payload: schemas.PatientCreate) -> Patient:
+    assert_case_editable(case)
     data = clean_form_data(model_data(payload))
     patient = Patient(case_id=case.id, **data)
     db.add(patient)
@@ -1489,6 +1548,7 @@ def add_patient(db: Session, case: Case, payload: schemas.PatientCreate) -> Pati
 
 
 def add_case_product(db: Session, case: Case, payload: schemas.CaseProductCreate) -> CaseProduct:
+    assert_case_editable(case)
     data = clean_form_data(model_data(payload))
     product = None
     if data.get("product_id"):
@@ -1518,6 +1578,7 @@ def add_case_product(db: Session, case: Case, payload: schemas.CaseProductCreate
 
 
 def add_reaction(db: Session, case: Case, payload: schemas.ReactionCreate) -> Reaction:
+    assert_case_editable(case)
     data = clean_form_data(model_data(payload))
     reaction = Reaction(case_id=case.id, **data)
     db.add(reaction)
@@ -1537,6 +1598,7 @@ def add_reaction(db: Session, case: Case, payload: schemas.ReactionCreate) -> Re
 
 
 def add_followup(db: Session, case: Case, payload: schemas.FollowUpCreate) -> FollowUp:
+    assert_case_editable(case)
     data = clean_form_data(model_data(payload))
     if not data.get("follow_up_number"):
         current_count = db.query(FollowUp).filter(FollowUp.case_id == case.id).count()
@@ -1737,6 +1799,11 @@ def get_submission(db: Session, submission_id: str) -> Submission | None:
 def create_submission(db: Session, payload: schemas.SubmissionCreate) -> Submission:
     data = clean_form_data(model_data(payload))
     validate_submission_references(data)
+    if data.get("case_id"):
+        case = get_case(db, data["case_id"])
+        if not case:
+            raise ValueError("Selected case was not found.")
+        assert_case_editable(case)
     data["submission_number"] = data.get("submission_number") or generate_number(
         db,
         Submission,
@@ -2220,6 +2287,93 @@ def update_incoming_request_status(
     db.commit()
     db.refresh(row)
     return row
+
+
+def list_sops(db: Session) -> list[SOP]:
+    return (
+        db.query(SOP)
+        .options(joinedload(SOP.creator), joinedload(SOP.updater))
+        .filter(SOP.is_deleted.is_(False))
+        .order_by(SOP.sop_code.asc())
+        .all()
+    )
+
+
+def get_sop(db: Session, sop_id: str) -> SOP | None:
+    return (
+        db.query(SOP)
+        .options(joinedload(SOP.creator), joinedload(SOP.updater))
+        .filter(SOP.id == sop_id, SOP.is_deleted.is_(False))
+        .first()
+    )
+
+
+def get_sop_by_code(db: Session, sop_code: str) -> SOP | None:
+    return (
+        db.query(SOP)
+        .filter(
+            SOP.sop_code == sop_code,
+            SOP.is_deleted.is_(False),
+        )
+        .first()
+    )
+
+
+def create_sop(
+    db: Session,
+    payload: schemas.SOPCreate,
+    *,
+    created_by_user_id: str | None = None,
+) -> SOP:
+    data = clean_form_data(model_data(payload))
+    actor_id = created_by_user_id or audit_user_id(db)
+    sop = SOP(**data, created_by=actor_id, updated_by=actor_id)
+    db.add(sop)
+    db.flush()
+    log_create_event(
+        db,
+        entity_type="SOP",
+        entity_id=sop.id,
+        data={
+            "sop_code": sop.sop_code,
+            "title": sop.title,
+            "document_type": sop.document_type,
+            "version": sop.version,
+            "status": sop.status,
+            "process_area": sop.process_area,
+            "owner": sop.owner,
+        },
+        user_id=actor_id,
+    )
+    db.commit()
+    db.refresh(sop)
+    return sop
+
+
+def update_sop(
+    db: Session,
+    sop: SOP,
+    payload: schemas.SOPCreate,
+    *,
+    changed_by_user_id: str | None = None,
+) -> SOP:
+    data = clean_form_data(model_data(payload))
+    old_values = {field: getattr(sop, field, None) for field in data}
+    for field, value in data.items():
+        setattr(sop, field, value)
+    sop.updated_by = changed_by_user_id or audit_user_id(db)
+    log_field_changes(
+        db,
+        entity_type="SOP",
+        entity_id=sop.id,
+        old_values=old_values,
+        new_values=data,
+        user_id=sop.updated_by,
+        comment=sop.revision_reason,
+    )
+    db.commit()
+    db.refresh(sop)
+    return sop
 
 
 def list_psur_tasks(db: Session, psur_plan_id: str) -> list[Task]:
@@ -2863,6 +3017,7 @@ def export_psur_summary_rtf(plan: PSURPlan) -> str:
 
 def dashboard_stats(db: Session) -> schemas.DashboardStats:
     today = date.today()
+    review_window_end = today + timedelta(days=60)
     task_closed_statuses = {"completed", "cancelled", "Completed", "Cancelled", "closed", "Closed"}
     reconciliation_work_statuses = {
         "draft",
@@ -2957,6 +3112,32 @@ def dashboard_stats(db: Session) -> schemas.DashboardStats:
         )
         .count()
     )
+    effective_sops = (
+        db.query(SOP)
+        .filter(SOP.is_deleted.is_(False), SOP.status == "Effective")
+        .count()
+    )
+    sops_requiring_review = (
+        db.query(SOP)
+        .filter(SOP.is_deleted.is_(False), SOP.status == "Requires Review")
+        .count()
+    )
+    sops_under_approval = (
+        db.query(SOP)
+        .filter(SOP.is_deleted.is_(False), SOP.status.in_(["Under Approval", "Under Review"]))
+        .count()
+    )
+    sops_review_due_60_days = (
+        db.query(SOP)
+        .filter(
+            SOP.is_deleted.is_(False),
+            SOP.next_review_date.is_not(None),
+            SOP.next_review_date >= today,
+            SOP.next_review_date <= review_window_end,
+            SOP.status.notin_(["Archived", "Cancelled"]),
+        )
+        .count()
+    )
     return schemas.DashboardStats(
         total_safety_reports=total_safety_reports,
         reports_awaiting_triage=reports_awaiting_triage,
@@ -2972,6 +3153,10 @@ def dashboard_stats(db: Session) -> schemas.DashboardStats:
         overdue_tasks=overdue_tasks,
         reconciliations_in_progress=reconciliations_in_progress,
         incoming_requests_needing_review=incoming_requests_needing_review,
+        effective_sops=effective_sops,
+        sops_requiring_review=sops_requiring_review,
+        sops_under_approval=sops_under_approval,
+        sops_review_due_60_days=sops_review_due_60_days,
     )
 
 

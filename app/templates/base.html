@@ -31,6 +31,8 @@
     {% set current_group = 'icsr' %}
 {% elif nav_page in ['documents'] %}
     {% set current_group = 'documents' %}
+{% elif nav_page in ['sops'] %}
+    {% set current_group = 'sops' %}
 {% elif nav_page in ['tasks'] %}
     {% set current_group = 'tasks' %}
 {% elif nav_page in ['psur', 'submissions', 'rmp', 'psmf'] %}
@@ -57,6 +59,7 @@
         <button class="sidebar-main-button {% if current_group == 'incoming_requests' %}active{% endif %}" type="button" data-nav-group="incoming_requests" title="{{ _('Incoming Requests') }}"><i data-lucide="inbox"></i><span>{{ _('Incoming Requests') }}</span></button>
         <button class="sidebar-main-button {% if current_group == 'icsr' %}active{% endif %}" type="button" data-nav-group="icsr" title="{{ _('ICSR') }}"><i data-lucide="folder-open"></i><span>{{ _('ICSR') }}</span></button>
         <button class="sidebar-main-button {% if current_group == 'documents' %}active{% endif %}" type="button" data-nav-group="documents" title="{{ _('Documents') }}"><i data-lucide="files"></i><span>{{ _('Documents') }}</span></button>
+        <button class="sidebar-main-button {% if current_group == 'sops' %}active{% endif %}" type="button" data-nav-group="sops" title="{{ _('SOPs and Instructions') }}"><i data-lucide="scroll-text"></i><span>{{ _('SOPs and Instructions') }}</span></button>
         <button class="sidebar-main-button {% if current_group == 'tasks' %}active{% endif %}" type="button" data-nav-group="tasks" title="{{ _('Tasks') }}"><i data-lucide="list-checks"></i><span>{{ _('Tasks') }}</span></button>
         <button class="sidebar-main-button {% if current_group == 'reports' %}active{% endif %}" type="button" data-nav-group="reports" title="{{ _('Reports') }}"><i data-lucide="bar-chart-3"></i><span>{{ _('Reports') }}</span></button>
         {% endif %}
@@ -112,6 +115,11 @@
         <div class="sidebar-group-panel {% if current_group == 'documents' %}active{% endif %}" data-nav-panel="documents">
             <div class="sidebar-section">{{ _('Documents') }}</div>
             <a class="sidebar-sub-link {% if nav_page == 'documents' %}active{% endif %}" href="/documents" title="{{ _('Documents') }}"><i data-lucide="files"></i><span>{{ _('Document registry') }}</span></a>
+        </div>
+
+        <div class="sidebar-group-panel {% if current_group == 'sops' %}active{% endif %}" data-nav-panel="sops">
+            <div class="sidebar-section">{{ _('SOPs and Instructions') }}</div>
+            <a class="sidebar-sub-link {% if nav_page == 'sops' %}active{% endif %}" href="/sops" title="{{ _('SOPs and Instructions') }}"><i data-lucide="scroll-text"></i><span>{{ _('SOP register') }}</span></a>
         </div>
 
         <div class="sidebar-group-panel {% if current_group == 'tasks' %}active{% endif %}" data-nav-panel="tasks">

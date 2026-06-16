@@ -38,12 +38,14 @@ def init_db() -> None:
     from app import models  # noqa: F401
     from app.psmf import ensure_psmf_seed_data
     from app.rbac import ensure_rbac_defaults
+    from app.sop_seed import ensure_sop_demo_data
 
     Base.metadata.create_all(bind=engine)
     ensure_sqlite_schema()
     with SessionLocal() as db:
         ensure_rbac_defaults(db)
         ensure_psmf_seed_data(db)
+        ensure_sop_demo_data(db)
 
 
 def ensure_sqlite_schema() -> None:
