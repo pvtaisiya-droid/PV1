@@ -5,7 +5,7 @@
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
     <div>
         <h1 class="h3 mb-1">{{ _('Cases') }}</h1>
-        <div class="text-secondary small">{{ cases|length }} {{ _('records') }}</div>
+        <div class="text-secondary small">{{ filtered_count|default(cases|length) }} {{ _('records') }}</div>
     </div>
     <div class="d-flex gap-2">
         {% if has_permission('export') %}
@@ -119,5 +119,6 @@
             </tbody>
         </table>
     </div>
+    {% include "_pagination.html" %}
 </section>
 {% endblock %}

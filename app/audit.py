@@ -1,4 +1,5 @@
 from typing import Any
+from contextvars import ContextVar
 
 from sqlalchemy.orm import Session
 
@@ -21,8 +22,10 @@ ENTITY_SOURCE_MODULES = {
     "Reaction": "ICSRs",
     "FollowUp": "ICSRs",
     "Attachment": "Documents",
+    "DocumentVersion": "Documents",
     "IncomingRequest": "Incoming Requests",
     "SOP": "SOPs and Instructions",
+    "SOPVersion": "SOPs and Instructions",
     "Submission": "Submissions",
     "PSURPlan": "PSUR / PBRER",
     "PSURProduct": "PSUR / PBRER",
@@ -39,6 +42,31 @@ ENTITY_SOURCE_MODULES = {
     "Role": "Users & Roles",
     "Permission": "Users & Roles",
 }
+
+CURRENT_IP_ADDRESS: ContextVar[str | None] = ContextVar("pv_ip_address", default=None)
+CURRENT_CORRELATION_ID: ContextVar[str | None] = ContextVar(
+    "pv_correlation_id",
+    default=None,
+)
+
+
+def set_audit_context(
+    *,
+    ip_address: str | None = None,
+    correlation_id: str | None = None,
+) -> tuple:
+    return (
+        CURRENT_IP_ADDRESS.set(ip_address),
+        CURRENT_CORRELATION_ID.set(correlation_id),
+    )
+
+
+def reset_audit_context(tokens: tuple | None) -> None:
+    if not tokens:
+        return
+    ip_token, correlation_token = tokens
+    CURRENT_IP_ADDRESS.reset(ip_token)
+    CURRENT_CORRELATION_ID.reset(correlation_token)
 
 
 def stringify(value: Any) -> str | None:
@@ -68,6 +96,8 @@ def log_audit(
     changed_at = utcnow()
     actor_id = changed_by or user_id
     audit_comment = comment or change_reason
+    request_ip = ip_address or CURRENT_IP_ADDRESS.get()
+    request_correlation_id = correlation_id or CURRENT_CORRELATION_ID.get()
     entry = AuditTrail(
         entity_type=entity_type,
         entity_id=entity_id,
@@ -83,8 +113,8 @@ def log_audit(
         changed_at=changed_at,
         source_module=source_module or ENTITY_SOURCE_MODULES.get(entity_type),
         comment=audit_comment,
-        ip_address=ip_address,
-        correlation_id=correlation_id,
+        ip_address=request_ip,
+        correlation_id=request_correlation_id,
     )
     db.add(entry)
     return entry

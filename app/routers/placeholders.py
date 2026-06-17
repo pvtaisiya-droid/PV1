@@ -1,5 +1,4 @@
 import hashlib
-import os
 import re
 import uuid
 from datetime import date
@@ -12,7 +11,10 @@ from sqlalchemy.orm import Session
 from app import crud
 from app.audit import log_audit
 from app.auth import require_any_permission, require_permission
+from app.config import get_settings
 from app.database import get_db
+from app.pagination import paginate_items
+from app.statuses import status_codes
 from app.templating import templates
 from app.ui_helpers import (
     active_filters,
@@ -25,17 +27,7 @@ from app.ui_helpers import (
 
 router = APIRouter()
 UPLOAD_ROOT = (Path.cwd() / "uploads" / "documents").resolve()
-
-
-def configured_upload_limit() -> int:
-    try:
-        value = int(os.getenv("PV_MAX_UPLOAD_BYTES", str(25 * 1024 * 1024)))
-    except ValueError:
-        return 25 * 1024 * 1024
-    return max(1024 * 1024, value)
-
-
-MAX_UPLOAD_BYTES = configured_upload_limit()
+MAX_UPLOAD_BYTES = get_settings().max_upload_bytes
 ALLOWED_UPLOAD_EXTENSIONS = {
     ".csv",
     ".doc",
@@ -67,7 +59,7 @@ DOCUMENT_TYPES = [
     "incoming request",
     "other",
 ]
-DOCUMENT_STATUSES = ["draft", "active", "under_review", "archived"]
+DOCUMENT_STATUSES = status_codes("document")
 RELATED_OBJECT_TYPES = [
     "Partner",
     "Product",
@@ -128,6 +120,8 @@ def documents_page(
     product_id: str | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
+    page: int = 1,
+    per_page: int | None = None,
     db: Session = Depends(get_db),
 ):
     all_documents = crud.list_attachments(db)
@@ -180,13 +174,14 @@ def documents_page(
             date_to=date_to,
         ),
     }
+    page_documents, pagination = paginate_items(documents, page, per_page)
     return templates.TemplateResponse(
         request,
         "documents.html",
         {
             "request": request,
             "active_page": "documents",
-            "documents": documents,
+            "documents": page_documents,
             "cases": crud.list_cases(db),
             "reports": crud.list_safety_reports(db),
             "partners": crud.list_partners(db),
@@ -196,6 +191,8 @@ def documents_page(
             "related_object_types": RELATED_OBJECT_TYPES,
             "filters": filters,
             "total_count": len(all_documents),
+            "filtered_count": len(documents),
+            "pagination": pagination,
             "message": request.query_params.get("message"),
             "error": request.query_params.get("error"),
             "validation": request.query_params.get("validation"),
@@ -205,7 +202,7 @@ def documents_page(
 
 @router.post(
     "/documents",
-    dependencies=[Depends(require_any_permission("upload", "create"))],
+    dependencies=[Depends(require_any_permission("upload", "create", "manage_document_versions"))],
 )
 def create_document_form(
     request: Request,
@@ -361,6 +358,8 @@ def audit_log_page(
     user_id: str | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
+    page: int = 1,
+    per_page: int | None = None,
     db: Session = Depends(get_db),
 ):
     all_entries = crud.list_audit_entries(db)
@@ -405,19 +404,22 @@ def audit_log_page(
             date_to=date_to,
         ),
     }
+    page_entries, pagination = paginate_items(entries, page, per_page)
     return templates.TemplateResponse(
         request,
         "audit_log.html",
         {
             "request": request,
             "active_page": "audit_log",
-            "entries": entries,
+            "entries": page_entries,
             "users": crud.list_users(db),
             "entity_options": unique_values([entry.entity_type for entry in all_entries]),
             "module_options": unique_values([entry.source_module for entry in all_entries]),
             "action_options": unique_values([entry.action for entry in all_entries]),
             "filters": filters,
             "total_count": len(all_entries),
+            "filtered_count": len(entries),
+            "pagination": pagination,
         },
     )
 

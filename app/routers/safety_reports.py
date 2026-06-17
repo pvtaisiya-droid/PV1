@@ -5,21 +5,16 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from app import crud, schemas
-from app.auth import require_permission
+from app.auth import require_any_permission, require_permission
 from app.database import get_db
+from app.pagination import paginate_items
+from app.statuses import status_codes
 from app.templating import templates
 from app.ui_helpers import active_filters, contains_search, in_date_range, redirect_with_message
 
 
 router = APIRouter()
-TRIAGE_STATUS_OPTIONS = [
-    "new",
-    "in_triage",
-    "valid_icsr",
-    "invalid",
-    "non_safety",
-    "converted_to_case",
-]
+TRIAGE_STATUS_OPTIONS = status_codes("triage")
 
 
 @router.get("/safety-reports", response_class=HTMLResponse)
@@ -30,6 +25,8 @@ def safety_reports_page(
     partner_id: str | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
+    page: int = 1,
+    per_page: int | None = None,
     db: Session = Depends(get_db),
 ):
     all_reports = crud.list_safety_reports(db)
@@ -63,16 +60,19 @@ def safety_reports_page(
             date_to=date_to,
         ),
     }
+    page_reports, pagination = paginate_items(reports, page, per_page)
     return templates.TemplateResponse(
         request,
         "safety_reports.html",
         {
             "request": request,
-            "reports": reports,
+            "reports": page_reports,
             "partners": crud.list_partners(db),
             "status_options": TRIAGE_STATUS_OPTIONS,
             "filters": filters,
             "total_count": len(all_reports),
+            "filtered_count": len(reports),
+            "pagination": pagination,
             "message": request.query_params.get("message"),
             "error": request.query_params.get("error"),
             "validation": request.query_params.get("validation"),
@@ -126,7 +126,10 @@ def safety_report_detail(report_id: str, request: Request, db: Session = Depends
     )
 
 
-@router.post("/safety-reports/{report_id}/triage", dependencies=[Depends(require_permission("edit"))])
+@router.post(
+    "/safety-reports/{report_id}/triage",
+    dependencies=[Depends(require_any_permission("edit", "icsr_workflow"))],
+)
 def triage_safety_report_form(
     report_id: str,
     triage_status: str = Form(...),
@@ -157,7 +160,10 @@ def triage_safety_report_form(
     return redirect_with_message(f"/safety-reports/{report_id}", message="Safety report saved.")
 
 
-@router.post("/safety-reports/{report_id}/create-case", dependencies=[Depends(require_permission("create"))])
+@router.post(
+    "/safety-reports/{report_id}/create-case",
+    dependencies=[Depends(require_any_permission("create", "icsr_workflow"))],
+)
 def create_case_from_report_form(report_id: str, db: Session = Depends(get_db)):
     report = crud.get_safety_report(db, report_id)
     if not report:
@@ -192,7 +198,7 @@ def api_get_safety_report(report_id: str, db: Session = Depends(get_db)):
 @router.patch(
     "/api/safety-reports/{report_id}/triage",
     response_model=schemas.SafetyReportRead,
-    dependencies=[Depends(require_permission("edit"))],
+    dependencies=[Depends(require_any_permission("edit", "icsr_workflow"))],
 )
 def api_triage_safety_report(
     report_id: str,
@@ -208,7 +214,7 @@ def api_triage_safety_report(
 @router.post(
     "/api/safety-reports/{report_id}/create-case",
     response_model=schemas.CaseRead,
-    dependencies=[Depends(require_permission("create"))],
+    dependencies=[Depends(require_any_permission("create", "icsr_workflow"))],
 )
 def api_create_case_from_report(report_id: str, db: Session = Depends(get_db)):
     report = crud.get_safety_report(db, report_id)

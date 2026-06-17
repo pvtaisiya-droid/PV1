@@ -6,24 +6,16 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import crud, schemas
-from app.auth import require_permission
+from app.auth import require_any_permission, require_permission
 from app.database import get_db
+from app.pagination import paginate_items
+from app.statuses import status_codes
 from app.templating import templates
 from app.ui_helpers import active_filters, contains_search, in_date_range, redirect_with_message
 
 
 router = APIRouter()
-CASE_STATUS_OPTIONS = [
-    "new",
-    "triage",
-    "data_entry",
-    "medical_review",
-    "qc",
-    "ready_for_submission",
-    "submitted",
-    "closed",
-    "reopened",
-]
+CASE_STATUS_OPTIONS = status_codes("case")
 
 
 @router.get("/cases", response_class=HTMLResponse)
@@ -35,6 +27,8 @@ def cases_page(
     product_id: str | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
+    page: int = 1,
+    per_page: int | None = None,
     db: Session = Depends(get_db),
 ):
     all_cases = crud.list_cases(db)
@@ -77,17 +71,20 @@ def cases_page(
             date_to=date_to,
         ),
     }
+    page_cases, pagination = paginate_items(cases, page, per_page)
     return templates.TemplateResponse(
         request,
         "cases.html",
         {
             "request": request,
-            "cases": cases,
+            "cases": page_cases,
             "partners": crud.list_partners(db),
             "products": crud.list_products(db),
             "status_options": CASE_STATUS_OPTIONS,
             "filters": filters,
             "total_count": len(all_cases),
+            "filtered_count": len(cases),
+            "pagination": pagination,
             "message": request.query_params.get("message"),
             "error": request.query_params.get("error"),
             "validation": request.query_params.get("validation"),
@@ -180,7 +177,10 @@ def case_detail(case_id: str, request: Request, db: Session = Depends(get_db)):
     )
 
 
-@router.post("/cases/{case_id}/status", dependencies=[Depends(require_permission("edit"))])
+@router.post(
+    "/cases/{case_id}/status",
+    dependencies=[Depends(require_any_permission("edit", "icsr_workflow"))],
+)
 def change_case_status_form(
     case_id: str,
     workflow_status: str = Form(...),
@@ -445,7 +445,7 @@ def api_get_case_overview(case_id: str, db: Session = Depends(get_db)):
 @router.patch(
     "/api/cases/{case_id}/status",
     response_model=schemas.CaseRead,
-    dependencies=[Depends(require_permission("edit"))],
+    dependencies=[Depends(require_any_permission("edit", "icsr_workflow"))],
 )
 def api_update_case_status(
     case_id: str,

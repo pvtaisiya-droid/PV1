@@ -5,7 +5,7 @@
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
     <div>
         <h1 class="h3 mb-1">{{ _('Documents') }}</h1>
-        <div class="text-secondary small">{{ documents|length }} {{ _('records') }}</div>
+        <div class="text-secondary small">{{ filtered_count|default(documents|length) }} {{ _('records') }}</div>
     </div>
 </div>
 
@@ -68,7 +68,7 @@
     </form>
 </section>
 
-{% if has_permission('upload') or has_permission('create') %}
+{% if has_permission('upload') or has_permission('create') or has_permission('manage_document_versions') %}
 <section class="surface mb-4">
     <h2 class="h6 section-title">{{ _('Add document') }}</h2>
     <form class="row g-3" method="post" action="/documents" enctype="multipart/form-data">
@@ -227,9 +227,8 @@
                         <a class="btn btn-outline-primary btn-sm icon-only" href="/cases/{{ document.case_id }}" title="{{ _('View') }}"><i data-lucide="eye"></i></a>
                         {% elif document.safety_report %}
                         <a class="btn btn-outline-primary btn-sm icon-only" href="/safety-reports/{{ document.safety_report_id }}" title="{{ _('View') }}"><i data-lucide="eye"></i></a>
-                        {% else %}
-                        <button class="btn btn-outline-secondary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#document-view-{{ document.id }}" title="{{ _('View') }}"><i data-lucide="eye"></i></button>
                         {% endif %}
+                        <button class="btn btn-outline-secondary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#document-view-{{ document.id }}" title="{{ _('Details') }}"><i data-lucide="list"></i></button>
                         {% if has_permission('soft_delete') %}
                         <form method="post" action="/documents/{{ document.id }}/delete">
                             <button class="btn btn-outline-danger btn-sm icon-only" type="submit" title="{{ _('Delete') }}"><i data-lucide="trash-2"></i></button>
@@ -250,6 +249,26 @@
                         <div class="col-md-2"><span class="text-secondary">{{ _('Size') }}</span><div>{{ document.file_size_bytes or "" }}</div></div>
                         <div class="col-md-4"><span class="text-secondary">{{ _('Checksum') }}</span><div class="text-break">{{ document.checksum_sha256 or "" }}</div></div>
                         <div class="col-md-4"><span class="text-secondary">{{ _('Uploaded by') }}</span><div>{{ document.uploaded_by.email if document.uploaded_by else "" }}</div></div>
+                        <div class="col-12">
+                            <div class="table-responsive mt-2">
+                                <table class="table table-sm align-middle mb-0">
+                                    <thead><tr><th>{{ _('Version') }}</th><th>{{ _('Status') }}</th><th>{{ _('File name') }}</th><th>{{ _('Reason') }}</th><th>{{ _('Created by') }}</th></tr></thead>
+                                    <tbody>
+                                    {% for version in document.versions %}
+                                    <tr>
+                                        <td class="fw-semibold">{{ version.version_label }}</td>
+                                        <td><span class="status-pill">{{ _(version.status) }}</span></td>
+                                        <td>{{ version.file_name }}</td>
+                                        <td>{{ version.change_reason or "" }}</td>
+                                        <td>{{ version.creator.email if version.creator else "" }}</td>
+                                    </tr>
+                                    {% else %}
+                                    <tr><td colspan="5" class="text-secondary">{{ _('No versions yet.') }}</td></tr>
+                                    {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
                     </div>
                 </td>
             </tr>
@@ -259,5 +278,6 @@
             </tbody>
         </table>
     </div>
+    {% include "_pagination.html" %}
 </section>
 {% endblock %}

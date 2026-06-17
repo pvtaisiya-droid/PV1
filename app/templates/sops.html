@@ -97,7 +97,7 @@
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
     <div>
         <h1 class="h3 mb-1">{{ _('SOPs and Instructions') }}</h1>
-        <div class="text-secondary small">{{ sops|length }} {{ _('records') }}</div>
+        <div class="text-secondary small">{{ filtered_count|default(sops|length) }} {{ _('records') }}</div>
     </div>
 </div>
 
@@ -159,7 +159,7 @@
     </form>
 </section>
 
-{% if has_permission('create') or has_permission('manage_reference_data') %}
+{% if has_permission('create') or has_permission('manage_reference_data') or has_permission('manage_sop_versions') %}
 <section class="surface mb-4">
     <h2 class="h6 section-title">{{ _('Add SOP') }}</h2>
     {{ sop_form('/sops') }}
@@ -204,13 +204,13 @@
                 <td>
                     <div class="d-flex flex-wrap gap-1">
                         <a class="btn btn-outline-secondary btn-sm icon-only" href="/sops/{{ sop.id }}" title="{{ _('View') }}"><i data-lucide="eye"></i></a>
-                        {% if has_permission('edit') or has_permission('manage_reference_data') %}
+                        {% if has_permission('edit') or has_permission('manage_reference_data') or has_permission('manage_sop_versions') %}
                         <button class="btn btn-outline-primary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#sop-edit-{{ sop.id }}" title="{{ _('Edit') }}"><i data-lucide="pencil"></i></button>
                         {% endif %}
                     </div>
                 </td>
             </tr>
-            {% if has_permission('edit') or has_permission('manage_reference_data') %}
+            {% if has_permission('edit') or has_permission('manage_reference_data') or has_permission('manage_sop_versions') %}
             <tr class="collapse" id="sop-edit-{{ sop.id }}">
                 <td colspan="12">{{ sop_form('/sops/' ~ sop.id ~ '/edit', sop) }}</td>
             </tr>
@@ -221,5 +221,6 @@
             </tbody>
         </table>
     </div>
+    {% include "_pagination.html" %}
 </section>
 {% endblock %}

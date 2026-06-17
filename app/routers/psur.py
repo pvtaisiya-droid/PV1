@@ -9,6 +9,7 @@ from app import crud, schemas
 from app.auth import require_any_permission, require_permission
 from app.database import get_db
 from app.models import PSURPartnerRequest
+from app.statuses import status_codes
 from app.templating import templates
 from app.ui_helpers import active_filters, contains_search, in_date_range, redirect_with_message
 
@@ -16,17 +17,7 @@ from app.ui_helpers import active_filters, contains_search, in_date_range, redir
 router = APIRouter()
 
 PSUR_TYPE_OPTIONS = ["PSUR", "PBRER", "Local Safety Report"]
-PSUR_STATUS_OPTIONS = [
-    "Planned",
-    "Data Collection",
-    "Case Selection",
-    "Drafting",
-    "Under Review",
-    "QA Review",
-    "Approved",
-    "Submitted",
-    "Archived",
-]
+PSUR_STATUS_OPTIONS = status_codes("psur")
 SECTION_STATUS_OPTIONS = ["Not Started", "Draft", "Under Review", "Approved"]
 PARTNER_REQUEST_TYPES = [
     "Cases",

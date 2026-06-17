@@ -194,6 +194,10 @@
             </a>
             <div class="topbar-spacer"></div>
             <div class="d-flex flex-wrap align-items-center gap-2">
+                <div class="current-user-chip" title="{{ _('Application mode') }}">
+                    <i data-lucide="{% if request.state.app_mode == 'prod' %}shield-check{% else %}info{% endif %}"></i>
+                    <span>{{ _(request.state.app_mode|upper) }}</span>
+                </div>
                 {% if active_user %}
                 <div class="current-user-chip" title="{{ active_roles|join(', ') }}">
                     <i data-lucide="circle-user-round"></i>
@@ -214,9 +218,11 @@
                     <a class="btn btn-outline-secondary {% if request.state.lang == 'ru' %}active{% endif %}" href="{{ lang_url('ru') }}">RU</a>
                     <a class="btn btn-outline-secondary {% if request.state.lang == 'en' %}active{% endif %}" href="{{ lang_url('en') }}">EN</a>
                 </div>
+                {% if request.state.app_mode != 'prod' %}
                 <a class="btn btn-outline-secondary btn-sm icon-button" href="/docs" title="{{ _('API docs') }}">
                     <i data-lucide="book-open"></i><span>{{ _('API') }}</span>
                 </a>
+                {% endif %}
             </div>
         </header>
 
@@ -310,6 +316,23 @@
 
         updateCollapsedState(window.localStorage.getItem(storageKey) === "1");
     })();
+
+    document.addEventListener("submit", function (event) {
+        const form = event.target;
+        if (!(form instanceof HTMLFormElement)) {
+            return;
+        }
+        const action = form.getAttribute("action") || "";
+        const isSoftDelete = action.endsWith("/delete") || action.includes("/delete?") || action.endsWith("/archive") || action.includes("/archive?");
+        if (!isSoftDelete || form.dataset.confirmed === "true") {
+            return;
+        }
+        if (!window.confirm("{{ _('Archive or delete this record?') }}")) {
+            event.preventDefault();
+        } else {
+            form.dataset.confirmed = "true";
+        }
+    });
 </script>
 </body>
 </html>

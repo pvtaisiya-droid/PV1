@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app import crud, schemas
 from app.auth import require_any_permission
 from app.database import get_db
+from app.pagination import paginate_items
 from app.templating import templates
 from app.ui_helpers import active_filters, contains_search, redirect_with_message
 
@@ -19,6 +20,8 @@ def partners_page(
     request: Request,
     search: str | None = None,
     status_filter: str | None = None,
+    page: int = 1,
+    per_page: int | None = None,
     db: Session = Depends(get_db),
 ):
     all_partners = crud.list_partners(db)
@@ -33,15 +36,18 @@ def partners_page(
         "status_filter": status_filter or "",
         "active": active_filters(search=search, status_filter=status_filter),
     }
+    page_partners, pagination = paginate_items(partners, page, per_page)
     return templates.TemplateResponse(
         request,
         "partners.html",
         {
             "request": request,
-            "partners": partners,
+            "partners": page_partners,
             "status_options": PARTNER_STATUS_OPTIONS,
             "filters": filters,
             "total_count": len(all_partners),
+            "filtered_count": len(partners),
+            "pagination": pagination,
             "message": request.query_params.get("message"),
             "error": request.query_params.get("error"),
             "validation": request.query_params.get("validation"),

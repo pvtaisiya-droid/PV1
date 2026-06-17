@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app.auth import access_middleware
+from app.config import get_settings
 from app.database import init_db
 from app.i18n import language_middleware
 from app.routers import (
@@ -27,6 +28,9 @@ from app.routers import (
 )
 
 
+settings = get_settings()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
@@ -38,6 +42,9 @@ app = FastAPI(
     description="SQLite + FastAPI MVP for pharmacovigilance workflows.",
     version="0.1.0",
     lifespan=lifespan,
+    docs_url=None if settings.is_prod else "/docs",
+    redoc_url=None if settings.is_prod else "/redoc",
+    openapi_url=None if settings.is_prod else "/openapi.json",
 )
 
 app.middleware("http")(language_middleware)

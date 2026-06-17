@@ -48,7 +48,7 @@
                     <div class="raw-text">{{ case.narrative or "" }}</div>
                 </section>
             </div>
-            {% if has_permission('edit') %}
+            {% if has_permission('edit') or has_permission('icsr_workflow') %}
             <div class="col-lg-4">
                 <section class="surface">
                     <h2 class="h6 section-title">{{ _('Change Workflow Status') }}</h2>

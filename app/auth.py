@@ -1,4 +1,3 @@
-import os
 from collections.abc import Callable
 from contextvars import ContextVar
 
@@ -6,6 +5,8 @@ from fastapi import HTTPException, Request, status
 from jinja2 import pass_context
 from sqlalchemy.orm import joinedload
 
+from app.audit import reset_audit_context, set_audit_context
+from app.config import get_settings
 from app.database import SessionLocal
 from app.models import Role, RolePermission, User, UserRole
 from app.rbac import permission_codes_for_user, role_names_for_user, user_state
@@ -13,13 +14,9 @@ from app.rbac import permission_codes_for_user, role_names_for_user, user_state
 
 USER_COOKIE = "pv_user_id"
 CURRENT_USER_ID: ContextVar[str | None] = ContextVar("pv_current_user_id", default=None)
-TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
-DEMO_USER_SWITCH_ENABLED = (
-    os.getenv("PV_DEMO_USER_SWITCH", "true").lower() in TRUTHY_ENV_VALUES
-)
-ALLOW_QUERY_USER_SWITCH = (
-    os.getenv("PV_ALLOW_QUERY_USER_SWITCH", "").lower() in TRUTHY_ENV_VALUES
-)
+SETTINGS = get_settings()
+DEMO_USER_SWITCH_ENABLED = SETTINGS.demo_user_switch_enabled
+ALLOW_QUERY_USER_SWITCH = SETTINGS.allow_query_user_switch
 
 
 def get_request_user_id() -> str | None:
@@ -50,6 +47,10 @@ async def access_middleware(request: Request, call_next: Callable):
     selected_user_id = request.cookies.get(USER_COOKIE) if DEMO_USER_SWITCH_ENABLED else None
     selected_user = None
     user_token = None
+    audit_tokens = set_audit_context(
+        ip_address=request.client.host if request.client else None,
+        correlation_id=request.headers.get("x-request-id"),
+    )
 
     if not request.url.path.startswith("/static"):
         with SessionLocal() as db:
@@ -60,10 +61,15 @@ async def access_middleware(request: Request, call_next: Callable):
             if not selected_user:
                 selected_user = load_user(db)
 
+            permission_codes = permission_codes_for_user(selected_user)
+            demo_switch_available = (
+                DEMO_USER_SWITCH_ENABLED and "switch_demo_user" in permission_codes
+            )
             request.state.current_user = user_state(selected_user)
             request.state.current_role_names = role_names_for_user(selected_user)
-            request.state.permission_codes = permission_codes_for_user(selected_user)
-            request.state.demo_user_switch_enabled = DEMO_USER_SWITCH_ENABLED
+            request.state.permission_codes = permission_codes
+            request.state.app_mode = SETTINGS.app_mode
+            request.state.demo_user_switch_enabled = demo_switch_available
             request.state.available_users = (
                 [
                     user_state(user)
@@ -72,7 +78,7 @@ async def access_middleware(request: Request, call_next: Callable):
                     .order_by(User.full_name, User.email)
                     .all()
                 ]
-                if DEMO_USER_SWITCH_ENABLED
+                if demo_switch_available
                 else []
             )
             user_token = CURRENT_USER_ID.set(selected_user.id if selected_user else None)
@@ -80,6 +86,7 @@ async def access_middleware(request: Request, call_next: Callable):
         request.state.current_user = None
         request.state.current_role_names = []
         request.state.permission_codes = set()
+        request.state.app_mode = SETTINGS.app_mode
         request.state.demo_user_switch_enabled = DEMO_USER_SWITCH_ENABLED
         request.state.available_users = []
         user_token = CURRENT_USER_ID.set(None)
@@ -95,6 +102,7 @@ async def access_middleware(request: Request, call_next: Callable):
             )
         return response
     finally:
+        reset_audit_context(audit_tokens)
         if user_token is not None:
             CURRENT_USER_ID.reset(user_token)
 

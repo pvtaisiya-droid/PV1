@@ -7,20 +7,15 @@ from sqlalchemy.orm import Session
 from app import crud, schemas
 from app.auth import require_any_permission
 from app.database import get_db
+from app.pagination import paginate_items
+from app.statuses import status_codes
 from app.templating import templates
 from app.ui_helpers import active_filters, contains_search, redirect_with_message, unique_values
 
 
 router = APIRouter()
 
-TASK_STATUS_OPTIONS = [
-    "new",
-    "in_progress",
-    "waiting_for_response",
-    "completed",
-    "overdue",
-    "cancelled",
-]
+TASK_STATUS_OPTIONS = status_codes("task") + ["overdue"]
 LEGACY_TASK_STATUS_OPTIONS = ["Open", "In Progress", "Completed", "Cancelled"]
 TASK_PRIORITY_OPTIONS = ["low", "normal", "high", "critical"]
 
@@ -31,6 +26,8 @@ def tasks_page(
     search: str | None = None,
     status_filter: str | None = None,
     responsible_filter: str | None = None,
+    page: int = 1,
+    per_page: int | None = None,
     db: Session = Depends(get_db),
 ):
     all_tasks = crud.list_tasks(db)
@@ -61,13 +58,14 @@ def tasks_page(
             responsible_filter=responsible_filter,
         ),
     }
+    page_tasks, pagination = paginate_items(tasks, page, per_page)
     return templates.TemplateResponse(
         request,
         "tasks.html",
         {
             "request": request,
             "active_page": "tasks",
-            "tasks": tasks,
+            "tasks": page_tasks,
             "users": crud.list_users(db),
             "status_options": TASK_STATUS_OPTIONS,
             "legacy_status_options": LEGACY_TASK_STATUS_OPTIONS,
@@ -75,6 +73,8 @@ def tasks_page(
             "responsible_options": unique_values([task_responsible(task) for task in all_tasks]),
             "filters": filters,
             "total_count": len(all_tasks),
+            "filtered_count": len(tasks),
+            "pagination": pagination,
             "today": date.today(),
             "message": request.query_params.get("message"),
             "error": request.query_params.get("error"),

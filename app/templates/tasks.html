@@ -9,7 +9,7 @@
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
     <div>
         <h1 class="h3 mb-1">{{ _('Tasks') }}</h1>
-        <div class="text-secondary small">{{ tasks|length }} {{ _('records') }}</div>
+        <div class="text-secondary small">{{ filtered_count|default(tasks|length) }} {{ _('records') }}</div>
     </div>
 </div>
 
@@ -172,5 +172,6 @@
             </tbody>
         </table>
     </div>
+    {% include "_pagination.html" %}
 </section>
 {% endblock %}

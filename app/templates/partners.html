@@ -5,7 +5,7 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
     <div>
         <h1 class="h3 mb-1">{{ _('Partners') }}</h1>
-        <div class="text-secondary small">{{ partners|length }} {{ _('records') }}</div>
+        <div class="text-secondary small">{{ filtered_count|default(partners|length) }} {{ _('records') }}</div>
     </div>
 </div>
 
@@ -162,5 +162,6 @@
             </tbody>
         </table>
     </div>
+    {% include "_pagination.html" %}
 </section>
 {% endblock %}

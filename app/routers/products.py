@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app import crud, schemas
 from app.auth import require_any_permission
 from app.database import get_db
+from app.pagination import paginate_items
 from app.templating import templates
 from app.ui_helpers import active_filters, contains_search, redirect_with_message, unique_values
 
@@ -19,6 +20,8 @@ def products_page(
     search: str | None = None,
     status_filter: str | None = None,
     partner_id: str | None = None,
+    page: int = 1,
+    per_page: int | None = None,
     db: Session = Depends(get_db),
 ):
     all_products = crud.list_products(db)
@@ -50,18 +53,21 @@ def products_page(
             partner_id=partner_id,
         ),
     }
+    page_products, pagination = paginate_items(products, page, per_page)
     return templates.TemplateResponse(
         request,
         "products.html",
         {
             "request": request,
-            "products": products,
+            "products": page_products,
             "partners": crud.list_partners(db),
             "status_options": unique_values(
                 [product.authorization_status for product in all_products]
             ),
             "filters": filters,
             "total_count": len(all_products),
+            "filtered_count": len(products),
+            "pagination": pagination,
             "message": request.query_params.get("message"),
             "error": request.query_params.get("error"),
             "validation": request.query_params.get("validation"),

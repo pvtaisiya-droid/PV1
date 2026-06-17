@@ -600,6 +600,20 @@ body {
     background: #fbfcfd;
 }
 
+.pagination-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-top: 0.85rem;
+}
+
+.pagination-summary {
+    color: var(--pv-muted);
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+
 .nav-tabs .nav-link {
     color: var(--pv-muted);
 }
@@ -676,6 +690,11 @@ body {
 
     .metric-card {
         min-height: 96px;
+    }
+
+    .pagination-bar {
+        align-items: flex-start;
+        flex-direction: column;
     }
 
     .table {

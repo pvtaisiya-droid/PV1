@@ -8,7 +8,9 @@ from sqlalchemy.orm import Session
 from app import crud, schemas
 from app.auth import require_any_permission
 from app.database import get_db
+from app.pagination import paginate_items
 from app.routers.placeholders import store_document_file
+from app.statuses import status_codes
 from app.templating import templates
 from app.ui_helpers import active_filters, contains_search, in_date_range, redirect_with_message, unique_values
 
@@ -27,15 +29,7 @@ SOP_DOCUMENT_TYPES = [
     "Other",
 ]
 
-SOP_STATUSES = [
-    "Draft",
-    "Under Review",
-    "Under Approval",
-    "Effective",
-    "Requires Review",
-    "Archived",
-    "Cancelled",
-]
+SOP_STATUSES = status_codes("sop")
 
 SOP_PROCESS_AREAS = [
     "ICSR",
@@ -64,6 +58,8 @@ def sops_page(
     process_area: str | None = None,
     owner: str | None = None,
     next_review_to: date | None = None,
+    page: int = 1,
+    per_page: int | None = None,
     db: Session = Depends(get_db),
 ):
     all_sops = crud.list_sops(db)
@@ -93,19 +89,22 @@ def sops_page(
             next_review_to=next_review_to,
         ),
     }
+    page_sops, pagination = paginate_items(sops, page, per_page)
     return templates.TemplateResponse(
         request,
         "sops.html",
         {
             "request": request,
             "active_page": "sops",
-            "sops": sops,
+            "sops": page_sops,
             "document_type_options": SOP_DOCUMENT_TYPES,
             "status_options": SOP_STATUSES,
             "process_area_options": SOP_PROCESS_AREAS,
             "owner_options": unique_values([sop.owner for sop in all_sops]),
             "filters": filters,
             "total_count": len(all_sops),
+            "filtered_count": len(sops),
+            "pagination": pagination,
             "message": request.query_params.get("message"),
             "error": request.query_params.get("error"),
             "validation": request.query_params.get("validation"),
@@ -115,7 +114,9 @@ def sops_page(
 
 @router.post(
     "/sops",
-    dependencies=[Depends(require_any_permission("create", "manage_reference_data", "upload"))],
+    dependencies=[
+        Depends(require_any_permission("create", "manage_reference_data", "upload", "manage_sop_versions"))
+    ],
 )
 def create_sop_form(
     request: Request,
@@ -179,7 +180,9 @@ def create_sop_form(
 
 @router.post(
     "/sops/{sop_id}/edit",
-    dependencies=[Depends(require_any_permission("edit", "manage_reference_data", "upload"))],
+    dependencies=[
+        Depends(require_any_permission("edit", "manage_reference_data", "upload", "manage_sop_versions"))
+    ],
 )
 def edit_sop_form(
     sop_id: str,
@@ -257,10 +260,13 @@ def sop_detail_page(sop_id: str, request: Request, db: Session = Depends(get_db)
         for document in crud.list_attachments(db)
         if document.related_object_type == "SOP" and document.related_object_id == sop.id
     ]
+    sop_versions = crud.list_sop_versions(db, sop.id)
+    sop_version_ids = {version.id for version in sop_versions}
     audit_entries = [
         entry
         for entry in crud.list_audit_entries(db)
-        if entry.entity_type == "SOP" and entry.entity_id == sop.id
+        if (entry.entity_type == "SOP" and entry.entity_id == sop.id)
+        or (entry.entity_type == "SOPVersion" and entry.entity_id in sop_version_ids)
     ]
     return templates.TemplateResponse(
         request,
@@ -270,6 +276,7 @@ def sop_detail_page(sop_id: str, request: Request, db: Session = Depends(get_db)
             "active_page": "sops",
             "sop": sop,
             "documents": documents,
+            "sop_versions": sop_versions,
             "audit_entries": audit_entries,
             "document_type_options": SOP_DOCUMENT_TYPES,
             "status_options": SOP_STATUSES,

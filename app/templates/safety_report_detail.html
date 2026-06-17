@@ -22,7 +22,7 @@
 
 <div class="row g-4">
     <div class="col-lg-7">
-        {% if has_permission('edit') %}
+        {% if has_permission('edit') or has_permission('icsr_workflow') %}
         <section class="surface mb-4">
             <h2 class="h6 section-title">{{ _('Source Text') }}</h2>
             <dl class="row mb-3 compact-dl">
@@ -88,7 +88,7 @@
         <section class="surface">
             <h2 class="h6 section-title">{{ _('Actions') }}</h2>
             <div class="d-flex flex-wrap gap-2">
-                {% if has_permission('edit') %}
+                {% if has_permission('edit') or has_permission('icsr_workflow') %}
                 <form method="post" action="/safety-reports/{{ report.id }}/triage">
                     <input type="hidden" name="triage_status" value="valid_icsr">
                     <input type="hidden" name="is_valid_icsr" value="true">
@@ -103,7 +103,7 @@
                     <button class="btn btn-outline-danger btn-sm icon-button" type="submit"><i data-lucide="x"></i><span>{{ _('Mark invalid') }}</span></button>
                 </form>
                 {% endif %}
-                {% if has_permission('create') %}
+                {% if has_permission('create') or has_permission('icsr_workflow') %}
                 <form method="post" action="/safety-reports/{{ report.id }}/create-case">
                     <button class="btn btn-primary btn-sm icon-button" type="submit"><i data-lucide="folder-plus"></i><span>{{ _('Create Case') }}</span></button>
                 </form>

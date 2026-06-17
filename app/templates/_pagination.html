@@ -1,0 +1,12 @@
+{% if pagination and pagination.pages > 1 %}
+<nav class="pagination-bar" aria-label="{{ _('Pagination') }}">
+    <div class="pagination-summary">
+        {{ pagination.start_index }}-{{ pagination.end_index }} / {{ pagination.total }}
+    </div>
+    <div class="btn-group btn-group-sm" role="group">
+        <a class="btn btn-outline-secondary icon-only {% if not pagination.has_previous %}disabled{% endif %}" href="{{ page_url(request, pagination.page - 1) if pagination.has_previous else '#' }}" title="{{ _('Previous') }}"><i data-lucide="chevron-left"></i></a>
+        <span class="btn btn-outline-secondary disabled">{{ pagination.page }} / {{ pagination.pages }}</span>
+        <a class="btn btn-outline-secondary icon-only {% if not pagination.has_next %}disabled{% endif %}" href="{{ page_url(request, pagination.page + 1) if pagination.has_next else '#' }}" title="{{ _('Next') }}"><i data-lucide="chevron-right"></i></a>
+    </div>
+</nav>
+{% endif %}

@@ -5,10 +5,12 @@ from sqlalchemy.orm import Session
 from app import crud, schemas
 from app.auth import require_permission
 from app.database import get_db
+from app.statuses import status_codes
 from app.templating import templates
 
 
 router = APIRouter()
+SUBMISSION_STATUS_OPTIONS = status_codes("submission")
 
 
 @router.get("/submissions", response_class=HTMLResponse)
@@ -21,6 +23,7 @@ def submissions_page(request: Request, db: Session = Depends(get_db)):
             "submissions": crud.list_submissions(db),
             "cases": crud.list_cases(db),
             "partners": crud.list_partners(db),
+            "status_options": SUBMISSION_STATUS_OPTIONS,
             "active_page": "submissions",
         },
     )

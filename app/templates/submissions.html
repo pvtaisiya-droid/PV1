@@ -32,7 +32,14 @@
         </div>
         <div class="col-md-2"><label class="form-label">{{ _('Type') }}</label><input class="form-control" name="submission_type" value="icsr"></div>
         <div class="col-md-2"><label class="form-label">{{ _('Format') }}</label><input class="form-control" name="submission_format" value="email"></div>
-        <div class="col-md-1"><label class="form-label">{{ _('Status') }}</label><input class="form-control" name="submission_status" value="planned"></div>
+        <div class="col-md-1">
+            <label class="form-label">{{ _('Status') }}</label>
+            <select class="form-select" name="submission_status">
+                {% for status in status_options %}
+                <option value="{{ status }}" {% if status == 'planned' %}selected{% endif %}>{{ _(status) }}</option>
+                {% endfor %}
+            </select>
+        </div>
         <div class="col-md-1"><label class="form-label">{{ _('Due') }}</label><input class="form-control" type="date" name="due_date"></div>
         <div class="col-12">
             <button class="btn btn-primary icon-button" type="submit"><i data-lucide="send"></i><span>{{ _('Create') }}</span></button>
@@ -59,7 +66,7 @@
                     {% if has_permission('edit') %}
                     <form class="d-flex gap-2" method="post" action="/submissions/{{ submission.id }}/status">
                         <select class="form-select form-select-sm" name="submission_status">
-                            {% for status in ["planned", "ready", "submitted", "acknowledged", "failed", "cancelled"] %}
+                            {% for status in status_options %}
                             <option value="{{ status }}" {% if submission.submission_status == status %}selected{% endif %}>{{ _(status) }}</option>
                             {% endfor %}
                         </select>

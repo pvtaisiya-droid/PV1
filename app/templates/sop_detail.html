@@ -58,6 +58,27 @@
                 <div class="col-md-6"><span class="text-secondary small">{{ _('File URL') }}</span><div class="text-break">{% if sop.file_url %}<a href="{{ sop.file_url }}">{{ sop.file_url }}</a>{% endif %}</div></div>
             </div>
             <div class="table-responsive mt-3">
+                <h2 class="h6 section-title">{{ _('Version history') }}</h2>
+                <table class="table table-sm align-middle">
+                    <thead><tr><th>{{ _('Version') }}</th><th>{{ _('Status') }}</th><th>{{ _('Effective date') }}</th><th>{{ _('Next review date') }}</th><th>{{ _('Reason') }}</th><th>{{ _('Created by') }}</th></tr></thead>
+                    <tbody>
+                    {% for version in sop_versions %}
+                    <tr>
+                        <td class="fw-semibold">{{ version.version_label }}</td>
+                        <td><span class="status-pill">{{ _(version.status) }}</span></td>
+                        <td>{{ version.effective_date or "" }}</td>
+                        <td>{{ version.next_review_date or "" }}</td>
+                        <td>{{ version.revision_reason or "" }}</td>
+                        <td>{{ version.creator.email if version.creator else "" }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="6" class="text-secondary">{{ _('No versions yet.') }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="table-responsive mt-3">
+                <h2 class="h6 section-title">{{ _('Linked files') }}</h2>
                 <table class="table table-sm align-middle">
                     <thead><tr><th>{{ _('Title') }}</th><th>{{ _('Type') }}</th><th>{{ _('Version') }}</th><th>{{ _('Date') }}</th><th>{{ _('Actions') }}</th></tr></thead>
                     <tbody>
