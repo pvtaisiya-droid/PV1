@@ -299,9 +299,15 @@ class ContractContact(CommonMixin, Base):
     last_name = Column(String(100), nullable=False, index=True)
     first_name = Column(String(100), nullable=False)
     patronymic = Column(String(100), nullable=True)
-    email = Column(String(255), nullable=False)
+    email = Column(String(255), nullable=True)
     position = Column(String(255), nullable=False)
     is_current = Column(Boolean, default=True, nullable=False)
+    is_pv_contact = Column(Boolean, default=True, nullable=False)
+    is_reconciliation_recipient = Column(Boolean, default=True, nullable=False)
+    cc_reconciliation = Column(Boolean, default=False, nullable=False)
+    is_primary = Column(Boolean, default=False, nullable=False)
+    contact_type = Column(String(100), default="pv", nullable=True)
+    comments = Column(Text, nullable=True)
 
     partner = relationship("Partner", back_populates="contract_contacts")
     psur_partner_requests = relationship("PSURPartnerRequest", back_populates="contact_person")
@@ -319,22 +325,38 @@ class PartnerReconciliation(CommonMixin, Base):
     reconciliation_date = Column(Date, default=date.today, nullable=False)
     period_start = Column(Date, nullable=False)
     period_end = Column(Date, nullable=False)
+    reconciliation_type = Column(String(100), default="periodic", nullable=False)
     language = Column(String(2), default="ru", nullable=False)
     reconciliation_status = Column(String(50), default="draft", index=True, nullable=False)
     prepared_by = Column(String(255), nullable=True)
     contact_name = Column(String(255), nullable=True)
     contact_email = Column(String(255), nullable=True)
     products = Column(Text, nullable=True)
+    document_path = Column(String(500), nullable=True)
+    document_filename = Column(String(255), nullable=True)
+    document_format = Column(String(20), default="xlsx", nullable=True)
+    email_subject = Column(String(500), nullable=True)
+    email_body = Column(Text, nullable=True)
+    email_to = Column(Text, nullable=True)
+    email_cc = Column(Text, nullable=True)
+    outlook_message_id = Column(String(255), nullable=True)
+    outlook_draft_web_link = Column(String(1000), nullable=True)
+    outlook_status = Column(String(50), default="not_created", nullable=False)
+    outlook_error = Column(Text, nullable=True)
     sent_date = Column(Date, nullable=True)
     response_date = Column(Date, nullable=True)
     discrepancy_description = Column(Text, nullable=True)
     document_id = Column(String(36), ForeignKey("tblAttachments.id"), nullable=True)
+    generated_at = Column(DateTime(timezone=True), nullable=True)
+    draft_created_at = Column(DateTime(timezone=True), nullable=True)
+    sent_at = Column(DateTime(timezone=True), nullable=True)
     our_case_count = Column(Integer, default=0, nullable=False)
     partner_case_count = Column(Integer, default=0, nullable=False)
     matched_count = Column(Integer, default=0, nullable=False)
     discrepancy_count = Column(Integer, default=0, nullable=False)
     confirmed_by_user = Column(String(255), nullable=True)
     confirmed_at = Column(DateTime(timezone=True), nullable=True)
+    comments = Column(Text, nullable=True)
     created_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
     updated_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
 
@@ -380,6 +402,8 @@ class PartnerReconciliationItem(CommonMixin, Base):
     match_method = Column(String(100), nullable=True)
     reviewer_comment = Column(Text, nullable=True)
     confirmed_by_user = Column(String(255), nullable=True)
+    discrepancy_flag = Column(Boolean, default=False, nullable=False)
+    discrepancy_comment = Column(Text, nullable=True)
     internal_case_number = Column(String(100), nullable=True)
     partner_case_number = Column(String(100), nullable=True)
     partner_name = Column(String(255), nullable=True)
@@ -948,6 +972,37 @@ class Attachment(CommonMixin, Base):
     uploaded_by = relationship("User", foreign_keys=[uploaded_by_user_id])
     creator = relationship("User", foreign_keys=[created_by])
     updater = relationship("User", foreign_keys=[updated_by])
+    versions = relationship(
+        "DocumentVersion",
+        back_populates="attachment",
+        cascade="all, delete-orphan",
+        order_by="DocumentVersion.created_at.desc()",
+    )
+
+
+class DocumentVersion(CommonMixin, Base):
+    __tablename__ = "tblDocumentVersions"
+    __table_args__ = (
+        UniqueConstraint("attachment_id", "version_label", name="uq_document_version_label"),
+        Index("ix_document_version_attachment", "attachment_id"),
+    )
+
+    attachment_id = Column(String(36), ForeignKey("tblAttachments.id"), nullable=False, index=True)
+    version_label = Column(String(50), nullable=False)
+    file_name = Column(String(255), nullable=False)
+    document_title = Column(String(255), nullable=True)
+    document_type = Column(String(100), nullable=True)
+    status = Column(String(50), nullable=True)
+    storage_path = Column(String(500), nullable=True)
+    file_url = Column(String(500), nullable=True)
+    checksum_sha256 = Column(String(64), nullable=True)
+    file_size_bytes = Column(Integer, nullable=True)
+    document_date = Column(Date, nullable=True)
+    change_reason = Column(Text, nullable=True)
+    created_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+
+    attachment = relationship("Attachment", back_populates="versions")
+    creator = relationship("User", foreign_keys=[created_by])
 
 
 class SOP(CommonMixin, Base):
@@ -982,6 +1037,33 @@ class SOP(CommonMixin, Base):
 
     creator = relationship("User", foreign_keys=[created_by])
     updater = relationship("User", foreign_keys=[updated_by])
+    versions = relationship(
+        "SOPVersion",
+        back_populates="sop",
+        cascade="all, delete-orphan",
+        order_by="SOPVersion.created_at.desc()",
+    )
+
+
+class SOPVersion(CommonMixin, Base):
+    __tablename__ = "tblSOPVersions"
+    __table_args__ = (
+        UniqueConstraint("sop_id", "version_label", name="uq_sop_version_label"),
+        Index("ix_sop_version_sop", "sop_id"),
+    )
+
+    sop_id = Column(String(36), ForeignKey("tblSOPs.id"), nullable=False, index=True)
+    version_label = Column(String(50), nullable=False)
+    status = Column(String(50), nullable=False)
+    effective_date = Column(Date, nullable=True)
+    next_review_date = Column(Date, nullable=True)
+    file_path = Column(String(500), nullable=True)
+    file_url = Column(String(500), nullable=True)
+    revision_reason = Column(Text, nullable=True)
+    created_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+
+    sop = relationship("SOP", back_populates="versions")
+    creator = relationship("User", foreign_keys=[created_by])
 
 
 class IncomingRequest(CommonMixin, Base):

@@ -239,6 +239,20 @@
                     <input class="form-control" name="prepared_by" value="{{ reconciliation.prepared_by if reconciliation else '' }}">
                 </div>
                 <div class="col-md-2">
+                    <label class="form-label">{{ _('Reconciliation type') }}</label>
+                    <select class="form-select" name="reconciliation_type" {% if reconciliation %}disabled{% endif %}>
+                        <option value="periodic" {% if reconciliation and reconciliation.reconciliation_type == 'periodic' %}selected{% endif %}>{{ _('Periodic') }}</option>
+                        <option value="ad_hoc" {% if reconciliation and reconciliation.reconciliation_type == 'ad_hoc' %}selected{% endif %}>{{ _('Ad hoc') }}</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">{{ _('Document format') }}</label>
+                    <select class="form-select" name="document_format" {% if reconciliation %}disabled{% endif %}>
+                        <option value="xlsx" {% if not reconciliation or reconciliation.document_format == 'xlsx' %}selected{% endif %}>XLSX</option>
+                        <option value="docx" {% if reconciliation and reconciliation.document_format == 'docx' %}selected{% endif %}>DOCX</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
                     <label class="form-label">{{ _('Status filter') }}</label>
                     <select class="form-select" name="status_filter">
                         <option value="">{{ _('All') }}</option>
@@ -264,6 +278,12 @@
                     <label class="form-label">{{ _('Search') }}</label>
                     <input class="form-control" name="search" value="{{ search }}">
                 </div>
+                {% if not reconciliation %}
+                <div class="col-md-6">
+                    <label class="form-label">{{ _('Comments') }}</label>
+                    <input class="form-control" name="comments">
+                </div>
+                {% endif %}
                 <div class="col-md-7 d-flex flex-wrap gap-2">
                     <button class="btn btn-primary icon-button" type="submit" name="language" value="ru" {% if reconciliation %}disabled{% endif %}><i data-lucide="file-text"></i><span>{{ _('Generate reconciliation form') }}</span></button>
                     <button class="btn btn-outline-primary icon-button" type="submit" name="language" value="en" {% if reconciliation %}disabled{% endif %}><i data-lucide="languages"></i><span>{{ _('Generate reconciliation form EN') }}</span></button>
@@ -283,7 +303,7 @@
                     <input class="form-control" name="confirmed_by_user" value="{{ reconciliation.confirmed_by_user or '' }}">
                 </div>
                 <div class="col-md-4">
-                    <button class="btn btn-primary icon-button" type="submit" {% if reconciliation.reconciliation_status != 'draft' %}disabled{% endif %}><i data-lucide="check-circle"></i><span>{{ _('Confirm and save reconciliation') }}</span></button>
+                    <button class="btn btn-primary icon-button" type="submit" {% if reconciliation.reconciliation_status == 'closed' %}disabled{% endif %}><i data-lucide="check-circle"></i><span>{{ _('Confirm and save reconciliation') }}</span></button>
                 </div>
                 <div class="col-md-5 text-secondary small">
                     {{ _('Current status') }}: <span class="status-pill">{{ _(reconciliation.reconciliation_status) }}</span>
@@ -320,8 +340,30 @@
                         <label class="form-label">{{ _('Discrepancy description') }}</label>
                         <input class="form-control" name="discrepancy_description" value="{{ reconciliation.discrepancy_description or '' }}">
                     </div>
+                    <div class="col-md-4">
+                        <label class="form-label">{{ _('Comments') }}</label>
+                        <input class="form-control" name="comments" value="{{ reconciliation.comments or '' }}">
+                    </div>
                     <div class="col-md-2">
                         <button class="btn btn-outline-primary w-100 icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Save') }}</span></button>
+                    </div>
+                </form>
+                <form class="row g-2 align-items-end mt-2" method="post" action="/partner-reconciliation/{{ reconciliation.id }}/generate-document">
+                    <div class="col-md-2">
+                        <label class="form-label">{{ _('Document format') }}</label>
+                        <select class="form-select" name="document_format">
+                            <option value="xlsx" {% if reconciliation.document_format == 'xlsx' %}selected{% endif %}>XLSX</option>
+                            <option value="docx" {% if reconciliation.document_format == 'docx' %}selected{% endif %}>DOCX</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4 d-flex flex-wrap gap-2">
+                        <button class="btn btn-outline-primary icon-button" type="submit"><i data-lucide="file-check-2"></i><span>{{ _('Generate document') }}</span></button>
+                        {% if reconciliation.document_filename %}
+                        <a class="btn btn-outline-secondary icon-button" href="/partner-reconciliation/{{ reconciliation.id }}/document"><i data-lucide="download"></i><span>{{ reconciliation.document_filename }}</span></a>
+                        {% endif %}
+                    </div>
+                    <div class="col-md-6 text-secondary small">
+                        {{ _('Generated at') }}: {{ reconciliation.generated_at or '' }}
                     </div>
                 </form>
                 <div class="row g-2 align-items-end mt-2">
@@ -352,6 +394,59 @@
             </div>
             {% endif %}
         </section>
+
+        {% if reconciliation and outlook_preview %}
+        <section class="surface mb-3">
+            <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                <div>
+                    <h2 class="h6 section-title mb-1">Outlook</h2>
+                    <div class="text-secondary small">{{ _('Status') }}: <span class="status-pill">{{ _(reconciliation.outlook_status or 'not_created') }}</span></div>
+                </div>
+                <div class="d-flex flex-wrap gap-2">
+                    <a class="btn btn-outline-secondary icon-button" href="/outlook/auth?reconciliation_id={{ reconciliation.id }}"><i data-lucide="key-round"></i><span>Microsoft 365</span></a>
+                    {% if reconciliation.outlook_draft_web_link %}
+                    <a class="btn btn-outline-primary icon-button" href="{{ reconciliation.outlook_draft_web_link }}" target="_blank" rel="noopener"><i data-lucide="external-link"></i><span>{{ _('Open draft in Outlook') }}</span></a>
+                    {% endif %}
+                </div>
+            </div>
+            {% if reconciliation.outlook_error %}
+            <div class="alert alert-warning py-2">{{ reconciliation.outlook_error }}</div>
+            {% endif %}
+            <div class="row g-3 mb-3">
+                <div class="col-md-3">
+                    <span class="text-secondary small">To</span>
+                    <div>{{ outlook_preview.email_to }}</div>
+                </div>
+                <div class="col-md-3">
+                    <span class="text-secondary small">Cc</span>
+                    <div>{{ outlook_preview.email_cc }}</div>
+                </div>
+                <div class="col-md-3">
+                    <span class="text-secondary small">{{ _('Attachment') }}</span>
+                    <div>{{ outlook_preview.attachment }}</div>
+                </div>
+                <div class="col-md-3">
+                    <span class="text-secondary small">Microsoft</span>
+                    <div>{% if outlook_preview.configured and outlook_preview.authorized %}{{ _('Ready') }}{% elif outlook_preview.configured %}{{ _('Authorization required') }}{% else %}{{ _('Not configured') }}{% endif %}</div>
+                </div>
+            </div>
+            <form class="row g-3" method="post" action="/partner-reconciliation/{{ reconciliation.id }}/outlook-draft">
+                <div class="col-md-12">
+                    <label class="form-label">{{ _('Email subject') }}</label>
+                    <input class="form-control" name="email_subject" value="{{ outlook_preview.subject }}" required>
+                </div>
+                <div class="col-md-12">
+                    <label class="form-label">{{ _('Email body') }}</label>
+                    <textarea class="form-control" name="email_body" rows="8" required>{{ outlook_preview.body }}</textarea>
+                </div>
+                <div class="col-md-12 d-flex flex-wrap gap-2">
+                    {% set draft_disabled = (not outlook_preview.has_document) or (not outlook_preview.has_to) or (not outlook_preview.configured) or (not outlook_preview.authorized) or reconciliation.reconciliation_status in ['sent', 'closed'] %}
+                    <button class="btn btn-primary icon-button" type="submit" {% if draft_disabled %}disabled{% endif %}><i data-lucide="mail-plus"></i><span>{% if reconciliation.outlook_status == 'error' %}{{ _('Retry') }}{% else %}{{ _('Create Outlook draft') }}{% endif %}</span></button>
+                    <button class="btn btn-outline-primary icon-button" type="submit" formaction="/partner-reconciliation/{{ reconciliation.id }}/outlook-send" onclick="return confirm('Письмо будет отправлено получателям из карточки партнёра. Продолжить?')" {% if reconciliation.reconciliation_status in ['sent', 'closed'] or not reconciliation.outlook_message_id or not outlook_preview.configured or not outlook_preview.authorized %}disabled{% endif %}><i data-lucide="send"></i><span>{{ _('Send via Outlook') }}</span></button>
+                </div>
+            </form>
+        </section>
+        {% endif %}
 
         <section class="surface mb-3">
             <h2 class="h6 section-title">{{ _('Saved reconciliations') }}</h2>

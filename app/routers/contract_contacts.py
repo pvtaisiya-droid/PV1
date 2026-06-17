@@ -77,15 +77,21 @@ def create_contract_contact_form(
     last_name: str = Form(...),
     first_name: str = Form(...),
     patronymic: str | None = Form(None),
-    email: str = Form(...),
+    email: str | None = Form(None),
     position: str = Form(...),
     is_current: bool = Form(True),
+    is_pv_contact: bool = Form(True),
+    is_reconciliation_recipient: bool = Form(True),
+    cc_reconciliation: bool = Form(False),
+    is_primary: bool = Form(False),
+    contact_type: str | None = Form("pv"),
+    comments: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
-    if not last_name.strip() or not first_name.strip() or not email.strip():
+    if not last_name.strip() or not first_name.strip():
         return redirect_with_message(
             "/contract-contacts",
-            validation="Last name, first name and email are required.",
+            validation="Last name and first name are required.",
         )
     try:
         validate_partner(db, partner_id)
@@ -96,9 +102,15 @@ def create_contract_contact_form(
                 last_name=last_name.strip(),
                 first_name=first_name.strip(),
                 patronymic=patronymic,
-                email=email.strip(),
+                email=email.strip() if email else None,
                 position=position.strip(),
                 is_current=is_current,
+                is_pv_contact=is_pv_contact,
+                is_reconciliation_recipient=is_reconciliation_recipient,
+                cc_reconciliation=cc_reconciliation,
+                is_primary=is_primary,
+                contact_type=(contact_type or "pv").strip() or "pv",
+                comments=comments,
             ),
         )
     except ValueError as exc:
@@ -120,18 +132,24 @@ def edit_contract_contact_form(
     last_name: str = Form(...),
     first_name: str = Form(...),
     patronymic: str | None = Form(None),
-    email: str = Form(...),
+    email: str | None = Form(None),
     position: str = Form(...),
     is_current: bool = Form(True),
+    is_pv_contact: bool = Form(True),
+    is_reconciliation_recipient: bool = Form(True),
+    cc_reconciliation: bool = Form(False),
+    is_primary: bool = Form(False),
+    contact_type: str | None = Form("pv"),
+    comments: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     contact = crud.get_contract_contact(db, contact_id)
     if not contact:
         return redirect_with_message("/contract-contacts", error="Contact not found.")
-    if not last_name.strip() or not first_name.strip() or not email.strip():
+    if not last_name.strip() or not first_name.strip():
         return redirect_with_message(
             "/contract-contacts",
-            validation="Last name, first name and email are required.",
+            validation="Last name and first name are required.",
         )
     try:
         validate_partner(db, partner_id)
@@ -143,9 +161,15 @@ def edit_contract_contact_form(
                 last_name=last_name.strip(),
                 first_name=first_name.strip(),
                 patronymic=patronymic,
-                email=email.strip(),
+                email=email.strip() if email else None,
                 position=position.strip(),
                 is_current=is_current,
+                is_pv_contact=is_pv_contact,
+                is_reconciliation_recipient=is_reconciliation_recipient,
+                cc_reconciliation=cc_reconciliation,
+                is_primary=is_primary,
+                contact_type=(contact_type or "pv").strip() or "pv",
+                comments=comments,
             ),
         )
     except ValueError as exc:

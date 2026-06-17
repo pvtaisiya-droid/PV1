@@ -1,17 +1,24 @@
 from datetime import date, timedelta
 
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 
-from app import crud, schemas
+from app import crud, outlook_service, schemas
 from app.auth import require_any_permission, require_permission
 from app.database import get_db
 from app.reconciliation import (
     RECONCILIATION_STATUSES,
     build_reconciliation_preview,
+    contact_email_list,
     contact_full_name,
+    email_list_text,
+    reconciliation_recipients,
+    render_reconciliation_email,
 )
+from app.reconciliation_documents import generate_reconciliation_document_file
 from app.reconciliation_excel import build_reconciliation_workbook
 from app.routers.placeholders import store_document_file
 from app.templating import templates
@@ -21,11 +28,66 @@ from app.ui_helpers import redirect_with_message
 router = APIRouter()
 RECONCILIATION_RECORD_STATUSES = [
     "draft",
+    "generated",
+    "outlook_draft_created",
     "sent",
-    "response_received",
-    "discrepancy_found",
+    "confirmed",
+    "discrepancy",
     "closed",
+    "error",
 ]
+OUTLOOK_NOT_CREATED = "not_created"
+
+
+@router.get("/outlook/auth")
+def outlook_auth(
+    request: Request,
+    reconciliation_id: str | None = None,
+):
+    try:
+        auth_url = outlook_service.get_auth_url(state=reconciliation_id)
+    except outlook_service.OutlookConfigurationError as exc:
+        target = (
+            f"/partner-reconciliation?reconciliation_id={reconciliation_id}"
+            if reconciliation_id
+            else "/partner-reconciliation"
+        )
+        return redirect_with_message(target, validation=str(exc))
+    return RedirectResponse(auth_url)
+
+
+@router.get("/outlook/callback")
+def outlook_callback(
+    request: Request,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    error_description: str | None = None,
+):
+    target = (
+        f"/partner-reconciliation?reconciliation_id={state}"
+        if state
+        else "/partner-reconciliation"
+    )
+    if error:
+        return redirect_with_message(
+            target,
+            validation=error_description or error,
+        )
+    if not code:
+        return redirect_with_message(
+            target,
+            validation="Microsoft authorization code was not returned.",
+        )
+    try:
+        outlook_service.handle_callback(
+            code=code,
+            state=state,
+            user_key=outlook_user_key(request),
+        )
+    except (outlook_service.OutlookConfigurationError, outlook_service.OutlookAuthorizationError) as exc:
+        return redirect_with_message(target, validation=str(exc))
+    return redirect_with_message(target, message="Microsoft Outlook authorization saved.")
 
 
 @router.get("/partner-reconciliation", response_class=HTMLResponse)
@@ -61,6 +123,7 @@ def partner_reconciliation_page(
             "partner_items": [],
             "discrepancy_items": [],
             "summary": {},
+            "outlook_preview": None,
         }
     )
 
@@ -95,6 +158,7 @@ def partner_reconciliation_page(
                     "matched_count": reconciliation.matched_count,
                     "discrepancy_count": reconciliation.discrepancy_count,
                 },
+                "outlook_preview": build_outlook_preview(db, reconciliation, request),
             }
         )
     elif partner_id and period_start and period_end:
@@ -131,13 +195,17 @@ def partner_reconciliation_page(
 
 @router.post("/partner-reconciliation/save", dependencies=[Depends(require_permission("create"))])
 def save_partner_reconciliation(
+    request: Request,
     partner_id: str = Form(...),
     period_start: date = Form(...),
     period_end: date = Form(...),
     contact_id: str | None = Form(None),
     language: str = Form("ru"),
+    reconciliation_type: str = Form("periodic"),
+    document_format: str = Form("xlsx"),
     prepared_by: str | None = Form(None),
     products: str | None = Form(None),
+    comments: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     preview = build_reconciliation_preview(
@@ -155,15 +223,35 @@ def save_partner_reconciliation(
             contact_id=contact_id or None,
             period_start=period_start,
             period_end=period_end,
+            reconciliation_type=reconciliation_type,
             language=language,
             prepared_by=prepared_by,
             products=products or product_names(preview["products"]),
+            document_format=document_format,
+            comments=comments,
         ),
         preview["items"],
     )
+    current_user = getattr(request.state, "current_user", None)
+    try:
+        document_info = generate_reconciliation_document_file(
+            reconciliation,
+            document_format=document_format,
+        )
+    except ValueError as exc:
+        return redirect_with_message(
+            f"/partner-reconciliation?reconciliation_id={reconciliation.id}",
+            validation=str(exc),
+        )
+    crud.save_partner_reconciliation_document(
+        db,
+        reconciliation,
+        document_info,
+        changed_by_user_id=current_user.id if current_user else None,
+    )
     return redirect_with_message(
         f"/partner-reconciliation?reconciliation_id={reconciliation.id}",
-        message="Reconciliation saved.",
+        message="Reconciliation saved and document generated.",
     )
 
 
@@ -198,6 +286,7 @@ def update_partner_reconciliation_status_form(
     response_date: str | None = Form(None),
     products: str | None = Form(None),
     discrepancy_description: str | None = Form(None),
+    comments: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     reconciliation = crud.get_partner_reconciliation(db, reconciliation_id)
@@ -217,11 +306,204 @@ def update_partner_reconciliation_status_form(
         response_date=optional_date(response_date),
         products=products,
         discrepancy_description=discrepancy_description,
+        comments=comments,
         changed_by_user_id=current_user.id if current_user else None,
     )
     return redirect_with_message(
         f"/partner-reconciliation?reconciliation_id={reconciliation_id}",
         message="Reconciliation status saved.",
+    )
+
+
+@router.post(
+    "/partner-reconciliation/{reconciliation_id}/generate-document",
+    dependencies=[Depends(require_any_permission("edit", "export"))],
+)
+def generate_partner_reconciliation_document(
+    reconciliation_id: str,
+    request: Request,
+    document_format: str = Form("xlsx"),
+    db: Session = Depends(get_db),
+):
+    reconciliation = crud.get_partner_reconciliation(db, reconciliation_id)
+    if not reconciliation:
+        raise HTTPException(status_code=404, detail="Reconciliation not found")
+    current_user = getattr(request.state, "current_user", None)
+    try:
+        document_info = generate_reconciliation_document_file(
+            reconciliation,
+            document_format=document_format,
+        )
+    except ValueError as exc:
+        return redirect_with_message(
+            f"/partner-reconciliation?reconciliation_id={reconciliation_id}",
+            validation=str(exc),
+        )
+    crud.save_partner_reconciliation_document(
+        db,
+        reconciliation,
+        document_info,
+        changed_by_user_id=current_user.id if current_user else None,
+    )
+    return redirect_with_message(
+        f"/partner-reconciliation?reconciliation_id={reconciliation_id}",
+        message="Reconciliation document generated.",
+    )
+
+
+@router.get(
+    "/partner-reconciliation/{reconciliation_id}/document",
+    dependencies=[Depends(require_permission("export"))],
+)
+def download_generated_reconciliation_document(
+    reconciliation_id: str,
+    db: Session = Depends(get_db),
+):
+    reconciliation = crud.get_partner_reconciliation(db, reconciliation_id)
+    if not reconciliation:
+        raise HTTPException(status_code=404, detail="Reconciliation not found")
+    if not reconciliation.document_path or not reconciliation.document_filename:
+        raise HTTPException(status_code=404, detail="Reconciliation document not generated")
+    path = Path(reconciliation.document_path)
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail="Reconciliation document file not found")
+    return FileResponse(path, filename=reconciliation.document_filename)
+
+
+@router.post(
+    "/partner-reconciliation/{reconciliation_id}/outlook-draft",
+    dependencies=[Depends(require_any_permission("edit", "export"))],
+)
+def create_partner_reconciliation_outlook_draft(
+    reconciliation_id: str,
+    request: Request,
+    email_subject: str = Form(...),
+    email_body: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    reconciliation = crud.get_partner_reconciliation(db, reconciliation_id)
+    if not reconciliation:
+        raise HTTPException(status_code=404, detail="Reconciliation not found")
+    current_user = getattr(request.state, "current_user", None)
+    recipients = reconciliation_recipients(db, reconciliation.partner_id)
+    to_emails = contact_email_list(recipients["to"])
+    cc_emails = contact_email_list(recipients["cc"])
+    if not to_emails:
+        return redirect_with_message(
+            f"/partner-reconciliation?reconciliation_id={reconciliation_id}",
+            validation="У выбранного партнёра не указаны активные контактные лица для сверки сообщений.",
+        )
+    if not reconciliation.document_path or not Path(reconciliation.document_path).exists():
+        return redirect_with_message(
+            f"/partner-reconciliation?reconciliation_id={reconciliation_id}",
+            validation="Reconciliation document is not generated.",
+        )
+    if not outlook_service.is_configured():
+        return redirect_with_message(
+            f"/partner-reconciliation?reconciliation_id={reconciliation_id}",
+            validation="Microsoft Graph is not configured.",
+        )
+    if not outlook_service.is_authorized(outlook_user_key(request)):
+        return redirect_with_message(
+            f"/partner-reconciliation?reconciliation_id={reconciliation_id}",
+            validation="Microsoft Outlook authorization is required.",
+        )
+    try:
+        draft = outlook_service.create_outlook_draft(
+            subject=email_subject,
+            body=email_body,
+            to_recipients=to_emails,
+            cc_recipients=cc_emails,
+            user_key=outlook_user_key(request),
+        )
+        outlook_service.add_attachment_to_draft(
+            message_id=draft["id"],
+            file_path=reconciliation.document_path,
+            attachment_name=reconciliation.document_filename,
+            user_key=outlook_user_key(request),
+        )
+    except (
+        outlook_service.OutlookAuthorizationError,
+        outlook_service.OutlookConfigurationError,
+        outlook_service.OutlookGraphError,
+    ) as exc:
+        crud.mark_partner_reconciliation_outlook_error(
+            db,
+            reconciliation,
+            error_message=str(exc),
+            action="outlook_draft_error",
+            changed_by_user_id=current_user.id if current_user else None,
+        )
+        return redirect_with_message(
+            f"/partner-reconciliation?reconciliation_id={reconciliation_id}",
+            validation=str(exc),
+        )
+    web_link = outlook_service.get_message_web_link_if_available(draft)
+    crud.mark_partner_reconciliation_outlook_draft_created(
+        db,
+        reconciliation,
+        outlook_message_id=draft["id"],
+        outlook_draft_web_link=web_link,
+        email_to=email_list_text(to_emails),
+        email_cc=email_list_text(cc_emails),
+        email_subject=email_subject,
+        email_body=email_body,
+        changed_by_user_id=current_user.id if current_user else None,
+    )
+    return redirect_with_message(
+        f"/partner-reconciliation?reconciliation_id={reconciliation_id}",
+        message="Outlook draft created.",
+    )
+
+
+@router.post(
+    "/partner-reconciliation/{reconciliation_id}/outlook-send",
+    dependencies=[Depends(require_any_permission("approve", "edit"))],
+)
+def send_partner_reconciliation_outlook_message(
+    reconciliation_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    reconciliation = crud.get_partner_reconciliation(db, reconciliation_id)
+    if not reconciliation:
+        raise HTTPException(status_code=404, detail="Reconciliation not found")
+    current_user = getattr(request.state, "current_user", None)
+    validation = validate_outlook_send_ready(reconciliation, request)
+    if validation:
+        return redirect_with_message(
+            f"/partner-reconciliation?reconciliation_id={reconciliation_id}",
+            validation=validation,
+        )
+    try:
+        outlook_service.send_outlook_message(
+            message_id=reconciliation.outlook_message_id,
+            user_key=outlook_user_key(request),
+        )
+    except (
+        outlook_service.OutlookAuthorizationError,
+        outlook_service.OutlookConfigurationError,
+        outlook_service.OutlookGraphError,
+    ) as exc:
+        crud.mark_partner_reconciliation_outlook_error(
+            db,
+            reconciliation,
+            error_message=str(exc),
+            action="outlook_send_error",
+            changed_by_user_id=current_user.id if current_user else None,
+        )
+        return redirect_with_message(
+            f"/partner-reconciliation?reconciliation_id={reconciliation_id}",
+            validation=str(exc),
+        )
+    crud.mark_partner_reconciliation_outlook_sent(
+        db,
+        reconciliation,
+        changed_by_user_id=current_user.id if current_user else None,
+    )
+    return redirect_with_message(
+        f"/partner-reconciliation?reconciliation_id={reconciliation_id}",
+        message="Outlook message sent.",
     )
 
 
@@ -268,9 +550,9 @@ def upload_partner_reconciliation_response(
         db,
         reconciliation,
         reconciliation_status=(
-            "discrepancy_found"
+            "discrepancy"
             if (discrepancy_description or "").strip()
-            else "response_received"
+            else "confirmed"
         ),
         response_date=date.today(),
         discrepancy_description=discrepancy_description,
@@ -447,10 +729,58 @@ def base_context(request: Request, db: Session) -> dict:
         "cases": crud.list_cases(db),
         "reconciliations": crud.list_partner_reconciliations(db),
         "latest_reconciliation": latest,
+        "outlook_configured": outlook_service.is_configured(),
+        "outlook_authorized": outlook_service.is_authorized(outlook_user_key(request)),
         "message": request.query_params.get("message"),
         "error": request.query_params.get("error"),
         "validation": request.query_params.get("validation"),
     }
+
+
+def build_outlook_preview(db: Session, reconciliation, request: Request) -> dict:
+    recipients = reconciliation_recipients(db, reconciliation.partner_id)
+    to_emails = contact_email_list(recipients["to"])
+    cc_emails = contact_email_list(recipients["cc"])
+    email = render_reconciliation_email(
+        reconciliation,
+        current_user=getattr(request.state, "current_user", None),
+    )
+    return {
+        "to": to_emails,
+        "cc": cc_emails,
+        "email_to": email_list_text(to_emails),
+        "email_cc": email_list_text(cc_emails),
+        "subject": reconciliation.email_subject or email["subject"],
+        "body": reconciliation.email_body or email["body"],
+        "attachment": reconciliation.document_filename or "",
+        "has_to": bool(to_emails),
+        "has_document": bool(
+            reconciliation.document_path and Path(reconciliation.document_path).exists()
+        ),
+        "configured": outlook_service.is_configured(),
+        "authorized": outlook_service.is_authorized(outlook_user_key(request)),
+    }
+
+
+def validate_outlook_send_ready(reconciliation, request: Request) -> str | None:
+    if reconciliation.reconciliation_status in {"sent", "closed"}:
+        return "Reconciliation has already been sent or closed."
+    if not reconciliation.document_path or not Path(reconciliation.document_path).exists():
+        return "Reconciliation document is not generated."
+    if not reconciliation.email_to:
+        return "У выбранного партнёра не указаны активные контактные лица для сверки сообщений."
+    if not outlook_service.is_configured():
+        return "Microsoft Graph is not configured."
+    if not outlook_service.is_authorized(outlook_user_key(request)):
+        return "Microsoft Outlook authorization is required."
+    if not reconciliation.outlook_message_id:
+        return "Outlook draft is not created."
+    return None
+
+
+def outlook_user_key(request: Request) -> str:
+    current_user = getattr(request.state, "current_user", None)
+    return current_user.id if current_user else "default"
 
 
 def filter_items(

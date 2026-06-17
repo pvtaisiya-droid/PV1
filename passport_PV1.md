@@ -1,7 +1,7 @@
 # Паспорт проекта PV1
 
-Дата актуализации: 2026-06-15
-Текущая версия паспорта: 1.0
+Дата актуализации: 2026-06-17
+Текущая версия паспорта: 1.1
 Статус проекта: MVP core создан, требуется дальнейшее развитие и валидация.
 
 ## 1. Название проекта
@@ -243,7 +243,7 @@ SQLite используется только для разработки, лок
 | `tblProducts` | Лекарственные продукты. | M-M с substances; 1-M с case products. |
 | `tblProductSubstances` | Связь продукт-вещества. | Связывает `tblProducts` и `tblSubstances`. |
 | `tblContracts` | Договоры с партнерами по ЛП. | M-1 к `tblPartners`, M-1 к `tblProducts`; связь `partner_id + product_id` защищена от дублей, статус "действителен сейчас" вычисляется по датам. |
-| `tblContractContacts` | Контактные лица по договорам. | M-1 к `tblPartners`; хранит ФИО, email, должность, актуальность; пара `partner_id + email` защищена от дублей. |
+| `tblContractContacts` | Контактные лица по договорам и получатели сверок. | M-1 к `tblPartners`; хранит ФИО, email, должность, актуальность, PV/contact type флаги, To/Cc-флаги для сверки и комментарии; пара `partner_id + email` защищена от дублей для заполненных email. |
 | `tblSafetyReports` | Входящие safety reports до создания ICSR case. | Может быть связан с partner и 0..1 case. |
 | `tblCases` | Центральная таблица ICSR cases. | Связана с patients, case products, reactions, follow-ups, attachments, submissions, audit. |
 | `tblPatients` | Пациенты в составе case. | M-1 к `tblCases`. |
@@ -783,19 +783,27 @@ DATABASE_URL=postgresql+psycopg://user:password@host:5432/pv_system
 Ключевые файлы:
 
 - `app/reconciliation.py` — сервис формирования сверки, выборка кейсов и сообщений партнера, автоматическое сопоставление.
+- `app/reconciliation_documents.py` — сохранение сформированного документа сверки в `uploads/reconciliations`, генерация XLSX и lightweight DOCX без дополнительных зависимостей.
 - `app/reconciliation_excel.py` — генерация `.xlsx` без внешних зависимостей.
+- `app/outlook_service.py` — Microsoft Graph OAuth 2.0 и операции Outlook draft/send/attachment для MVP.
 - `app/routers/partner_reconciliation.py` — HTML routes и JSON API для сверок.
-- `app/templates/partner_reconciliation.html` — Access-like UI: партнеры, период, контакт, поиск, фильтр статуса, таблицы, расхождения, подтверждение.
+- `app/templates/partner_reconciliation.html` — Access-like UI: партнеры, период, контакт, поиск, фильтр статуса, таблицы, расхождения, подтверждение и блок Outlook.
 
 Новые таблицы:
 
-- `tblPartnerReconciliations` — заголовок сверки: партнер, контакт, период, язык, статус сверки, подготовил, контактные snapshot-поля, счетчики строк, подтверждение.
-- `tblPartnerReconciliationItems` — строки сверки: внутренний case, номер сообщения партнера, ЛП, сторона источника, тип сообщения, даты получения/передачи, НР, seriousness, статус сверки, confidence/match method, комментарий reviewer, подтверждение и display snapshot-поля.
+- `tblPartnerReconciliations` — заголовок сверки: партнер, контакт, период, тип сверки, язык, статус сверки, подготовил, контактные snapshot-поля, счетчики строк, сформированный документ (`document_path`, `document_filename`, `document_format`), email preview (`email_subject`, `email_body`, `email_to`, `email_cc`), Outlook status/message/link/error, даты `generated_at`, `draft_created_at`, `sent_at`, подтверждение и комментарии.
+- `tblPartnerReconciliationItems` — строки сверки: внутренний case, номер сообщения партнера, ЛП, сторона источника, тип сообщения, даты получения/передачи, НР, seriousness, статус сверки, confidence/match method, комментарий reviewer, discrepancy flag/comment, подтверждение и display snapshot-поля.
+- `tblContractContacts` расширена полями для выбора получателей сверки: `is_pv_contact`, `is_reconciliation_recipient`, `cc_reconciliation`, `is_primary`, `contact_type`, `comments`; email может отсутствовать, такие контакты не попадают в Outlook To/Cc.
 
 Основные web routes:
 
 - `GET /partner-reconciliation` — вкладка сверки с партнерами, генерация RU/EN preview, просмотр сохраненной сверки.
-- `POST /partner-reconciliation/save` — сохранение результата как `draft`.
+- `POST /partner-reconciliation/save` — сохранение результата и генерация файла сверки (`generated`).
+- `POST /partner-reconciliation/{reconciliation_id}/generate-document` — повторная генерация XLSX/DOCX документа сверки.
+- `GET /partner-reconciliation/{reconciliation_id}/document` — скачивание сохраненного документа сверки.
+- `GET /outlook/auth` и `GET /outlook/callback` — OAuth 2.0 delegated authorization для Microsoft Graph.
+- `POST /partner-reconciliation/{reconciliation_id}/outlook-draft` — создание черновика Outlook через Microsoft Graph и прикрепление документа сверки.
+- `POST /partner-reconciliation/{reconciliation_id}/outlook-send` — отправка ранее созданного черновика через Outlook после явного подтверждения пользователя.
 - `POST /partner-reconciliation/{reconciliation_id}/confirm` — подтверждение сверки; совпавшие строки переводятся в `confirmed`.
 - `POST /partner-reconciliation/items/{item_id}` — ручная проверка строки: статус, комментарий, связь с внутренним case.
 - `GET /partner-reconciliation/export` — экспорт preview или сохраненной сверки в Excel.
@@ -816,6 +824,17 @@ JSON API:
 - `requires_review`
 - `confirmed`
 
+Статусы записи сверки:
+
+- `draft`
+- `generated`
+- `outlook_draft_created`
+- `sent`
+- `confirmed`
+- `discrepancy`
+- `closed`
+- `error`
+
 Автоматическое сопоставление выполняется по правилам:
 
 - точное совпадение внутреннего case ID;
@@ -832,6 +851,18 @@ Excel export содержит 5 листов:
 - `Cases from partner`
 - `Discrepancies`
 - `Sign-off`
+
+Outlook-интеграция:
+
+- используется Microsoft Graph, не локальный Outlook-клиент;
+- OAuth 2.0 delegated permissions настраиваются через `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`, `MICROSOFT_TENANT_ID`, `MICROSOFT_REDIRECT_URI`, `MICROSOFT_SCOPES`;
+- минимальные scopes MVP: `offline_access`, `User.Read`, `Mail.ReadWrite`, `Mail.Send`;
+- получатели To берутся из активных контактов партнера с `is_reconciliation_recipient = true` и заполненным email;
+- получатели Cc берутся из активных контактов партнера с `cc_reconciliation = true` и заполненным email;
+- если To-получателей нет, черновик Outlook не создается;
+- письмо не отправляется автоматически после генерации документа, отправка доступна только отдельным действием с confirmation dialog;
+- access/refresh tokens не пишутся в audit log или БД; в MVP токены хранятся только в памяти процесса;
+- вложение до 3 МБ отправляется как Graph `fileAttachment`; для больших файлов MVP показывает ошибку о неподдерживаемом размере.
 
 Seed data расширены партнерами, продуктами, контактами, ICSR-кейсами, follow-up, partner-only сообщением, дублем и невалидным сообщением для демонстрации сверки.
 
@@ -955,12 +986,14 @@ Audit:
 | 2026-06-15 | 0.8 / Audit Log | Расширен существующий audit trail до рабочего раздела Audit Log: добавлены поля changed_by, changed_at, source_module и comment, SQLite-дорасширение схемы, фильтры по пользователю/модулю/действию/дате, поиск, раскрытие деталей события и более точное логирование old/new значений для справочников, ИСНР, сверок, документов, пользователей и ролей. | Codex по запросу пользователя |
 | 2026-06-15 | 0.9 / PSMF light MVP | Добавлен рабочий блок «МФСФ / PSMF»: таблицы `psmf_components` и `psmf_component_versions`, 3 демо-компонента, вкладки обзора/компонентов/партнерского МФСФ/аудита, статусные действия, preview-сборка для партнера, HTML-экспорт и audit-события с `source_module = "PSMF"`. | Codex по запросу пользователя |
 | 2026-06-15 | 1.0 / Documents and link deduplication | Исправлены проверки пункта 10 и 13: блокируются дубли `partner + product` в договорах и `partner + email` в контактах, раздел Documents поддерживает реальную загрузку файла, связь с case/safety report, скачивание, checksum/size metadata и audit-событие скачивания. | Codex по запросу пользователя |
+| 2026-06-17 | 1.1 / Outlook Graph reconciliation | Модуль сверки с партнерами расширен: сохранение XLSX/DOCX документа сверки, поля Outlook/email в существующих таблицах, расширенные контактные флаги To/Cc, Microsoft Graph OAuth 2.0 delegated flow, создание Outlook draft с вложением, отправка только после подтверждения, audit-события и тесты. | Codex по запросу пользователя |
 
 ## 23. Open questions
 
 | Вопрос | Статус | Комментарий |
 |---|---|---|
 | Авторизация | Открыто | MVP RBAC реализован без настоящего login; нужно определить production auth mechanism: session, OAuth, JWT или другой подход. |
+| Outlook / Microsoft Graph | Открыто | MVP поддерживает delegated OAuth и хранит токены только в памяти процесса; для production нужно определить защищенное per-user token storage, rotation/revocation и admin consent policy. |
 | Роли пользователей | Частично закрыто | Есть отдельные `tblRoles`, `tblPermissions`, `tblUserRoles`, `tblRolePermissions` и раздел Users & Roles. Нужно уточнить более тонкую матрицу доступа по разделам/объектам перед production. |
 | PostgreSQL | Открыто | Нужно подключить Alembic и проверить миграцию схемы. |
 | Интеграция GPT | Открыто | Нужно определить provider, prompts, data model, human review workflow. |

@@ -17,6 +17,7 @@ from app.models import (
     CaseProduct,
     Contract,
     ContractContact,
+    DocumentVersion,
     FollowUp,
     IncomingRequest,
     Partner,
@@ -37,6 +38,7 @@ from app.models import (
     RolePermission,
     SafetyReport,
     SOP,
+    SOPVersion,
     Submission,
     Substance,
     Task,
@@ -45,6 +47,7 @@ from app.models import (
     utcnow,
 )
 from app.rbac import LEGACY_ROLE_MAP
+from app.workflow import validate_case_status, validate_icsr_transition
 
 
 def normalize_text(value: str | None) -> str | None:
@@ -200,6 +203,118 @@ def log_field_changes(
             user_id=actor_id,
         )
     return changed_count
+
+
+def unique_version_label(
+    db: Session,
+    model: type,
+    parent_field: str,
+    parent_id: str,
+    requested_label: str | None,
+) -> str:
+    base_label = (requested_label or "1.0").strip() or "1.0"
+    existing_labels = {
+        row[0]
+        for row in db.query(model.version_label)
+        .filter(getattr(model, parent_field) == parent_id)
+        .all()
+    }
+    if base_label not in existing_labels:
+        return base_label
+
+    suffix = 2
+    while f"{base_label}.{suffix}" in existing_labels:
+        suffix += 1
+    return f"{base_label}.{suffix}"
+
+
+def create_document_version_snapshot(
+    db: Session,
+    attachment: Attachment,
+    *,
+    actor_id: str | None = None,
+    change_reason: str | None = None,
+) -> DocumentVersion:
+    version = DocumentVersion(
+        attachment_id=attachment.id,
+        version_label=unique_version_label(
+            db,
+            DocumentVersion,
+            "attachment_id",
+            attachment.id,
+            attachment.document_version or f"v{attachment.version}",
+        ),
+        file_name=attachment.file_name,
+        document_title=attachment.document_title,
+        document_type=attachment.document_type,
+        status=attachment.status,
+        storage_path=attachment.storage_path,
+        file_url=attachment.file_url,
+        checksum_sha256=attachment.checksum_sha256,
+        file_size_bytes=attachment.file_size_bytes,
+        document_date=attachment.document_date,
+        change_reason=change_reason or attachment.comment,
+        created_by=actor_id or audit_user_id(db),
+    )
+    db.add(version)
+    db.flush()
+    log_create_event(
+        db,
+        entity_type="DocumentVersion",
+        entity_id=version.id,
+        data={
+            "attachment_id": attachment.id,
+            "version_label": version.version_label,
+            "file_name": version.file_name,
+            "status": version.status,
+        },
+        user_id=version.created_by,
+        comment=version.change_reason,
+    )
+    return version
+
+
+def create_sop_version_snapshot(
+    db: Session,
+    sop: SOP,
+    *,
+    actor_id: str | None = None,
+    revision_reason: str | None = None,
+) -> SOPVersion:
+    version = SOPVersion(
+        sop_id=sop.id,
+        version_label=unique_version_label(
+            db,
+            SOPVersion,
+            "sop_id",
+            sop.id,
+            sop.version,
+        ),
+        status=sop.status,
+        effective_date=sop.effective_date,
+        next_review_date=sop.next_review_date,
+        file_path=sop.file_path,
+        file_url=sop.file_url,
+        revision_reason=revision_reason or sop.revision_reason,
+        created_by=actor_id or audit_user_id(db),
+    )
+    db.add(version)
+    db.flush()
+    log_create_event(
+        db,
+        entity_type="SOPVersion",
+        entity_id=version.id,
+        data={
+            "sop_id": sop.id,
+            "version_label": version.version_label,
+            "status": version.status,
+            "effective_date": version.effective_date,
+            "next_review_date": version.next_review_date,
+        },
+        user_id=version.created_by,
+        comment=version.revision_reason,
+    )
+    return version
 
 
 def get_current_user(db: Session) -> User | None:
@@ -880,17 +995,19 @@ def create_contract_contact(
     payload: schemas.ContractContactCreate,
 ) -> ContractContact:
     data = clean_form_data(model_data(payload))
-    existing = (
-        db.query(ContractContact)
-        .filter(
-            ContractContact.partner_id == data.get("partner_id"),
-            func.lower(ContractContact.email) == (data.get("email") or "").lower(),
-            ContractContact.is_deleted.is_(False),
+    email = (data.get("email") or "").strip()
+    if email:
+        existing = (
+            db.query(ContractContact)
+            .filter(
+                ContractContact.partner_id == data.get("partner_id"),
+                func.lower(ContractContact.email) == email.lower(),
+                ContractContact.is_deleted.is_(False),
+            )
+            .first()
         )
-        .first()
-    )
-    if existing:
-        raise ValueError("Contact already exists for this partner.")
+        if existing:
+            raise ValueError("Contact already exists for this partner.")
     contact = ContractContact(**data)
     db.add(contact)
     db.flush()
@@ -911,18 +1028,20 @@ def update_contract_contact(
     payload: schemas.ContractContactCreate,
 ) -> ContractContact:
     data = clean_form_data(model_data(payload))
-    existing = (
-        db.query(ContractContact)
-        .filter(
-            ContractContact.id != contact.id,
-            ContractContact.partner_id == data.get("partner_id"),
-            func.lower(ContractContact.email) == (data.get("email") or "").lower(),
-            ContractContact.is_deleted.is_(False),
+    email = (data.get("email") or "").strip()
+    if email:
+        existing = (
+            db.query(ContractContact)
+            .filter(
+                ContractContact.id != contact.id,
+                ContractContact.partner_id == data.get("partner_id"),
+                func.lower(ContractContact.email) == email.lower(),
+                ContractContact.is_deleted.is_(False),
+            )
+            .first()
         )
-        .first()
-    )
-    if existing:
-        raise ValueError("Contact already exists for this partner.")
+        if existing:
+            raise ValueError("Contact already exists for this partner.")
     old_values = {field: getattr(contact, field, None) for field in data}
     for field, value in data.items():
         setattr(contact, field, value)
@@ -1137,7 +1256,7 @@ def confirm_partner_reconciliation(
     confirmed_by_user: str | None = None,
 ) -> PartnerReconciliation:
     old_status = reconciliation.reconciliation_status
-    reconciliation.reconciliation_status = "closed"
+    reconciliation.reconciliation_status = "confirmed"
     reconciliation.confirmed_by_user = confirmed_by_user
     reconciliation.confirmed_at = utcnow()
     reconciliation.updated_by = audit_user_id(db)
@@ -1173,6 +1292,7 @@ def update_partner_reconciliation_status(
     discrepancy_description: str | None = None,
     document_id: str | None = None,
     products: str | None = None,
+    comments: str | None = None,
     changed_by_user_id: str | None = None,
 ) -> PartnerReconciliation:
     old_values = {
@@ -1182,6 +1302,7 @@ def update_partner_reconciliation_status(
         "discrepancy_description": reconciliation.discrepancy_description,
         "document_id": reconciliation.document_id,
         "products": reconciliation.products,
+        "comments": reconciliation.comments,
     }
     reconciliation.reconciliation_status = reconciliation_status
     if sent_date is not None:
@@ -1198,6 +1319,8 @@ def update_partner_reconciliation_status(
         reconciliation.document_id = document_id
     if products is not None:
         reconciliation.products = products
+    if comments is not None:
+        reconciliation.comments = comments
     reconciliation.updated_by = changed_by_user_id or audit_user_id(db)
     reconciliation.version += 1
     log_field_changes(
@@ -1212,10 +1335,237 @@ def update_partner_reconciliation_status(
             "discrepancy_description": reconciliation.discrepancy_description,
             "document_id": reconciliation.document_id,
             "products": reconciliation.products,
+            "comments": reconciliation.comments,
         },
         action="status_change",
         user_id=reconciliation.updated_by,
         comment=reconciliation.discrepancy_description,
+    )
+    db.commit()
+    db.refresh(reconciliation)
+    return reconciliation
+
+
+def save_partner_reconciliation_document(
+    db: Session,
+    reconciliation: PartnerReconciliation,
+    document_info: dict[str, Any],
+    *,
+    changed_by_user_id: str | None = None,
+) -> PartnerReconciliation:
+    old_values = {
+        "reconciliation_status": reconciliation.reconciliation_status,
+        "document_path": reconciliation.document_path,
+        "document_filename": reconciliation.document_filename,
+        "document_format": reconciliation.document_format,
+        "generated_at": reconciliation.generated_at,
+    }
+    reconciliation.document_path = document_info["document_path"]
+    reconciliation.document_filename = document_info["document_filename"]
+    reconciliation.document_format = document_info["document_format"]
+    reconciliation.generated_at = utcnow()
+    if reconciliation.reconciliation_status in {"draft", "error"}:
+        reconciliation.reconciliation_status = "generated"
+    reconciliation.updated_by = changed_by_user_id or audit_user_id(db)
+    reconciliation.version += 1
+    log_field_changes(
+        db,
+        entity_type="PartnerReconciliation",
+        entity_id=reconciliation.id,
+        old_values=old_values,
+        new_values={
+            "reconciliation_status": reconciliation.reconciliation_status,
+            "document_path": reconciliation.document_path,
+            "document_filename": reconciliation.document_filename,
+            "document_format": reconciliation.document_format,
+            "generated_at": reconciliation.generated_at,
+        },
+        action="generate_document",
+        user_id=reconciliation.updated_by,
+        comment=reconciliation.document_filename,
+    )
+    db.commit()
+    db.refresh(reconciliation)
+    return reconciliation
+
+
+def update_partner_reconciliation_email_preview(
+    db: Session,
+    reconciliation: PartnerReconciliation,
+    *,
+    email_to: str,
+    email_cc: str | None,
+    email_subject: str,
+    email_body: str,
+    changed_by_user_id: str | None = None,
+) -> PartnerReconciliation:
+    old_values = {
+        "email_to": reconciliation.email_to,
+        "email_cc": reconciliation.email_cc,
+        "email_subject": reconciliation.email_subject,
+        "email_body": reconciliation.email_body,
+    }
+    reconciliation.email_to = email_to
+    reconciliation.email_cc = email_cc
+    reconciliation.email_subject = email_subject
+    reconciliation.email_body = email_body
+    reconciliation.updated_by = changed_by_user_id or audit_user_id(db)
+    reconciliation.version += 1
+    log_field_changes(
+        db,
+        entity_type="PartnerReconciliation",
+        entity_id=reconciliation.id,
+        old_values=old_values,
+        new_values={
+            "email_to": reconciliation.email_to,
+            "email_cc": reconciliation.email_cc,
+            "email_subject": reconciliation.email_subject,
+            "email_body": reconciliation.email_body,
+        },
+        action="email_preview_saved",
+        user_id=reconciliation.updated_by,
+        comment="Outlook email preview prepared.",
+    )
+    db.commit()
+    db.refresh(reconciliation)
+    return reconciliation
+
+
+def mark_partner_reconciliation_outlook_draft_created(
+    db: Session,
+    reconciliation: PartnerReconciliation,
+    *,
+    outlook_message_id: str,
+    outlook_draft_web_link: str | None,
+    email_to: str,
+    email_cc: str | None,
+    email_subject: str,
+    email_body: str,
+    changed_by_user_id: str | None = None,
+) -> PartnerReconciliation:
+    old_values = {
+        "reconciliation_status": reconciliation.reconciliation_status,
+        "outlook_message_id": reconciliation.outlook_message_id,
+        "outlook_draft_web_link": reconciliation.outlook_draft_web_link,
+        "outlook_status": reconciliation.outlook_status,
+        "outlook_error": reconciliation.outlook_error,
+        "draft_created_at": reconciliation.draft_created_at,
+        "email_to": reconciliation.email_to,
+        "email_cc": reconciliation.email_cc,
+        "email_subject": reconciliation.email_subject,
+        "email_body": reconciliation.email_body,
+    }
+    reconciliation.reconciliation_status = "outlook_draft_created"
+    reconciliation.outlook_message_id = outlook_message_id
+    reconciliation.outlook_draft_web_link = outlook_draft_web_link
+    reconciliation.outlook_status = "draft_created"
+    reconciliation.outlook_error = None
+    reconciliation.draft_created_at = utcnow()
+    reconciliation.email_to = email_to
+    reconciliation.email_cc = email_cc
+    reconciliation.email_subject = email_subject
+    reconciliation.email_body = email_body
+    reconciliation.updated_by = changed_by_user_id or audit_user_id(db)
+    reconciliation.version += 1
+    log_field_changes(
+        db,
+        entity_type="PartnerReconciliation",
+        entity_id=reconciliation.id,
+        old_values=old_values,
+        new_values={
+            "reconciliation_status": reconciliation.reconciliation_status,
+            "outlook_message_id": reconciliation.outlook_message_id,
+            "outlook_draft_web_link": reconciliation.outlook_draft_web_link,
+            "outlook_status": reconciliation.outlook_status,
+            "outlook_error": reconciliation.outlook_error,
+            "draft_created_at": reconciliation.draft_created_at,
+            "email_to": reconciliation.email_to,
+            "email_cc": reconciliation.email_cc,
+            "email_subject": reconciliation.email_subject,
+            "email_body": reconciliation.email_body,
+        },
+        action="outlook_draft_created",
+        user_id=reconciliation.updated_by,
+        comment=f"recipients={email_to}; cc={email_cc or ''}",
+    )
+    db.commit()
+    db.refresh(reconciliation)
+    return reconciliation
+
+
+def mark_partner_reconciliation_outlook_sent(
+    db: Session,
+    reconciliation: PartnerReconciliation,
+    *,
+    changed_by_user_id: str | None = None,
+) -> PartnerReconciliation:
+    old_values = {
+        "reconciliation_status": reconciliation.reconciliation_status,
+        "outlook_status": reconciliation.outlook_status,
+        "outlook_error": reconciliation.outlook_error,
+        "sent_at": reconciliation.sent_at,
+        "sent_date": reconciliation.sent_date,
+    }
+    reconciliation.reconciliation_status = "sent"
+    reconciliation.outlook_status = "sent"
+    reconciliation.outlook_error = None
+    reconciliation.sent_at = utcnow()
+    reconciliation.sent_date = reconciliation.sent_at.date()
+    reconciliation.updated_by = changed_by_user_id or audit_user_id(db)
+    reconciliation.version += 1
+    log_field_changes(
+        db,
+        entity_type="PartnerReconciliation",
+        entity_id=reconciliation.id,
+        old_values=old_values,
+        new_values={
+            "reconciliation_status": reconciliation.reconciliation_status,
+            "outlook_status": reconciliation.outlook_status,
+            "outlook_error": reconciliation.outlook_error,
+            "sent_at": reconciliation.sent_at,
+            "sent_date": reconciliation.sent_date,
+        },
+        action="outlook_sent",
+        user_id=reconciliation.updated_by,
+        comment=f"recipients={reconciliation.email_to or ''}; cc={reconciliation.email_cc or ''}",
+    )
+    db.commit()
+    db.refresh(reconciliation)
+    return reconciliation
+
+
+def mark_partner_reconciliation_outlook_error(
+    db: Session,
+    reconciliation: PartnerReconciliation,
+    *,
+    error_message: str,
+    action: str,
+    changed_by_user_id: str | None = None,
+) -> PartnerReconciliation:
+    old_values = {
+        "reconciliation_status": reconciliation.reconciliation_status,
+        "outlook_status": reconciliation.outlook_status,
+        "outlook_error": reconciliation.outlook_error,
+    }
+    if reconciliation.reconciliation_status not in {"sent", "closed"}:
+        reconciliation.reconciliation_status = "error"
+    reconciliation.outlook_status = "error"
+    reconciliation.outlook_error = error_message
+    reconciliation.updated_by = changed_by_user_id or audit_user_id(db)
+    reconciliation.version += 1
+    log_field_changes(
+        db,
+        entity_type="PartnerReconciliation",
+        entity_id=reconciliation.id,
+        old_values=old_values,
+        new_values={
+            "reconciliation_status": reconciliation.reconciliation_status,
+            "outlook_status": reconciliation.outlook_status,
+            "outlook_error": reconciliation.outlook_error,
+        },
+        action=action,
+        user_id=reconciliation.updated_by,
+        comment=error_message,
     )
     db.commit()
     db.refresh(reconciliation)
@@ -1375,7 +1725,10 @@ def get_case(db: Session, case_id: str) -> Case | None:
 def create_case(db: Session, payload: schemas.CaseCreate) -> Case:
     data = clean_form_data(model_data(payload))
     data["case_number"] = data.get("case_number") or generate_number(db, Case, "case_number", "CASE")
-    case = Case(**data)
+    data["workflow_status"] = validate_case_status(data.get("workflow_status") or "new")
+    actor_id = audit_user_id(db)
+    case = Case(**data, created_by=actor_id, updated_by=actor_id)
+    apply_case_lock_state(case, case.workflow_status, actor_id)
     db.add(case)
     db.flush()
 
@@ -1391,6 +1744,7 @@ def create_case(db: Session, payload: schemas.CaseCreate) -> Case:
         entity_id=case.id,
         case_id=case.id,
         data=data,
+        user_id=actor_id,
     )
     db.commit()
     db.refresh(case)
@@ -1451,9 +1805,13 @@ def create_case_from_report(db: Session, report: SafetyReport) -> Case:
 
 
 def update_case_status(db: Session, case: Case, payload: schemas.CaseStatusUpdate) -> Case:
-    next_status = payload.workflow_status
-    next_status_code = normalized_status(next_status)
-    if case_is_controlled(case) and next_status_code != "reopened":
+    next_status_code = validate_icsr_transition(case.workflow_status, payload.workflow_status)
+    current_status_code = normalized_status(case.workflow_status)
+    if case_is_controlled(case) and next_status_code not in {
+        "reopened",
+        "closed",
+        current_status_code,
+    }:
         raise ValueError(
             "Case is submitted, closed, or locked. Reopen it before changing status."
         )
@@ -1465,8 +1823,8 @@ def update_case_status(db: Session, case: Case, payload: schemas.CaseStatusUpdat
     actor_id = audit_user_id(db)
     old_status = case.workflow_status
     old_locked = case.is_locked
-    case.workflow_status = next_status
-    apply_case_lock_state(case, next_status, actor_id)
+    case.workflow_status = next_status_code
+    apply_case_lock_state(case, next_status_code, actor_id)
     case.updated_by = actor_id
     case.version += 1
     log_audit(
@@ -1632,6 +1990,7 @@ def list_attachments(db: Session) -> list[Attachment]:
             joinedload(Attachment.partner),
             joinedload(Attachment.product),
             joinedload(Attachment.uploaded_by),
+            joinedload(Attachment.versions).joinedload(DocumentVersion.creator),
         )
         .filter(Attachment.is_deleted.is_(False))
         .order_by(Attachment.uploaded_at.desc(), Attachment.created_at.desc())
@@ -1649,6 +2008,7 @@ def get_attachment(db: Session, attachment_id: str) -> Attachment | None:
             joinedload(Attachment.partner),
             joinedload(Attachment.product),
             joinedload(Attachment.uploaded_by),
+            joinedload(Attachment.versions).joinedload(DocumentVersion.creator),
         )
         .filter(Attachment.id == attachment_id, Attachment.is_deleted.is_(False))
         .first()
@@ -1735,9 +2095,28 @@ def create_attachment(
         },
         user_id=actor_id,
     )
+    create_document_version_snapshot(
+        db,
+        attachment,
+        actor_id=actor_id,
+        change_reason=comment,
+    )
     db.commit()
     db.refresh(attachment)
     return attachment
+
+
+def list_document_versions(db: Session, attachment_id: str) -> list[DocumentVersion]:
+    return (
+        db.query(DocumentVersion)
+        .options(joinedload(DocumentVersion.creator))
+        .filter(
+            DocumentVersion.attachment_id == attachment_id,
+            DocumentVersion.is_deleted.is_(False),
+        )
+        .order_by(DocumentVersion.created_at.desc())
+        .all()
+    )
 
 
 def delete_attachment(
@@ -2292,7 +2671,11 @@ def update_incoming_request_status(
 def list_sops(db: Session) -> list[SOP]:
     return (
         db.query(SOP)
-        .options(joinedload(SOP.creator), joinedload(SOP.updater))
+        .options(
+            joinedload(SOP.creator),
+            joinedload(SOP.updater),
+            joinedload(SOP.versions).joinedload(SOPVersion.creator),
+        )
         .filter(SOP.is_deleted.is_(False))
         .order_by(SOP.sop_code.asc())
         .all()
@@ -2302,7 +2685,11 @@ def list_sops(db: Session) -> list[SOP]:
 def get_sop(db: Session, sop_id: str) -> SOP | None:
     return (
         db.query(SOP)
-        .options(joinedload(SOP.creator), joinedload(SOP.updater))
+        .options(
+            joinedload(SOP.creator),
+            joinedload(SOP.updater),
+            joinedload(SOP.versions).joinedload(SOPVersion.creator),
+        )
         .filter(SOP.id == sop_id, SOP.is_deleted.is_(False))
         .first()
     )
@@ -2330,6 +2717,12 @@ def create_sop(
     sop = SOP(**data, created_by=actor_id, updated_by=actor_id)
     db.add(sop)
     db.flush()
+    create_sop_version_snapshot(
+        db,
+        sop,
+        actor_id=actor_id,
+        revision_reason=sop.revision_reason,
+    )
     log_create_event(
         db,
         entity_type="SOP",
@@ -2362,7 +2755,7 @@ def update_sop(
     for field, value in data.items():
         setattr(sop, field, value)
     sop.updated_by = changed_by_user_id or audit_user_id(db)
-    log_field_changes(
+    changed_count = log_field_changes(
         db,
         entity_type="SOP",
         entity_id=sop.id,
@@ -2371,9 +2764,26 @@ def update_sop(
         user_id=sop.updated_by,
         comment=sop.revision_reason,
     )
+    if changed_count:
+        create_sop_version_snapshot(
+            db,
+            sop,
+            actor_id=sop.updated_by,
+            revision_reason=sop.revision_reason,
+        )
     db.commit()
     db.refresh(sop)
     return sop
+
+
+def list_sop_versions(db: Session, sop_id: str) -> list[SOPVersion]:
+    return (
+        db.query(SOPVersion)
+        .options(joinedload(SOPVersion.creator))
+        .filter(SOPVersion.sop_id == sop_id, SOPVersion.is_deleted.is_(False))
+        .order_by(SOPVersion.created_at.desc())
+        .all()
+    )
 
 
 def list_psur_tasks(db: Session, psur_plan_id: str) -> list[Task]:

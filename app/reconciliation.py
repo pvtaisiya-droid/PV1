@@ -33,6 +33,22 @@ RECONCILIATION_STATUSES = [
 ]
 
 SIGN_OFF_STATUSES = ["draft", "sent", "confirmed", "closed"]
+DEFAULT_COMPANY_NAME = "ARS PharmRussia"
+DEFAULT_EMAIL_SUBJECT_TEMPLATE = (
+    "Сверка сообщений по безопасности за период [period_start]–[period_end]"
+)
+DEFAULT_EMAIL_BODY_TEMPLATE = """Уважаемые коллеги,
+
+Направляем форму сверки сообщений по безопасности за период с [period_start] по [period_end] по препаратам, находящимся в рамках нашего соглашения по фармаконадзору.
+
+Просим проверить представленную информацию и подтвердить отсутствие расхождений либо направить комментарии по выявленным несоответствиям.
+
+Во вложении: [document_filename]
+
+С уважением,
+[current_user_name]
+[current_user_position]
+[company_name]"""
 
 
 def date_in_period(value: date | datetime | None, period_start: date, period_end: date) -> bool:
@@ -90,6 +106,79 @@ def products_for_partner(db: Session, partner_id: str) -> list[Product]:
     return sorted(by_id.values(), key=lambda product: product.product_name)
 
 
+def reconciliation_recipients(db: Session, partner_id: str) -> dict[str, list[ContractContact]]:
+    contacts = (
+        db.query(ContractContact)
+        .filter(
+            ContractContact.partner_id == partner_id,
+            ContractContact.is_deleted.is_(False),
+            ContractContact.is_active.is_(True),
+            ContractContact.email.is_not(None),
+            ContractContact.email != "",
+        )
+        .order_by(ContractContact.is_primary.desc(), ContractContact.last_name, ContractContact.first_name)
+        .all()
+    )
+    return {
+        "to": [
+            contact
+            for contact in contacts
+            if contact.is_reconciliation_recipient and contact.email
+        ],
+        "cc": [
+            contact
+            for contact in contacts
+            if contact.cc_reconciliation and contact.email
+        ],
+    }
+
+
+def contact_email_list(contacts: list[ContractContact]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for contact in contacts:
+        email = (contact.email or "").strip()
+        key = email.lower()
+        if not email or key in seen:
+            continue
+        seen.add(key)
+        result.append(email)
+    return result
+
+
+def email_list_text(emails: list[str]) -> str:
+    return "; ".join(emails)
+
+
+def render_reconciliation_email(
+    reconciliation,
+    *,
+    current_user=None,
+    company_name: str = DEFAULT_COMPANY_NAME,
+) -> dict[str, str]:
+    user_name = (
+        getattr(current_user, "full_name", None)
+        or getattr(current_user, "email", None)
+        or reconciliation.prepared_by
+        or ""
+    )
+    user_position = getattr(current_user, "role", "") or ""
+    replacements = {
+        "[period_start]": str(reconciliation.period_start),
+        "[period_end]": str(reconciliation.period_end),
+        "[document_filename]": reconciliation.document_filename or "",
+        "[current_user_name]": user_name,
+        "[current_user_position]": user_position,
+        "[company_name]": company_name,
+    }
+    subject = reconciliation.email_subject or DEFAULT_EMAIL_SUBJECT_TEMPLATE
+    body = reconciliation.email_body or DEFAULT_EMAIL_BODY_TEMPLATE
+    for token, value in replacements.items():
+        subject = subject.replace(token, value)
+        body = body.replace(token, value)
+    return {"subject": subject, "body": body}
+
+
 def build_reconciliation_preview(
     db: Session,
     *,
@@ -98,6 +187,7 @@ def build_reconciliation_preview(
     period_end: date,
     contact_id: str | None = None,
     language: str = "ru",
+    product_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     partner = db.query(Partner).filter(Partner.id == partner_id, Partner.is_deleted.is_(False)).first()
     if not partner:
@@ -128,6 +218,10 @@ def build_reconciliation_preview(
 
     our_items = build_our_company_items(db, partner, period_start, period_end)
     partner_items = build_partner_items(db, partner, period_start, period_end)
+    product_id_set = {product_id for product_id in (product_ids or []) if product_id}
+    if product_id_set:
+        our_items = filter_items_by_products(our_items, product_id_set)
+        partner_items = filter_items_by_products(partner_items, product_id_set)
     apply_matching(our_items, partner_items)
     all_items = our_items + partner_items
 
@@ -149,6 +243,13 @@ def build_reconciliation_preview(
         ],
         "summary": summary_for_items(our_items, partner_items),
     }
+
+
+def filter_items_by_products(
+    items: list[dict[str, Any]],
+    product_ids: set[str],
+) -> list[dict[str, Any]]:
+    return [item for item in items if item.get("product_id") in product_ids]
 
 
 def build_our_company_items(

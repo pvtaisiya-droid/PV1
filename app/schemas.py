@@ -139,9 +139,15 @@ class ContractContactBase(BaseModel):
     last_name: str
     first_name: str
     patronymic: str | None = None
-    email: str
+    email: str | None = None
     position: str
     is_current: bool = True
+    is_pv_contact: bool = True
+    is_reconciliation_recipient: bool = True
+    cc_reconciliation: bool = False
+    is_primary: bool = False
+    contact_type: str | None = "pv"
+    comments: str | None = None
 
 
 class ContractContactCreate(ContractContactBase):
@@ -160,14 +166,30 @@ class PartnerReconciliationBase(BaseModel):
     reconciliation_date: date | None = None
     period_start: date
     period_end: date
+    reconciliation_type: str = "periodic"
     language: Literal["ru", "en"] = "ru"
     reconciliation_status: str = "draft"
     prepared_by: str | None = None
     products: str | None = None
+    document_path: str | None = None
+    document_filename: str | None = None
+    document_format: str | None = "xlsx"
+    email_subject: str | None = None
+    email_body: str | None = None
+    email_to: str | None = None
+    email_cc: str | None = None
+    outlook_message_id: str | None = None
+    outlook_draft_web_link: str | None = None
+    outlook_status: str = "not_created"
+    outlook_error: str | None = None
     sent_date: date | None = None
     response_date: date | None = None
     discrepancy_description: str | None = None
     document_id: str | None = None
+    generated_at: datetime | None = None
+    draft_created_at: datetime | None = None
+    sent_at: datetime | None = None
+    comments: str | None = None
 
 
 class PartnerReconciliationCreate(PartnerReconciliationBase):
@@ -205,6 +227,8 @@ class PartnerReconciliationItemBase(BaseModel):
     match_method: str | None = None
     reviewer_comment: str | None = None
     confirmed_by_user: str | None = None
+    discrepancy_flag: bool = False
+    discrepancy_comment: str | None = None
     internal_case_number: str | None = None
     partner_case_number: str | None = None
     partner_name: str | None = None

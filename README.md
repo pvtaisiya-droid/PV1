@@ -78,6 +78,42 @@ DATABASE_URL=sqlite:///./pv_system.db
 
 The SQLAlchemy models use string enum values and UUID string primary keys to keep the schema friendly for a future PostgreSQL migration.
 
+## Runtime mode
+
+The app starts in demo mode by default. Production mode disables the demo user switch by default and hides API documentation endpoints:
+
+```text
+PV_APP_MODE=prod
+PV_DEMO_USER_SWITCH=false
+PV_ALLOW_QUERY_USER_SWITCH=false
+PV_DEFAULT_PAGE_SIZE=25
+PV_MAX_PAGE_SIZE=100
+PV_MAX_UPLOAD_BYTES=26214400
+```
+
+## Outlook / Microsoft Graph
+
+Partner reconciliation can create an Outlook draft and send it through Microsoft Graph after explicit user confirmation. Configure a Microsoft Entra app with delegated `offline_access`, `User.Read`, `Mail.ReadWrite`, and `Mail.Send` permissions, then set:
+
+```text
+MICROSOFT_CLIENT_ID=
+MICROSOFT_CLIENT_SECRET=
+MICROSOFT_TENANT_ID=common
+MICROSOFT_REDIRECT_URI=http://127.0.0.1:8000/outlook/callback
+MICROSOFT_SCOPES=offline_access User.Read Mail.ReadWrite Mail.Send
+```
+
+Secrets are read from environment variables only. The MVP keeps OAuth tokens in process memory and does not write access or refresh tokens to the database or audit log.
+
+## Migrations
+
+Alembic is configured for schema history. Create or apply migrations with:
+
+```bash
+alembic revision --autogenerate -m "change description"
+alembic upgrade head
+```
+
 ## Workflow
 
 ```text

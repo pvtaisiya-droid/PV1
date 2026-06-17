@@ -112,6 +112,8 @@ def ensure_audit_log_columns(inspector, connection) -> None:
         "changed_at": "DATETIME",
         "source_module": "VARCHAR(100)",
         "comment": "TEXT",
+        "ip_address": "VARCHAR(100)",
+        "correlation_id": "VARCHAR(100)",
     }
     for column_name, ddl in audit_columns.items():
         if column_name not in columns:
@@ -204,6 +206,7 @@ def ensure_soft_delete_columns(inspector, connection) -> None:
         "tblCaseProductReactionAssessments",
         "tblFollowUps",
         "tblAttachments",
+        "tblDocumentVersions",
         "tblSubmissions",
         "tblPSURPlans",
         "tblPSURProducts",
@@ -213,6 +216,7 @@ def ensure_soft_delete_columns(inspector, connection) -> None:
         "tblPSURDocuments",
         "tblTasks",
         "tblSOPs",
+        "tblSOPVersions",
         "psmf_components",
         "psmf_component_versions",
         "tblAuditTrail",
@@ -247,13 +251,41 @@ def ensure_mvp_module_columns(inspector, connection) -> None:
             "updated_by": "VARCHAR(36)",
         },
         "tblPartnerReconciliations": {
+            "reconciliation_type": "VARCHAR(100) NOT NULL DEFAULT 'periodic'",
             "products": "TEXT",
+            "document_path": "VARCHAR(500)",
+            "document_filename": "VARCHAR(255)",
+            "document_format": "VARCHAR(20) DEFAULT 'xlsx'",
+            "email_subject": "VARCHAR(500)",
+            "email_body": "TEXT",
+            "email_to": "TEXT",
+            "email_cc": "TEXT",
+            "outlook_message_id": "VARCHAR(255)",
+            "outlook_draft_web_link": "VARCHAR(1000)",
+            "outlook_status": "VARCHAR(50) NOT NULL DEFAULT 'not_created'",
+            "outlook_error": "TEXT",
             "sent_date": "DATE",
             "response_date": "DATE",
             "discrepancy_description": "TEXT",
             "document_id": "VARCHAR(36)",
+            "generated_at": "DATETIME",
+            "draft_created_at": "DATETIME",
+            "sent_at": "DATETIME",
+            "comments": "TEXT",
             "created_by": "VARCHAR(36)",
             "updated_by": "VARCHAR(36)",
+        },
+        "tblPartnerReconciliationItems": {
+            "discrepancy_flag": "BOOLEAN NOT NULL DEFAULT 0",
+            "discrepancy_comment": "TEXT",
+        },
+        "tblContractContacts": {
+            "is_pv_contact": "BOOLEAN NOT NULL DEFAULT 1",
+            "is_reconciliation_recipient": "BOOLEAN NOT NULL DEFAULT 1",
+            "cc_reconciliation": "BOOLEAN NOT NULL DEFAULT 0",
+            "is_primary": "BOOLEAN NOT NULL DEFAULT 0",
+            "contact_type": "VARCHAR(100) DEFAULT 'pv'",
+            "comments": "TEXT",
         },
         "tblAttachments": {
             "document_title": "VARCHAR(255)",
@@ -307,3 +339,93 @@ def ensure_mvp_module_columns(inspector, connection) -> None:
                 text(f'ALTER TABLE "{table_name}" ADD COLUMN {column_name} {ddl}')
             )
             columns.add(column_name)
+
+    if inspector.has_table("tblContractContacts"):
+        connection.execute(
+            text(
+                """
+                UPDATE "tblContractContacts"
+                SET is_pv_contact = 1
+                WHERE is_pv_contact IS NULL
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE "tblContractContacts"
+                SET is_reconciliation_recipient = 1
+                WHERE is_reconciliation_recipient IS NULL
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE "tblContractContacts"
+                SET cc_reconciliation = 0
+                WHERE cc_reconciliation IS NULL
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE "tblContractContacts"
+                SET is_primary = 0
+                WHERE is_primary IS NULL
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE "tblContractContacts"
+                SET contact_type = 'pv'
+                WHERE contact_type IS NULL OR contact_type = ''
+                """
+            )
+        )
+
+    if inspector.has_table("tblPartnerReconciliations"):
+        connection.execute(
+            text(
+                """
+                UPDATE "tblPartnerReconciliations"
+                SET reconciliation_type = 'periodic'
+                WHERE reconciliation_type IS NULL OR reconciliation_type = ''
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE "tblPartnerReconciliations"
+                SET document_format = 'xlsx'
+                WHERE document_format IS NULL OR document_format = ''
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE "tblPartnerReconciliations"
+                SET outlook_status = 'not_created'
+                WHERE outlook_status IS NULL OR outlook_status = ''
+                """
+            )
+        )
+
+    if inspector.has_table("tblPartnerReconciliationItems"):
+        connection.execute(
+            text(
+                """
+                UPDATE "tblPartnerReconciliationItems"
+                SET discrepancy_flag = CASE
+                    WHEN reconciliation_status NOT IN ('matched', 'confirmed') THEN 1
+                    ELSE 0
+                END
+                WHERE discrepancy_flag IS NULL
+                """
+            )
+        )
