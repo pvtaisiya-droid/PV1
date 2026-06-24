@@ -13,6 +13,7 @@ from app.routers import (
     contracts,
     dashboard,
     incoming_requests,
+    literature_monitoring,
     partners,
     partner_reconciliation,
     placeholders,
@@ -58,6 +59,7 @@ app.include_router(cases.router)
 app.include_router(partners.router)
 app.include_router(partner_reconciliation.router)
 app.include_router(incoming_requests.router)
+app.include_router(literature_monitoring.router)
 app.include_router(tasks.router)
 app.include_router(sops.router)
 app.include_router(psur.router)

@@ -335,12 +335,16 @@ def ensure_demo_partner(db: Session, *, code: str, name: str) -> Partner:
     partner = (
         db.query(Partner)
         .filter(
-            Partner.is_deleted.is_(False),
             or_(Partner.partner_code == code, Partner.partner_name == name),
         )
         .first()
     )
     if partner:
+        partner.is_deleted = False
+        partner.is_active = True
+        partner.deleted_at = None
+        partner.deleted_by = None
+        partner.delete_reason = None
         return partner
 
     partner = Partner(

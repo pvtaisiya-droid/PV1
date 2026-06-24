@@ -70,6 +70,7 @@ PV1 — это локально запускаемый MVP веб-системы
 - Swagger UI `/docs`;
 - seed-данные с валидным safety report, case, patient, product, reaction и submission;
 - light MVP МФСФ/PSMF с 3 тестовыми компонентами, простым версионированием, сборкой партнерского МФСФ и HTML-экспортом;
+- literature monitoring MVP: план мониторинга, журнал поисков, результаты/публикации, вложения через Documents, создание черновика ИСНР, связи с ПООБ/PSMF/RMP, CSV export и audit trail;
 - audit trail для создания safety report, triage, создания case, изменения статуса case, добавления patient/product/reaction/follow-up/submission.
 
 Что находится в процессе или требует усиления:
@@ -89,7 +90,6 @@ PV1 — это локально запускаемый MVP веб-системы
 - MedDRA coding;
 - PBRER/PSUR;
 - RMP;
-- literature module;
 - signal detection;
 - GPT extraction и editable review form;
 - импорт данных из старой Access базы.
@@ -245,13 +245,17 @@ SQLite используется только для разработки, лок
 | `tblContracts` | Договоры с партнерами по ЛП. | M-1 к `tblPartners`, M-1 к `tblProducts`; связь `partner_id + product_id` защищена от дублей, статус "действителен сейчас" вычисляется по датам. |
 | `tblContractContacts` | Контактные лица по договорам и получатели сверок. | M-1 к `tblPartners`; хранит ФИО, email, должность, актуальность, PV/contact type флаги, To/Cc-флаги для сверки и комментарии; пара `partner_id + email` защищена от дублей для заполненных email. |
 | `tblSafetyReports` | Входящие safety reports до создания ICSR case. | Может быть связан с partner и 0..1 case. |
-| `tblCases` | Центральная таблица ICSR cases. | Связана с patients, case products, reactions, follow-ups, attachments, submissions, audit. |
+| `tblIncomingRequests` | Журнал сообщений по безопасности / входящих сигналов. | Может быть связан с partner, product и 0..1 case; поддерживает triage status, mock GPT draft, CSV-журнал и создание case из сообщения. |
+| `tblCases` | Центральная таблица ICSR cases. | Связана с patients, case products, reactions, follow-ups, attachments, submissions, incoming requests, audit. |
 | `tblPatients` | Пациенты в составе case. | M-1 к `tblCases`. |
 | `tblCaseProducts` | Препараты в конкретном case. | M-1 к `tblCases`, опционально к `tblProducts`. |
 | `tblReactions` | Нежелательные реакции/adverse events. | M-1 к `tblCases`. |
 | `tblCaseProductReactionAssessments` | Оценка связи препарат-реакция. | Связывает `tblCaseProducts` и `tblReactions`. |
 | `tblFollowUps` | Follow-up информация по case. | M-1 к `tblCases`. |
 | `tblAttachments` | Документы-вложения и их метаданные. | Может ссылаться на case или safety report; хранит имя файла, MIME-тип, локальный путь, размер и SHA-256 checksum. |
+| `tblLiteratureMonitoringPlans` | Планы литературного мониторинга. | M-1 к `tblPartners`, optional `tblSubstances`, M-M к `tblProducts` через `tblLiteratureMonitoringPlanProducts`; хранит sources, frequency, strategy, keywords, territory, responsible user, dates, status. |
+| `tblLiteratureSearchLogs` | Журнал проведенных литературных поисков. | M-1 к plan, optional override partner/substance, M-M к products через `tblLiteratureSearchLogProducts`; хранит search date, period, source, strategy, counts, result, status. |
+| `tblLiteratureResults` | Найденные публикации и решения по ФН. | M-1 к plan/log/partner/substance, M-M к products через `tblLiteratureResultProducts`; links to attachments, ICSR case, PSUR plan, PSMF component and RMP reference. |
 | `tblSubmissions` | Отправки наружу. | В MVP связана с case; оставлены поля `pbrer_id`, `rmp_id` для будущего. |
 | `psmf_components` | Компоненты МФСФ/PSMF: основной раздел, общее приложение или партнер-специфичное приложение. | Может ссылаться на `tblPartners`; имеет текущий статус и номер текущей версии. |
 | `psmf_component_versions` | Версии текстов компонентов МФСФ/PSMF. | M-1 к `psmf_components`; хранит content, status, author/reviewer metadata, lock-флаг. |
@@ -266,6 +270,9 @@ SQLite используется только для разработки, лок
 - `tblReactions`: case, reported term, MedDRA PT/SOC, seriousness;
 - `psmf_components`: component type/scope, status, partner;
 - `psmf_component_versions`: component, version, status;
+- `tblLiteratureMonitoringPlans`: partner/status, substance, responsible user, dates;
+- `tblLiteratureSearchLogs`: plan, partner/result, search date, status;
+- `tblLiteratureResults`: plan/status, partner, result type/decision, publication date;
 - `tblAuditTrail`: entity, case/time, user, timestamp, action.
 
 ## 9. Основной бизнес-процесс
@@ -305,6 +312,7 @@ Incoming safety information
 | Страница | Route | Назначение |
 |---|---|---|
 | Dashboard | `/`, `/dashboard` | Карточки с агрегированными показателями. |
+| Safety Messages / Message Journal | `/incoming-requests` | Регистрация входящих сообщений по безопасности, triage, demo/mock GPT draft, CSV "Журнал всех сообщений", создание case из сообщения. |
 | Safety Reports / PV Intake | `/safety-reports` | Список и форма создания входящих reports. В боковой навигации показан как PV Intake. |
 | Safety Report Detail / Triage | `/safety-reports/{report_id}` | Просмотр raw text, minimum criteria, triage, создание case. |
 | Cases / ICSRs | `/cases` | Список cases/ICSRs, экспорт CSV, переход к detail. В боковой навигации показан как ICSRs. |
@@ -318,6 +326,7 @@ Incoming safety information
 | Submissions | `/submissions` | Список submissions, создание submission для case, изменение статуса. |
 | PSUR / PBRER | `/psur` | Страница-заглушка для будущего модуля ПООБ/PSUR/PBRER. |
 | RMP | `/rmp` | Страница-заглушка для будущего модуля ПУР/RMP. |
+| Literature Monitoring | `/literature-monitoring` | Рабочий MVP-модуль: вкладки Plan/Journal/Results, фильтры, формы, карточки, вложения, создание ИСНР, связи с PSUR/PSMF/RMP и CSV export. |
 | МФСФ / PSMF | `/psmf` | Рабочий light MVP-блок МФСФ/PSMF: обзор, компоненты, партнерская сборка и журнал аудита. |
 | Documents | `/documents` | Рабочий реестр документов: загрузка файла, связь с case или safety report, фильтры, скачивание и soft delete. |
 | Audit Log | `/audit-log` | Рабочий единый журнал действий с поиском, фильтрами и деталями событий. |
@@ -443,6 +452,16 @@ HTML-раздел `/users-roles` доступен только при permission
 | `POST` | `/api/cases/{case_id}/followups` |
 | `POST` | `/api/cases/{case_id}/submissions` |
 | `GET` | `/api/cases/export.csv` |
+
+### Literature Monitoring
+
+| Method | Endpoint |
+|---|---|
+| `GET` | `/api/literature-monitoring/plans` |
+| `GET` | `/api/literature-monitoring/logs` |
+| `GET` | `/api/literature-monitoring/results` |
+| `GET` | `/api/literature-monitoring/results/{result_id}` |
+| `GET` | `/api/literature-monitoring/results/export.csv` |
 
 ### Submissions
 
@@ -718,7 +737,7 @@ DATABASE_URL=postgresql+psycopg://user:password@host:5432/pv_system
 | МФСФ / PSMF | Light MVP компонентов, версий, партнерской сборки и HTML preview; полноценный PSMF Builder остается будущим расширением | Light MVP реализован |
 | PBRER / PSUR | Schedule, reports, linked products/cases/literature | Запланировано |
 | RMP | RMP records, safety concerns | Запланировано |
-| Literature | Sources, articles, literature screening | Запланировано |
+| Literature | MVP: plans, search log, publications/results, document attachments, ICSR draft creation, PSUR/PSMF/RMP links, CSV export, audit trail | Light MVP реализован |
 | Signal detection | Aggregation, line listings, signal workflows | Запланировано |
 | GPT extraction | AI extraction from safety reports, editable review form | Запланировано |
 | PostgreSQL migration | Alembic, PostgreSQL connection, migration scripts | Запланировано |
@@ -987,6 +1006,7 @@ Audit:
 | 2026-06-15 | 0.9 / PSMF light MVP | Добавлен рабочий блок «МФСФ / PSMF»: таблицы `psmf_components` и `psmf_component_versions`, 3 демо-компонента, вкладки обзора/компонентов/партнерского МФСФ/аудита, статусные действия, preview-сборка для партнера, HTML-экспорт и audit-события с `source_module = "PSMF"`. | Codex по запросу пользователя |
 | 2026-06-15 | 1.0 / Documents and link deduplication | Исправлены проверки пункта 10 и 13: блокируются дубли `partner + product` в договорах и `partner + email` в контактах, раздел Documents поддерживает реальную загрузку файла, связь с case/safety report, скачивание, checksum/size metadata и audit-событие скачивания. | Codex по запросу пользователя |
 | 2026-06-17 | 1.1 / Outlook Graph reconciliation | Модуль сверки с партнерами расширен: сохранение XLSX/DOCX документа сверки, поля Outlook/email в существующих таблицах, расширенные контактные флаги To/Cc, Microsoft Graph OAuth 2.0 delegated flow, создание Outlook draft с вложением, отправка только после подтверждения, audit-события и тесты. | Codex по запросу пользователя |
+| 2026-06-22 | 1.2 / Literature Monitoring MVP | Добавлен рабочий модуль «Литературный мониторинг»: таблицы планов, журнала поисков, публикаций и product-link tables, основное меню, вкладки Plan/Journal/Results, вложения через Documents, создание черновика ИСНР из публикации, связи с PSUR/PSMF/RMP, CSV export, audit trail и тесты. | Codex по запросу пользователя |
 
 ## 23. Open questions
 

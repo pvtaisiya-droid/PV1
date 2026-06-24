@@ -214,6 +214,12 @@ def ensure_soft_delete_columns(inspector, connection) -> None:
         "tblPSURPartnerRequests",
         "tblPSURSections",
         "tblPSURDocuments",
+        "tblLiteratureMonitoringPlans",
+        "tblLiteratureMonitoringPlanProducts",
+        "tblLiteratureSearchLogs",
+        "tblLiteratureSearchLogProducts",
+        "tblLiteratureResults",
+        "tblLiteratureResultProducts",
         "tblTasks",
         "tblSOPs",
         "tblSOPVersions",
@@ -245,6 +251,7 @@ def ensure_mvp_module_columns(inspector, connection) -> None:
         "tblContracts": {
             "created_by": "VARCHAR(36)",
             "updated_by": "VARCHAR(36)",
+            "parent_contract_id": "VARCHAR(36)",
         },
         "tblCases": {
             "created_by": "VARCHAR(36)",
@@ -286,6 +293,9 @@ def ensure_mvp_module_columns(inspector, connection) -> None:
             "is_primary": "BOOLEAN NOT NULL DEFAULT 0",
             "contact_type": "VARCHAR(100) DEFAULT 'pv'",
             "comments": "TEXT",
+        },
+        "tblIncomingRequests": {
+            "case_id": "VARCHAR(36)",
         },
         "tblAttachments": {
             "document_title": "VARCHAR(255)",
@@ -387,6 +397,17 @@ def ensure_mvp_module_columns(inspector, connection) -> None:
             )
         )
 
+    if inspector.has_table("tblContracts"):
+        ensure_contract_parent_schema(connection)
+
+    if inspector.has_table("tblIncomingRequests"):
+        connection.execute(
+            text(
+                'CREATE INDEX IF NOT EXISTS "ix_incoming_request_case" '
+                'ON "tblIncomingRequests" (case_id)'
+            )
+        )
+
     if inspector.has_table("tblPartnerReconciliations"):
         connection.execute(
             text(
@@ -429,3 +450,113 @@ def ensure_mvp_module_columns(inspector, connection) -> None:
                 """
             )
         )
+
+
+def sqlite_contract_has_legacy_unique_index(connection) -> bool:
+    indexes = connection.execute(text('PRAGMA index_list("tblContracts")')).mappings().all()
+    for index in indexes:
+        if not index.get("unique"):
+            continue
+        index_name = str(index["name"]).replace('"', '""')
+        indexed_columns = [
+            row["name"]
+            for row in connection.execute(
+                text(f'PRAGMA index_info("{index_name}")')
+            ).mappings()
+        ]
+        if indexed_columns == ["partner_id", "product_id"]:
+            return True
+    return False
+
+
+def ensure_contract_parent_schema(connection) -> None:
+    if not sqlite_contract_has_legacy_unique_index(connection):
+        connection.execute(
+            text(
+                'CREATE INDEX IF NOT EXISTS "ix_contract_parent_contract" '
+                'ON "tblContracts" (parent_contract_id)'
+            )
+        )
+        return
+
+    connection.execute(
+        text(
+            """
+            CREATE TABLE "tblContracts_new" (
+                id VARCHAR(36) NOT NULL,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL,
+                is_active BOOLEAN NOT NULL,
+                is_deleted BOOLEAN NOT NULL,
+                deleted_at DATETIME,
+                deleted_by VARCHAR(36),
+                delete_reason TEXT,
+                version INTEGER NOT NULL,
+                partner_id VARCHAR(36) NOT NULL,
+                product_id VARCHAR(36) NOT NULL,
+                parent_contract_id VARCHAR(36),
+                contract_type VARCHAR(100) NOT NULL,
+                contract_number VARCHAR(100) NOT NULL,
+                contract_date DATE NOT NULL,
+                valid_until DATE NOT NULL,
+                created_by VARCHAR(36),
+                updated_by VARCHAR(36),
+                PRIMARY KEY (id),
+                FOREIGN KEY(partner_id) REFERENCES "tblPartners" (id),
+                FOREIGN KEY(product_id) REFERENCES "tblProducts" (id),
+                FOREIGN KEY(parent_contract_id) REFERENCES "tblContracts" (id),
+                FOREIGN KEY(created_by) REFERENCES "tblUsers" (id),
+                FOREIGN KEY(updated_by) REFERENCES "tblUsers" (id)
+            )
+            """
+        )
+    )
+    copy_columns = [
+        "id",
+        "created_at",
+        "updated_at",
+        "is_active",
+        "is_deleted",
+        "deleted_at",
+        "deleted_by",
+        "delete_reason",
+        "version",
+        "partner_id",
+        "product_id",
+        "parent_contract_id",
+        "contract_type",
+        "contract_number",
+        "contract_date",
+        "valid_until",
+        "created_by",
+        "updated_by",
+    ]
+    column_sql = ", ".join(f'"{column}"' for column in copy_columns)
+    connection.execute(
+        text(
+            f"""
+            INSERT INTO "tblContracts_new" ({column_sql})
+            SELECT {column_sql}
+            FROM "tblContracts"
+            """
+        )
+    )
+    connection.execute(text('DROP TABLE "tblContracts"'))
+    connection.execute(text('ALTER TABLE "tblContracts_new" RENAME TO "tblContracts"'))
+    for statement in [
+        'CREATE INDEX IF NOT EXISTS "ix_contract_partner_product" '
+        'ON "tblContracts" (partner_id, product_id)',
+        'CREATE INDEX IF NOT EXISTS "ix_contract_parent_contract" '
+        'ON "tblContracts" (parent_contract_id)',
+        'CREATE INDEX IF NOT EXISTS "ix_contract_valid_until" '
+        'ON "tblContracts" (valid_until)',
+        'CREATE INDEX IF NOT EXISTS "ix_tblContracts_partner_id" '
+        'ON "tblContracts" (partner_id)',
+        'CREATE INDEX IF NOT EXISTS "ix_tblContracts_product_id" '
+        'ON "tblContracts" (product_id)',
+        'CREATE INDEX IF NOT EXISTS "ix_tblContracts_contract_type" '
+        'ON "tblContracts" (contract_type)',
+        'CREATE INDEX IF NOT EXISTS "ix_tblContracts_contract_number" '
+        'ON "tblContracts" (contract_number)',
+    ]:
+        connection.execute(text(statement))

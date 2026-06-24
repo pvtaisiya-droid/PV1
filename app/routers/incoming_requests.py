@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.orm import Session
 
 from app import crud, schemas
@@ -14,9 +14,15 @@ router = APIRouter()
 
 INCOMING_REQUEST_STATUSES = [
     "new",
+    "in_triage",
+    "valid_icsr",
+    "invalid",
+    "duplicate",
+    "non_safety",
     "analyzed",
     "needs_review",
     "confirmed",
+    "converted_to_case",
     "converted_to_icsr",
     "closed",
 ]
@@ -34,6 +40,18 @@ def incoming_requests_page(
         db,
         search=search,
         status_filter=status_filter,
+    )
+
+
+@router.get(
+    "/incoming-requests/export.csv",
+    dependencies=[Depends(require_any_permission("export", "view"))],
+)
+def export_incoming_requests_csv(db: Session = Depends(get_db)):
+    return Response(
+        crud.export_incoming_requests_csv(db),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=safety_message_journal.csv"},
     )
 
 
@@ -60,6 +78,56 @@ def analyze_incoming_request_form(
         draft=draft,
         message="Mock GPT analysis prepared. Review and confirm before saving.",
     )
+
+
+@router.post(
+    "/incoming-requests/register",
+    dependencies=[Depends(require_any_permission("create", "edit"))],
+)
+def register_incoming_request_form(
+    request: Request,
+    source_text: str = Form(...),
+    request_type: str | None = Form("safety_message"),
+    partner_id: str | None = Form(None),
+    product_id: str | None = Form(None),
+    active_substance: str | None = Form(None),
+    possible_icsr: str = Form("no"),
+    patient_information: str | None = Form(None),
+    adverse_event: str | None = Form(None),
+    seriousness: str | None = Form(None),
+    missing_information: str | None = Form(None),
+    status_value: str = Form("new"),
+    db: Session = Depends(get_db),
+):
+    if not source_text.strip():
+        return redirect_with_message(
+            "/incoming-requests",
+            validation="Source text is required.",
+        )
+    if status_value not in INCOMING_REQUEST_STATUSES:
+        return redirect_with_message(
+            "/incoming-requests",
+            validation="Invalid incoming request status.",
+        )
+    current_user = getattr(request.state, "current_user", None)
+    crud.create_incoming_request(
+        db,
+        schemas.IncomingRequestCreate(
+            source_text=source_text,
+            request_type=request_type,
+            partner_id=partner_id or None,
+            product_id=product_id or None,
+            active_substance=active_substance,
+            possible_icsr=possible_icsr,
+            patient_information=patient_information,
+            adverse_event=adverse_event,
+            seriousness=seriousness,
+            missing_information=missing_information,
+            status=status_value,
+        ),
+        created_by_user_id=current_user.id if current_user else None,
+    )
+    return redirect_with_message("/incoming-requests", message="Safety message saved.")
 
 
 @router.post(
@@ -117,7 +185,22 @@ def confirm_incoming_request_form(
         ),
         created_by_user_id=current_user.id if current_user else None,
     )
-    return redirect_with_message("/incoming-requests", message="Incoming request saved.")
+    return redirect_with_message("/incoming-requests", message="Safety message saved.")
+
+
+@router.post(
+    "/incoming-requests/{request_id}/create-case",
+    dependencies=[Depends(require_any_permission("create", "icsr_workflow"))],
+)
+def create_case_from_incoming_request_form(
+    request_id: str,
+    db: Session = Depends(get_db),
+):
+    row = crud.get_incoming_request(db, request_id)
+    if not row:
+        return redirect_with_message("/incoming-requests", error="Safety message not found.")
+    case = crud.create_case_from_incoming_request(db, row)
+    return redirect_with_message(f"/cases/{case.id}", message="Case saved.")
 
 
 @router.post(
@@ -132,7 +215,7 @@ def update_incoming_request_status_form(
 ):
     row = crud.get_incoming_request(db, request_id)
     if not row:
-        return redirect_with_message("/incoming-requests", error="Incoming request not found.")
+        return redirect_with_message("/incoming-requests", error="Safety message not found.")
     if status_value not in INCOMING_REQUEST_STATUSES:
         return redirect_with_message(
             "/incoming-requests",
@@ -145,7 +228,28 @@ def update_incoming_request_status_form(
         status=status_value,
         changed_by_user_id=current_user.id if current_user else None,
     )
-    return redirect_with_message("/incoming-requests", message="Incoming request status saved.")
+    return redirect_with_message("/incoming-requests", message="Safety message status saved.")
+
+
+@router.get("/api/incoming-requests", response_model=list[schemas.IncomingRequestRead])
+def api_list_incoming_requests(db: Session = Depends(get_db)):
+    return crud.list_incoming_requests(db)
+
+
+@router.post(
+    "/api/incoming-requests/{request_id}/create-case",
+    response_model=schemas.CaseRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_any_permission("create", "icsr_workflow"))],
+)
+def api_create_case_from_incoming_request(
+    request_id: str,
+    db: Session = Depends(get_db),
+):
+    row = crud.get_incoming_request(db, request_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Safety message not found")
+    return crud.create_case_from_incoming_request(db, row)
 
 
 def render_page(

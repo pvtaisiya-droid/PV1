@@ -9,6 +9,16 @@
     </div>
 </div>
 
+{% if message %}
+<div class="alert alert-success py-2" role="status">{{ _(message) }}</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-danger py-2" role="alert">{{ _(error) }}</div>
+{% endif %}
+{% if validation %}
+<div class="alert alert-warning py-2" role="alert">{{ _(validation) }}</div>
+{% endif %}
+
 {% if has_permission('create') or has_permission('manage_reference_data') %}
 <section class="surface mb-4">
     <h2 class="h6 section-title">{{ _('Add Substance') }}</h2>
@@ -92,6 +102,7 @@
                         <th>{{ _('INN') }}</th>
                         <th>{{ _('ATC') }}</th>
                         <th>{{ _('CAS') }}</th>
+                        <th>{{ _('Actions') }}</th>
                     </tr>
                     </thead>
                     <tbody>
@@ -101,9 +112,53 @@
                         <td>{{ substance.inn_name or "" }}</td>
                         <td>{{ substance.atc_code or "" }}</td>
                         <td>{{ substance.cas_number or "" }}</td>
+                        <td>
+                            <div class="d-flex flex-wrap gap-1">
+                                {% if has_permission('edit') or has_permission('manage_reference_data') %}
+                                <button class="btn btn-outline-primary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#substance-edit-{{ substance.id }}" title="{{ _('Edit') }}"><i data-lucide="pencil"></i></button>
+                                {% endif %}
+                                {% if has_permission('soft_delete') or has_permission('manage_reference_data') %}
+                                <form method="post" action="/substances/{{ substance.id }}/delete">
+                                    <button class="btn btn-outline-danger btn-sm icon-only" type="submit" title="{{ _('Delete') }}"><i data-lucide="trash-2"></i></button>
+                                </form>
+                                {% endif %}
+                            </div>
+                        </td>
                     </tr>
+                    {% if has_permission('edit') or has_permission('manage_reference_data') %}
+                    <tr class="collapse" id="substance-edit-{{ substance.id }}">
+                        <td colspan="5">
+                            <form class="row g-2 align-items-end" method="post" action="/substances/{{ substance.id }}/edit">
+                                <div class="col-md-4">
+                                    <label class="form-label">{{ _('Name') }}</label>
+                                    <input class="form-control form-control-sm" name="substance_name" value="{{ substance.substance_name }}" required>
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">{{ _('INN') }}</label>
+                                    <input class="form-control form-control-sm" name="inn_name" value="{{ substance.inn_name or '' }}">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">{{ _('ATC') }}</label>
+                                    <input class="form-control form-control-sm" name="atc_code" value="{{ substance.atc_code or '' }}">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">{{ _('CAS') }}</label>
+                                    <input class="form-control form-control-sm" name="cas_number" value="{{ substance.cas_number or '' }}">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">{{ _('Substance type') }}</label>
+                                    <input class="form-control form-control-sm" name="substance_type" value="{{ substance.substance_type or '' }}">
+                                </div>
+                                <div class="col-md-3 d-flex gap-2">
+                                    <button class="btn btn-primary btn-sm icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Save') }}</span></button>
+                                    <button class="btn btn-outline-secondary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#substance-edit-{{ substance.id }}" title="{{ _('Cancel') }}"><i data-lucide="x"></i></button>
+                                </div>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endif %}
                     {% else %}
-                    <tr><td colspan="4" class="text-secondary">{{ _('No substances yet.') }}</td></tr>
+                    <tr><td colspan="5" class="text-secondary">{{ _('No substances yet.') }}</td></tr>
                     {% endfor %}
                     </tbody>
                 </table>
@@ -124,17 +179,21 @@
                     </tr>
                     </thead>
                     <tbody>
+                    {% set visible_links = namespace(found=false) %}
                     {% for product in products %}
                         {% for link in product.substance_links %}
+                        {% if not link.is_deleted and link.substance and not link.substance.is_deleted %}
+                        {% set visible_links.found = true %}
                         <tr>
                             <td>{{ product.product_name }}</td>
                             <td class="fw-medium">{{ link.substance.substance_name if link.substance else "" }}</td>
                             <td>{{ _(link.substance_role) }}</td>
                             <td>{% if link.is_primary %}<span class="badge text-bg-success">{{ _('Yes') }}</span>{% else %}<span class="badge text-bg-secondary">{{ _('No') }}</span>{% endif %}</td>
                         </tr>
+                        {% endif %}
                         {% endfor %}
                     {% endfor %}
-                    {% if not products|selectattr("substance_links")|list %}
+                    {% if not visible_links.found %}
                     <tr><td colspan="4" class="text-secondary">{{ _('No product-substance links yet.') }}</td></tr>
                     {% endif %}
                     </tbody>

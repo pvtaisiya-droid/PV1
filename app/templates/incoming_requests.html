@@ -7,6 +7,7 @@
         <h1 class="h3 mb-1">{{ _('Incoming Requests') }}</h1>
         <div class="text-secondary small">{{ incoming_requests|length }} {{ _('records') }}</div>
     </div>
+    <a class="btn btn-outline-primary btn-sm icon-button" href="/incoming-requests/export.csv"><i data-lucide="download"></i><span>{{ _('All message journal') }}</span></a>
 </div>
 
 {% if message %}
@@ -19,14 +20,77 @@
 <div class="alert alert-warning py-2" role="alert">{{ _(validation) }}</div>
 {% endif %}
 
+<div class="alert alert-info py-3" role="note">
+    <div class="fw-semibold">{{ _('Demo GPT analysis notice title') }}</div>
+    <div>{{ _('Demo GPT analysis notice body') }}</div>
+</div>
+
 <div class="row g-3 mb-4">
     <div class="col-xl-5">
         <section class="surface h-100">
-            <h2 class="h6 section-title">{{ _('Source request') }}</h2>
-            <form method="post" action="/incoming-requests/analyze">
-                <label class="form-label">{{ _('Email or request text') }}</label>
-                <textarea class="form-control mb-3" name="source_text" rows="13" required>{{ source_text }}</textarea>
-                <button class="btn btn-primary icon-button" type="submit"><i data-lucide="sparkles"></i><span>{{ _('Analyze with GPT') }}</span></button>
+            <h2 class="h6 section-title">{{ _('Register safety message') }}</h2>
+            <form class="row g-3" method="post" action="/incoming-requests/register">
+                <div class="col-12">
+                    <label class="form-label">{{ _('Email or request text') }}</label>
+                    <textarea class="form-control" name="source_text" rows="7" required>{{ source_text }}</textarea>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">{{ _('Request type') }}</label>
+                    <input class="form-control" name="request_type" value="safety_message">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">{{ _('Triage') }}</label>
+                    <select class="form-select" name="status_value">
+                        {% for status in status_options %}
+                        <option value="{{ status }}" {% if status == 'new' %}selected{% endif %}>{{ _(status) }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">{{ _('Partner') }}</label>
+                    <select class="form-select" name="partner_id">
+                        <option value="">{{ _('None') }}</option>
+                        {% for partner in partners %}
+                        <option value="{{ partner.id }}">{{ partner.partner_name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">{{ _('Product') }}</label>
+                    <select class="form-select" name="product_id">
+                        <option value="">{{ _('None') }}</option>
+                        {% for product in products %}
+                        <option value="{{ product.id }}">{{ product.product_name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">{{ _('Possible ICSR') }}</label>
+                    <select class="form-select" name="possible_icsr">
+                        <option value="no" selected>{{ _('no') }}</option>
+                        <option value="yes">{{ _('yes') }}</option>
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">{{ _('Seriousness') }}</label>
+                    <input class="form-control" name="seriousness">
+                </div>
+                <div class="col-12">
+                    <label class="form-label">{{ _('Patient information') }}</label>
+                    <input class="form-control" name="patient_information">
+                </div>
+                <div class="col-12">
+                    <label class="form-label">{{ _('Adverse event') }}</label>
+                    <input class="form-control" name="adverse_event">
+                </div>
+                <div class="col-12">
+                    <label class="form-label">{{ _('Missing information') }}</label>
+                    <input class="form-control" name="missing_information">
+                </div>
+                <div class="col-12 d-flex flex-wrap gap-2">
+                    <button class="btn btn-primary icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Register message') }}</span></button>
+                    <button class="btn btn-outline-primary icon-button" type="submit" formaction="/incoming-requests/analyze"><i data-lucide="sparkles"></i><span>{{ _('Analyze with GPT') }}</span></button>
+                </div>
             </form>
         </section>
     </div>
@@ -164,7 +228,8 @@
                 <th>{{ _('Product') }}</th>
                 <th>{{ _('Possible ICSR') }}</th>
                 <th>{{ _('Adverse event') }}</th>
-                <th>{{ _('Status') }}</th>
+                <th>{{ _('Triage') }}</th>
+                <th>{{ _('Case') }}</th>
                 <th>{{ _('Actions') }}</th>
             </tr>
             </thead>
@@ -178,9 +243,15 @@
                 <td><span class="badge {% if item.possible_icsr == 'yes' %}text-bg-warning{% else %}text-bg-light{% endif %}">{{ _(item.possible_icsr) }}</span></td>
                 <td>{{ item.adverse_event or "" }}</td>
                 <td><span class="status-pill">{{ _(item.status) }}</span></td>
+                <td>{% if item.case %}<a href="/cases/{{ item.case.id }}">{{ item.case.case_number }}</a>{% else %}<span class="text-secondary">-</span>{% endif %}</td>
                 <td>
                     <div class="d-flex flex-wrap gap-1">
                         <button class="btn btn-outline-secondary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#incoming-view-{{ item.id }}" title="{{ _('View') }}"><i data-lucide="eye"></i></button>
+                        {% if (has_permission('create') or has_permission('icsr_workflow')) and not item.case %}
+                        <form method="post" action="/incoming-requests/{{ item.id }}/create-case">
+                            <button class="btn btn-outline-success btn-sm icon-only" type="submit" title="{{ _('Create Case') }}"><i data-lucide="folder-plus"></i></button>
+                        </form>
+                        {% endif %}
                         {% if has_permission('edit') or has_permission('comment') %}
                         <form class="d-flex gap-1" method="post" action="/incoming-requests/{{ item.id }}/status">
                             <select class="form-select form-select-sm" name="status_value">
@@ -195,7 +266,7 @@
                 </td>
             </tr>
             <tr class="collapse" id="incoming-view-{{ item.id }}">
-                <td colspan="8">
+                <td colspan="9">
                     <div class="row g-3 small">
                         <div class="col-lg-4">
                             <span class="text-secondary">{{ _('Source text') }}</span>
@@ -220,7 +291,7 @@
                 </td>
             </tr>
             {% else %}
-            <tr><td colspan="8" class="text-secondary">{% if filters.active and total_count %}{{ _('No records match the filters.') }}{% else %}{{ _('No incoming requests yet.') }}{% endif %}</td></tr>
+            <tr><td colspan="9" class="text-secondary">{% if filters.active and total_count %}{{ _('No records match the filters.') }}{% else %}{{ _('No incoming requests yet.') }}{% endif %}</td></tr>
             {% endfor %}
             </tbody>
         </table>

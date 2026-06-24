@@ -20,6 +20,12 @@ from app.models import (
     DocumentVersion,
     FollowUp,
     IncomingRequest,
+    LiteratureMonitoringPlan,
+    LiteratureMonitoringPlanProduct,
+    LiteratureResult,
+    LiteratureResultProduct,
+    LiteratureSearchLog,
+    LiteratureSearchLogProduct,
     Partner,
     PartnerReconciliation,
     PartnerReconciliationItem,
@@ -27,6 +33,7 @@ from app.models import (
     Permission,
     Product,
     ProductSubstance,
+    PSMFComponent,
     PSURCase,
     PSURDocument,
     PSURPartnerRequest,
@@ -748,7 +755,11 @@ def list_substances(db: Session) -> list[Substance]:
 
 
 def get_substance(db: Session, substance_id: str) -> Substance | None:
-    return db.query(Substance).filter(Substance.id == substance_id).first()
+    return (
+        db.query(Substance)
+        .filter(Substance.id == substance_id, Substance.is_deleted.is_(False))
+        .first()
+    )
 
 
 def get_or_create_substance(
@@ -761,7 +772,10 @@ def get_or_create_substance(
     normalized = normalize_text(name)
     substance = (
         db.query(Substance)
-        .filter(Substance.substance_name_normalized == normalized)
+        .filter(
+            Substance.substance_name_normalized == normalized,
+            Substance.is_deleted.is_(False),
+        )
         .first()
     )
     if substance:
@@ -802,6 +816,73 @@ def create_substance(db: Session, payload: schemas.SubstanceCreate) -> Substance
         entity_type="Substance",
         entity_id=substance.id,
         data=data,
+    )
+    db.commit()
+    db.refresh(substance)
+    return substance
+
+
+def update_substance(
+    db: Session,
+    substance: Substance,
+    payload: schemas.SubstanceCreate,
+) -> Substance:
+    data = clean_form_data(model_data(payload))
+    data["substance_name_normalized"] = data.get("substance_name_normalized") or normalize_text(
+        data.get("substance_name")
+    )
+    old_values = {field: getattr(substance, field, None) for field in data}
+    for field, value in data.items():
+        setattr(substance, field, value)
+    substance.version += 1
+    log_field_changes(
+        db,
+        entity_type="Substance",
+        entity_id=substance.id,
+        old_values=old_values,
+        new_values=data,
+    )
+    db.commit()
+    db.refresh(substance)
+    return substance
+
+
+def delete_substance(
+    db: Session,
+    substance: Substance,
+    *,
+    deleted_by_user_id: str | None = None,
+    delete_reason: str | None = None,
+) -> Substance:
+    substance.is_deleted = True
+    substance.is_active = False
+    substance.deleted_at = utcnow()
+    substance.deleted_by = deleted_by_user_id
+    substance.delete_reason = delete_reason
+    substance.version += 1
+
+    active_links = (
+        db.query(ProductSubstance)
+        .filter(
+            ProductSubstance.substance_id == substance.id,
+            ProductSubstance.is_deleted.is_(False),
+        )
+        .all()
+    )
+    for link in active_links:
+        link.is_deleted = True
+        link.is_active = False
+        link.deleted_at = substance.deleted_at
+        link.deleted_by = deleted_by_user_id
+        link.delete_reason = delete_reason
+        link.version += 1
+
+    log_delete_event(
+        db,
+        entity_type="Substance",
+        entity_id=substance.id,
+        user_id=deleted_by_user_id,
+        delete_reason=delete_reason,
     )
     db.commit()
     db.refresh(substance)
@@ -923,35 +1004,136 @@ def delete_product(
 def list_contracts(db: Session) -> list[Contract]:
     return (
         db.query(Contract)
-        .options(joinedload(Contract.partner), joinedload(Contract.product))
+        .options(
+            joinedload(Contract.partner),
+            joinedload(Contract.product),
+            joinedload(Contract.parent_contract),
+        )
         .filter(Contract.is_deleted.is_(False))
         .order_by(Contract.valid_until.desc(), Contract.contract_date.desc())
         .all()
     )
 
 
+def list_base_contracts(
+    db: Session,
+    *,
+    exclude_contract_id: str | None = None,
+) -> list[Contract]:
+    query = (
+        db.query(Contract)
+        .options(joinedload(Contract.partner), joinedload(Contract.product))
+        .filter(
+            Contract.is_deleted.is_(False),
+            Contract.contract_type == "pharmacovigilance_agreement",
+        )
+    )
+    if exclude_contract_id:
+        query = query.filter(Contract.id != exclude_contract_id)
+    return query.order_by(Contract.contract_date.desc(), Contract.contract_number).all()
+
+
 def get_contract(db: Session, contract_id: str) -> Contract | None:
     return (
         db.query(Contract)
-        .options(joinedload(Contract.partner), joinedload(Contract.product))
+        .options(
+            joinedload(Contract.partner),
+            joinedload(Contract.product),
+            joinedload(Contract.parent_contract),
+        )
         .filter(Contract.id == contract_id, Contract.is_deleted.is_(False))
         .first()
     )
 
 
-def create_contract(db: Session, payload: schemas.ContractCreate) -> Contract:
-    data = clean_form_data(model_data(payload))
+def contract_has_additional_agreements(db: Session, contract_id: str) -> bool:
+    return (
+        db.query(Contract.id)
+        .filter(
+            Contract.parent_contract_id == contract_id,
+            Contract.is_deleted.is_(False),
+        )
+        .first()
+        is not None
+    )
+
+
+def contract_payload_data(payload: schemas.ContractCreate | schemas.ContractUpdate) -> dict[str, Any]:
+    if hasattr(payload, "model_dump"):
+        return clean_form_data(payload.model_dump())
+    return clean_form_data(model_data(payload))
+
+
+def prepare_contract_data(
+    db: Session,
+    data: dict[str, Any],
+    *,
+    current_contract_id: str | None = None,
+) -> dict[str, Any]:
+    if data.get("contract_date") and data.get("valid_until"):
+        if data["valid_until"] < data["contract_date"]:
+            raise ValueError("Valid until must be on or after contract date.")
+
+    contract_type = data.get("contract_type") or "pharmacovigilance_agreement"
+    data["contract_type"] = contract_type
+
+    if contract_type == "additional_agreement":
+        parent_contract_id = data.get("parent_contract_id")
+        if not parent_contract_id:
+            raise ValueError("Select parent contract for additional agreement.")
+        if parent_contract_id == current_contract_id:
+            raise ValueError("Additional agreement cannot be attached to itself.")
+
+        parent_contract = (
+            db.query(Contract)
+            .filter(
+                Contract.id == parent_contract_id,
+                Contract.is_deleted.is_(False),
+            )
+            .first()
+        )
+        if not parent_contract:
+            raise ValueError("Parent contract not found.")
+        if parent_contract.contract_type != "pharmacovigilance_agreement":
+            raise ValueError("Additional agreement can be attached only to a base contract.")
+
+        duplicate = (
+            db.query(Contract)
+            .filter(
+                Contract.parent_contract_id == parent_contract_id,
+                func.lower(Contract.contract_number)
+                == str(data.get("contract_number") or "").strip().lower(),
+                Contract.is_deleted.is_(False),
+            )
+        )
+        if current_contract_id:
+            duplicate = duplicate.filter(Contract.id != current_contract_id)
+        if duplicate.first():
+            raise ValueError("Additional agreement already exists for this contract number.")
+
+        data["partner_id"] = parent_contract.partner_id
+        data["product_id"] = parent_contract.product_id
+        return data
+
+    data["parent_contract_id"] = None
     existing = (
         db.query(Contract)
         .filter(
             Contract.partner_id == data.get("partner_id"),
             Contract.product_id == data.get("product_id"),
+            Contract.contract_type == "pharmacovigilance_agreement",
             Contract.is_deleted.is_(False),
         )
-        .first()
     )
-    if existing:
+    if current_contract_id:
+        existing = existing.filter(Contract.id != current_contract_id)
+    if existing.first():
         raise ValueError("Contract already exists for this partner and product.")
+    return data
+
+
+def create_contract(db: Session, payload: schemas.ContractCreate) -> Contract:
+    data = prepare_contract_data(db, contract_payload_data(payload))
     actor_id = audit_user_id(db)
     contract = Contract(**data, created_by=actor_id, updated_by=actor_id)
     db.add(contract)
@@ -961,6 +1143,69 @@ def create_contract(db: Session, payload: schemas.ContractCreate) -> Contract:
         entity_type="Contract",
         entity_id=contract.id,
         data=data,
+    )
+    db.commit()
+    db.refresh(contract)
+    return contract
+
+
+def update_contract(
+    db: Session,
+    contract: Contract,
+    payload: schemas.ContractUpdate,
+) -> Contract:
+    data = prepare_contract_data(
+        db,
+        contract_payload_data(payload),
+        current_contract_id=contract.id,
+    )
+    if contract_has_additional_agreements(db, contract.id) and (
+        data.get("contract_type") != contract.contract_type
+        or data.get("partner_id") != contract.partner_id
+        or data.get("product_id") != contract.product_id
+    ):
+        raise ValueError(
+            "Contract has attached additional agreements. Delete or move them first."
+        )
+
+    old_values = {field: getattr(contract, field, None) for field in data}
+    for field, value in data.items():
+        setattr(contract, field, value)
+    contract.updated_by = audit_user_id(db)
+    contract.version += 1
+    log_field_changes(
+        db,
+        entity_type="Contract",
+        entity_id=contract.id,
+        old_values=old_values,
+        new_values=data,
+    )
+    db.commit()
+    db.refresh(contract)
+    return contract
+
+
+def delete_contract(
+    db: Session,
+    contract: Contract,
+    *,
+    deleted_by_user_id: str | None = None,
+    delete_reason: str | None = None,
+) -> Contract:
+    if contract_has_additional_agreements(db, contract.id):
+        raise ValueError("Delete attached additional agreements before deleting this contract.")
+    contract.is_deleted = True
+    contract.is_active = False
+    contract.deleted_at = utcnow()
+    contract.deleted_by = deleted_by_user_id
+    contract.delete_reason = delete_reason
+    contract.version += 1
+    log_delete_event(
+        db,
+        entity_type="Contract",
+        entity_id=contract.id,
+        user_id=deleted_by_user_id,
+        delete_reason=delete_reason,
     )
     db.commit()
     db.refresh(contract)
@@ -2583,6 +2828,7 @@ def list_incoming_requests(db: Session) -> list[IncomingRequest]:
         .options(
             joinedload(IncomingRequest.partner),
             joinedload(IncomingRequest.product),
+            joinedload(IncomingRequest.case),
             joinedload(IncomingRequest.creator),
             joinedload(IncomingRequest.updater),
         )
@@ -2598,6 +2844,7 @@ def get_incoming_request(db: Session, request_id: str) -> IncomingRequest | None
         .options(
             joinedload(IncomingRequest.partner),
             joinedload(IncomingRequest.product),
+            joinedload(IncomingRequest.case),
             joinedload(IncomingRequest.creator),
             joinedload(IncomingRequest.updater),
         )
@@ -2666,6 +2913,160 @@ def update_incoming_request_status(
     db.commit()
     db.refresh(row)
     return row
+
+
+def incoming_request_case_narrative(row: IncomingRequest) -> str:
+    parts = [
+        "Created from safety message.",
+        "",
+        "Source text:",
+        row.source_text or "",
+    ]
+    assessment = []
+    if row.patient_information:
+        assessment.append(f"Patient: {row.patient_information}")
+    if row.adverse_event:
+        assessment.append(f"Adverse event: {row.adverse_event}")
+    if row.missing_information:
+        assessment.append(f"Missing information: {row.missing_information}")
+    if row.validity_assessment:
+        assessment.append(f"Validity assessment: {row.validity_assessment}")
+    if assessment:
+        parts.extend(["", "Triage assessment:", *assessment])
+    return "\n".join(parts)
+
+
+def create_case_from_incoming_request(db: Session, row: IncomingRequest) -> Case:
+    if row.case_id:
+        linked_case = get_case(db, row.case_id)
+        if linked_case:
+            return linked_case
+
+    actor_id = audit_user_id(db)
+    received_date = row.created_at.date() if row.created_at else date.today()
+    seriousness = "serious" if normalized_status(row.seriousness) == "serious" else "non-serious"
+    case = Case(
+        case_number=generate_number(db, Case, "case_number", "CASE"),
+        partner_id=row.partner_id,
+        case_type="spontaneous",
+        report_type=row.request_type or "safety_message",
+        initial_received_date=received_date,
+        latest_received_date=received_date,
+        seriousness=seriousness,
+        narrative=incoming_request_case_narrative(row),
+        workflow_status="data_entry",
+        created_by=actor_id,
+        updated_by=actor_id,
+    )
+    db.add(case)
+    db.flush()
+
+    if row.product_id or row.active_substance:
+        db.add(
+            CaseProduct(
+                case_id=case.id,
+                product_id=row.product_id,
+                reported_product_name=row.product.product_name if row.product else None,
+                active_substance_text=row.active_substance,
+                drug_role="suspect",
+            )
+        )
+
+    if row.adverse_event:
+        db.add(
+            Reaction(
+                case_id=case.id,
+                reported_term=row.adverse_event[:255],
+                verbatim_term=row.adverse_event[:255],
+                is_serious=seriousness == "serious",
+            )
+        )
+
+    if row.patient_information:
+        db.add(
+            Patient(
+                case_id=case.id,
+                patient_identifier=row.patient_information[:100],
+                medical_history_text=row.patient_information,
+            )
+        )
+
+    old_status = row.status
+    row.case_id = case.id
+    row.status = "converted_to_case"
+    row.possible_icsr = "yes"
+    row.updated_by = actor_id
+    row.version += 1
+
+    log_create_event(
+        db,
+        entity_type="Case",
+        entity_id=case.id,
+        case_id=case.id,
+        data={
+            "case_number": case.case_number,
+            "incoming_request_id": row.id,
+            "workflow_status": case.workflow_status,
+        },
+        user_id=actor_id,
+        comment="Created from safety message",
+    )
+    log_audit(
+        db,
+        entity_type="IncomingRequest",
+        entity_id=row.id,
+        action="status_change",
+        field_name="status",
+        old_value=old_status,
+        new_value=row.status,
+        case_id=case.id,
+        user_id=actor_id,
+        comment="Converted to case",
+    )
+    db.commit()
+    db.refresh(case)
+    return case
+
+
+def export_incoming_requests_csv(db: Session) -> str:
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "created at",
+            "status",
+            "request type",
+            "partner",
+            "product",
+            "possible ICSR",
+            "patient information",
+            "adverse event",
+            "seriousness",
+            "missing information",
+            "recommended next action",
+            "case number",
+            "source text",
+        ]
+    )
+    for row in list_incoming_requests(db):
+        writer.writerow(
+            [
+                row.created_at,
+                row.status,
+                row.request_type or "",
+                row.partner.partner_name if row.partner else "",
+                row.product.product_name if row.product else "",
+                row.possible_icsr,
+                row.patient_information or "",
+                row.adverse_event or "",
+                row.seriousness or "",
+                row.missing_information or "",
+                row.recommended_next_action or "",
+                row.case.case_number if row.case else "",
+                row.source_text,
+            ]
+        )
+    return output.getvalue()
 
 
 def list_sops(db: Session) -> list[SOP]:
@@ -3423,6 +3824,778 @@ def export_psur_summary_rtf(plan: PSURPlan) -> str:
         )
     lines.append("}")
     return "\n".join(lines)
+
+
+LITERATURE_SOURCE_MODULE = "Literature Monitoring"
+LITERATURE_ACTION_DECISIONS = {
+    "create_icsr",
+    "add_to_rmp",
+    "add_to_psur",
+    "add_to_psmf",
+    "discuss_required",
+}
+
+
+def normalize_id_list(values: list[str] | None) -> list[str]:
+    normalized: list[str] = []
+    for value in values or []:
+        value = (value or "").strip()
+        if value and value not in normalized:
+            normalized.append(value)
+    return normalized
+
+
+def literature_product_ids(parent) -> list[str]:
+    return [
+        link.product_id
+        for link in getattr(parent, "products", [])
+        if link.product_id and not link.is_deleted
+    ]
+
+
+def validate_product_ids(db: Session, product_ids: list[str]) -> list[str]:
+    normalized = normalize_id_list(product_ids)
+    for product_id in normalized:
+        if not get_product(db, product_id):
+            raise ValueError("Selected product was not found.")
+    return normalized
+
+
+def sync_literature_products(
+    db: Session,
+    parent,
+    link_model: type,
+    parent_field: str,
+    product_ids: list[str],
+) -> tuple[list[str], list[str]]:
+    old_product_ids = sorted(literature_product_ids(parent))
+    product_ids = validate_product_ids(db, product_ids)
+    getattr(parent, "products").clear()
+    db.flush()
+    for product_id in product_ids:
+        getattr(parent, "products").append(
+            link_model(**{parent_field: parent.id, "product_id": product_id})
+        )
+    db.flush()
+    return old_product_ids, sorted(product_ids)
+
+
+def literature_plan_options(query):
+    return query.options(
+        joinedload(LiteratureMonitoringPlan.partner),
+        joinedload(LiteratureMonitoringPlan.active_substance),
+        joinedload(LiteratureMonitoringPlan.responsible_user),
+        joinedload(LiteratureMonitoringPlan.products).joinedload(
+            LiteratureMonitoringPlanProduct.product
+        ),
+        joinedload(LiteratureMonitoringPlan.search_logs),
+        joinedload(LiteratureMonitoringPlan.results),
+    )
+
+
+def literature_log_options(query):
+    return query.options(
+        joinedload(LiteratureSearchLog.plan).joinedload(LiteratureMonitoringPlan.partner),
+        joinedload(LiteratureSearchLog.plan)
+        .joinedload(LiteratureMonitoringPlan.products)
+        .joinedload(LiteratureMonitoringPlanProduct.product),
+        joinedload(LiteratureSearchLog.partner),
+        joinedload(LiteratureSearchLog.active_substance),
+        joinedload(LiteratureSearchLog.searched_by),
+        joinedload(LiteratureSearchLog.products).joinedload(LiteratureSearchLogProduct.product),
+        joinedload(LiteratureSearchLog.results),
+    )
+
+
+def literature_result_options(query):
+    return query.options(
+        joinedload(LiteratureResult.plan).joinedload(LiteratureMonitoringPlan.partner),
+        joinedload(LiteratureResult.search_log),
+        joinedload(LiteratureResult.partner),
+        joinedload(LiteratureResult.active_substance),
+        joinedload(LiteratureResult.products).joinedload(LiteratureResultProduct.product),
+        joinedload(LiteratureResult.article_pdf_document),
+        joinedload(LiteratureResult.screenshot_document),
+        joinedload(LiteratureResult.linked_case),
+        joinedload(LiteratureResult.linked_psur_plan),
+        joinedload(LiteratureResult.linked_psmf_component),
+        joinedload(LiteratureResult.creator),
+        joinedload(LiteratureResult.updater),
+    )
+
+
+def list_literature_plans(db: Session) -> list[LiteratureMonitoringPlan]:
+    return (
+        literature_plan_options(db.query(LiteratureMonitoringPlan))
+        .filter(LiteratureMonitoringPlan.is_deleted.is_(False))
+        .order_by(
+            LiteratureMonitoringPlan.status.asc(),
+            LiteratureMonitoringPlan.start_date.desc(),
+            LiteratureMonitoringPlan.created_at.desc(),
+        )
+        .all()
+    )
+
+
+def get_literature_plan(db: Session, plan_id: str) -> LiteratureMonitoringPlan | None:
+    return (
+        literature_plan_options(db.query(LiteratureMonitoringPlan))
+        .filter(
+            LiteratureMonitoringPlan.id == plan_id,
+            LiteratureMonitoringPlan.is_deleted.is_(False),
+        )
+        .first()
+    )
+
+
+def create_literature_plan(
+    db: Session,
+    payload: schemas.LiteratureMonitoringPlanCreate,
+    *,
+    created_by_user_id: str | None = None,
+) -> LiteratureMonitoringPlan:
+    data = clean_form_data(model_data(payload))
+    product_ids = data.pop("product_ids", [])
+    if not get_partner(db, data["partner_id"]):
+        raise ValueError("Partner is required.")
+    if data.get("active_substance_id") and not get_substance(db, data["active_substance_id"]):
+        raise ValueError("Selected active substance was not found.")
+    if data.get("responsible_user_id") and not get_user(db, data["responsible_user_id"]):
+        raise ValueError("Selected responsible user was not found.")
+    actor_id = created_by_user_id or audit_user_id(db)
+    plan = LiteratureMonitoringPlan(**data, created_by=actor_id, updated_by=actor_id)
+    db.add(plan)
+    db.flush()
+    _, synced_product_ids = sync_literature_products(
+        db,
+        plan,
+        LiteratureMonitoringPlanProduct,
+        "plan_id",
+        product_ids,
+    )
+    log_create_event(
+        db,
+        entity_type="LiteratureMonitoringPlan",
+        entity_id=plan.id,
+        data={**data, "product_ids": ", ".join(synced_product_ids)},
+        user_id=actor_id,
+    )
+    db.commit()
+    db.refresh(plan)
+    return plan
+
+
+def update_literature_plan(
+    db: Session,
+    plan: LiteratureMonitoringPlan,
+    payload: schemas.LiteratureMonitoringPlanCreate,
+    *,
+    changed_by_user_id: str | None = None,
+) -> LiteratureMonitoringPlan:
+    data = clean_form_data(model_data(payload))
+    product_ids = data.pop("product_ids", [])
+    if not get_partner(db, data["partner_id"]):
+        raise ValueError("Partner is required.")
+    if data.get("active_substance_id") and not get_substance(db, data["active_substance_id"]):
+        raise ValueError("Selected active substance was not found.")
+    if data.get("responsible_user_id") and not get_user(db, data["responsible_user_id"]):
+        raise ValueError("Selected responsible user was not found.")
+    old_values = {field: getattr(plan, field, None) for field in data}
+    for field, value in data.items():
+        setattr(plan, field, value)
+    actor_id = changed_by_user_id or audit_user_id(db)
+    plan.updated_by = actor_id
+    plan.version += 1
+    old_product_ids, new_product_ids = sync_literature_products(
+        db,
+        plan,
+        LiteratureMonitoringPlanProduct,
+        "plan_id",
+        product_ids,
+    )
+    log_field_changes(
+        db,
+        entity_type="LiteratureMonitoringPlan",
+        entity_id=plan.id,
+        old_values=old_values,
+        new_values=data,
+        user_id=actor_id,
+    )
+    if old_product_ids != new_product_ids:
+        log_audit(
+            db,
+            entity_type="LiteratureMonitoringPlan",
+            entity_id=plan.id,
+            action="edit",
+            field_name="product_ids",
+            old_value=", ".join(old_product_ids),
+            new_value=", ".join(new_product_ids),
+            user_id=actor_id,
+            source_module=LITERATURE_SOURCE_MODULE,
+        )
+    db.commit()
+    db.refresh(plan)
+    return plan
+
+
+def archive_literature_plan(
+    db: Session,
+    plan: LiteratureMonitoringPlan,
+    *,
+    changed_by_user_id: str | None = None,
+    comment: str | None = None,
+) -> LiteratureMonitoringPlan:
+    old_status = plan.status
+    plan.status = "archived"
+    plan.is_active = False
+    plan.updated_by = changed_by_user_id or audit_user_id(db)
+    plan.version += 1
+    log_audit(
+        db,
+        entity_type="LiteratureMonitoringPlan",
+        entity_id=plan.id,
+        action="archive",
+        field_name="status",
+        old_value=old_status,
+        new_value=plan.status,
+        comment=comment,
+        user_id=plan.updated_by,
+        source_module=LITERATURE_SOURCE_MODULE,
+    )
+    db.commit()
+    db.refresh(plan)
+    return plan
+
+
+def list_literature_search_logs(db: Session) -> list[LiteratureSearchLog]:
+    return (
+        literature_log_options(db.query(LiteratureSearchLog))
+        .filter(LiteratureSearchLog.is_deleted.is_(False))
+        .order_by(LiteratureSearchLog.search_date.desc(), LiteratureSearchLog.created_at.desc())
+        .all()
+    )
+
+
+def get_literature_search_log(db: Session, log_id: str) -> LiteratureSearchLog | None:
+    return (
+        literature_log_options(db.query(LiteratureSearchLog))
+        .filter(
+            LiteratureSearchLog.id == log_id,
+            LiteratureSearchLog.is_deleted.is_(False),
+        )
+        .first()
+    )
+
+
+def create_literature_search_log(
+    db: Session,
+    payload: schemas.LiteratureSearchLogCreate,
+    *,
+    created_by_user_id: str | None = None,
+) -> LiteratureSearchLog:
+    data = clean_form_data(model_data(payload))
+    product_ids = data.pop("product_ids", [])
+    plan = get_literature_plan(db, data["plan_id"])
+    if not plan:
+        raise ValueError("Monitoring plan was not found.")
+    data["partner_id"] = data.get("partner_id") or plan.partner_id
+    data["active_substance_id"] = data.get("active_substance_id") or plan.active_substance_id
+    if not product_ids:
+        product_ids = literature_product_ids(plan)
+    actor_id = created_by_user_id or audit_user_id(db)
+    search_log = LiteratureSearchLog(**data, created_by=actor_id, updated_by=actor_id)
+    db.add(search_log)
+    db.flush()
+    _, synced_product_ids = sync_literature_products(
+        db,
+        search_log,
+        LiteratureSearchLogProduct,
+        "search_log_id",
+        product_ids,
+    )
+    log_create_event(
+        db,
+        entity_type="LiteratureSearchLog",
+        entity_id=search_log.id,
+        data={**data, "product_ids": ", ".join(synced_product_ids)},
+        user_id=actor_id,
+    )
+    db.commit()
+    db.refresh(search_log)
+    return search_log
+
+
+def update_literature_search_log(
+    db: Session,
+    search_log: LiteratureSearchLog,
+    payload: schemas.LiteratureSearchLogCreate,
+    *,
+    changed_by_user_id: str | None = None,
+) -> LiteratureSearchLog:
+    data = clean_form_data(model_data(payload))
+    product_ids = data.pop("product_ids", [])
+    plan = get_literature_plan(db, data["plan_id"])
+    if not plan:
+        raise ValueError("Monitoring plan was not found.")
+    data["partner_id"] = data.get("partner_id") or plan.partner_id
+    data["active_substance_id"] = data.get("active_substance_id") or plan.active_substance_id
+    if not product_ids:
+        product_ids = literature_product_ids(plan)
+    old_values = {field: getattr(search_log, field, None) for field in data}
+    for field, value in data.items():
+        setattr(search_log, field, value)
+    actor_id = changed_by_user_id or audit_user_id(db)
+    search_log.updated_by = actor_id
+    search_log.version += 1
+    old_product_ids, new_product_ids = sync_literature_products(
+        db,
+        search_log,
+        LiteratureSearchLogProduct,
+        "search_log_id",
+        product_ids,
+    )
+    log_field_changes(
+        db,
+        entity_type="LiteratureSearchLog",
+        entity_id=search_log.id,
+        old_values=old_values,
+        new_values=data,
+        user_id=actor_id,
+    )
+    if old_product_ids != new_product_ids:
+        log_audit(
+            db,
+            entity_type="LiteratureSearchLog",
+            entity_id=search_log.id,
+            action="edit",
+            field_name="product_ids",
+            old_value=", ".join(old_product_ids),
+            new_value=", ".join(new_product_ids),
+            user_id=actor_id,
+            source_module=LITERATURE_SOURCE_MODULE,
+        )
+    db.commit()
+    db.refresh(search_log)
+    return search_log
+
+
+def list_literature_results(db: Session) -> list[LiteratureResult]:
+    return (
+        literature_result_options(db.query(LiteratureResult))
+        .filter(LiteratureResult.is_deleted.is_(False))
+        .order_by(LiteratureResult.created_at.desc())
+        .all()
+    )
+
+
+def get_literature_result(db: Session, result_id: str) -> LiteratureResult | None:
+    return (
+        literature_result_options(db.query(LiteratureResult))
+        .filter(LiteratureResult.id == result_id, LiteratureResult.is_deleted.is_(False))
+        .first()
+    )
+
+
+def create_literature_result(
+    db: Session,
+    payload: schemas.LiteratureResultCreate,
+    *,
+    created_by_user_id: str | None = None,
+) -> LiteratureResult:
+    data = clean_form_data(model_data(payload))
+    product_ids = data.pop("product_ids", [])
+    search_log = None
+    if data.get("search_log_id"):
+        search_log = get_literature_search_log(db, data["search_log_id"])
+        if not search_log:
+            raise ValueError("Search log record was not found.")
+        data["plan_id"] = search_log.plan_id
+    plan = get_literature_plan(db, data["plan_id"])
+    if not plan:
+        raise ValueError("Monitoring plan was not found.")
+    data["partner_id"] = data.get("partner_id") or (
+        search_log.partner_id if search_log else None
+    ) or plan.partner_id
+    data["active_substance_id"] = data.get("active_substance_id") or (
+        search_log.active_substance_id if search_log else None
+    ) or plan.active_substance_id
+    if not product_ids:
+        product_ids = literature_product_ids(search_log) if search_log else literature_product_ids(plan)
+    actor_id = created_by_user_id or audit_user_id(db)
+    result = LiteratureResult(**data, created_by=actor_id, updated_by=actor_id)
+    db.add(result)
+    db.flush()
+    _, synced_product_ids = sync_literature_products(
+        db,
+        result,
+        LiteratureResultProduct,
+        "result_id",
+        product_ids,
+    )
+    log_create_event(
+        db,
+        entity_type="LiteratureResult",
+        entity_id=result.id,
+        data={**data, "product_ids": ", ".join(synced_product_ids)},
+        user_id=actor_id,
+    )
+    db.commit()
+    db.refresh(result)
+    return result
+
+
+def update_literature_result(
+    db: Session,
+    result: LiteratureResult,
+    payload: schemas.LiteratureResultCreate,
+    *,
+    changed_by_user_id: str | None = None,
+) -> LiteratureResult:
+    data = clean_form_data(model_data(payload))
+    product_ids = data.pop("product_ids", [])
+    search_log = None
+    if data.get("search_log_id"):
+        search_log = get_literature_search_log(db, data["search_log_id"])
+        if not search_log:
+            raise ValueError("Search log record was not found.")
+        data["plan_id"] = search_log.plan_id
+    plan = get_literature_plan(db, data["plan_id"])
+    if not plan:
+        raise ValueError("Monitoring plan was not found.")
+    data["partner_id"] = data.get("partner_id") or (
+        search_log.partner_id if search_log else None
+    ) or plan.partner_id
+    data["active_substance_id"] = data.get("active_substance_id") or (
+        search_log.active_substance_id if search_log else None
+    ) or plan.active_substance_id
+    if not product_ids:
+        product_ids = literature_product_ids(search_log) if search_log else literature_product_ids(plan)
+    old_values = {field: getattr(result, field, None) for field in data}
+    for field, value in data.items():
+        setattr(result, field, value)
+    actor_id = changed_by_user_id or audit_user_id(db)
+    result.updated_by = actor_id
+    result.version += 1
+    old_product_ids, new_product_ids = sync_literature_products(
+        db,
+        result,
+        LiteratureResultProduct,
+        "result_id",
+        product_ids,
+    )
+    log_field_changes(
+        db,
+        entity_type="LiteratureResult",
+        entity_id=result.id,
+        old_values=old_values,
+        new_values=data,
+        action="decision_update" if old_values.get("pv_decision") != data.get("pv_decision") else "edit",
+        user_id=actor_id,
+    )
+    if old_product_ids != new_product_ids:
+        log_audit(
+            db,
+            entity_type="LiteratureResult",
+            entity_id=result.id,
+            action="edit",
+            field_name="product_ids",
+            old_value=", ".join(old_product_ids),
+            new_value=", ".join(new_product_ids),
+            user_id=actor_id,
+            source_module=LITERATURE_SOURCE_MODULE,
+        )
+    db.commit()
+    db.refresh(result)
+    return result
+
+
+def set_literature_result_documents(
+    db: Session,
+    result: LiteratureResult,
+    *,
+    article_pdf_document_id: str | None = None,
+    screenshot_document_id: str | None = None,
+    changed_by_user_id: str | None = None,
+) -> LiteratureResult:
+    changes = {}
+    if article_pdf_document_id and result.article_pdf_document_id != article_pdf_document_id:
+        changes["article_pdf_document_id"] = article_pdf_document_id
+    if screenshot_document_id and result.screenshot_document_id != screenshot_document_id:
+        changes["screenshot_document_id"] = screenshot_document_id
+    if not changes:
+        return result
+    old_values = {field: getattr(result, field, None) for field in changes}
+    for field, value in changes.items():
+        setattr(result, field, value)
+    result.updated_by = changed_by_user_id or audit_user_id(db)
+    result.version += 1
+    log_field_changes(
+        db,
+        entity_type="LiteratureResult",
+        entity_id=result.id,
+        old_values=old_values,
+        new_values=changes,
+        action="file_upload",
+        user_id=result.updated_by,
+    )
+    db.commit()
+    db.refresh(result)
+    return result
+
+
+def create_case_from_literature_result(
+    db: Session,
+    result: LiteratureResult,
+    *,
+    created_by_user_id: str | None = None,
+) -> Case:
+    if result.linked_case_id:
+        linked_case = get_case(db, result.linked_case_id)
+        if linked_case:
+            return linked_case
+    actor_id = created_by_user_id or audit_user_id(db)
+    reference = result.doi or result.url or ""
+    narrative_parts = [
+        f"Literature monitoring publication: {result.publication_title}",
+        f"Authors: {result.authors or ''}",
+        f"Source: {result.journal_source or ''}",
+        f"Reference: {reference}",
+        "",
+        result.abstract or result.specialist_comment or "",
+    ]
+    case = Case(
+        case_number=generate_number(db, Case, "case_number", "CASE"),
+        partner_id=result.partner_id,
+        case_type="literature",
+        report_type="literature",
+        initial_received_date=result.publication_date or date.today(),
+        latest_received_date=result.publication_date or date.today(),
+        seriousness="non-serious",
+        narrative="\n".join(part for part in narrative_parts if part is not None),
+        company_comment=(
+            "Created from literature monitoring result. Missing information "
+            "requires PV review before workflow progression."
+        ),
+        workflow_status="new",
+        created_by=actor_id,
+        updated_by=actor_id,
+    )
+    db.add(case)
+    db.flush()
+    for product_link in result.products:
+        product = product_link.product or get_product(db, product_link.product_id)
+        db.add(
+            CaseProduct(
+                case_id=case.id,
+                product_id=product_link.product_id,
+                reported_product_name=product.product_name if product else None,
+                active_substance_text=(
+                    result.active_substance.substance_name
+                    if result.active_substance
+                    else None
+                ),
+                drug_role="suspect",
+            )
+        )
+    result.linked_case_id = case.id
+    result.pv_decision = "create_icsr"
+    result.processing_status = "under_review"
+    result.updated_by = actor_id
+    result.version += 1
+    log_create_event(
+        db,
+        entity_type="Case",
+        entity_id=case.id,
+        case_id=case.id,
+        data={
+            "case_number": case.case_number,
+            "report_type": "literature",
+            "literature_result_id": result.id,
+        },
+        user_id=actor_id,
+        comment="Created from literature monitoring publication.",
+    )
+    log_audit(
+        db,
+        entity_type="LiteratureResult",
+        entity_id=result.id,
+        action="create_icsr",
+        field_name="linked_case_id",
+        old_value=None,
+        new_value=case.id,
+        user_id=actor_id,
+        source_module=LITERATURE_SOURCE_MODULE,
+        comment=f"Created ICSR draft {case.case_number}.",
+    )
+    db.commit()
+    db.refresh(case)
+    return case
+
+
+def link_literature_result_to_module(
+    db: Session,
+    result: LiteratureResult,
+    *,
+    target: str,
+    target_id: str | None = None,
+    changed_by_user_id: str | None = None,
+) -> LiteratureResult:
+    actor_id = changed_by_user_id or audit_user_id(db)
+    field_name = ""
+    new_value = target_id
+    action = f"link_{target}"
+    if target == "psur":
+        if not target_id or not get_psur_plan(db, target_id):
+            raise ValueError("Select a PSUR/PBRER plan.")
+        field_name = "linked_psur_plan_id"
+        old_value = result.linked_psur_plan_id
+        result.linked_psur_plan_id = target_id
+        result.pv_decision = "add_to_psur"
+    elif target == "psmf":
+        component = (
+            db.query(PSMFComponent)
+            .filter(PSMFComponent.id == target_id, PSMFComponent.is_deleted.is_(False))
+            .first()
+        )
+        if not component:
+            raise ValueError("Select a PSMF component.")
+        field_name = "linked_psmf_component_id"
+        old_value = result.linked_psmf_component_id
+        result.linked_psmf_component_id = target_id
+        result.pv_decision = "add_to_psmf"
+    elif target == "rmp":
+        field_name = "rmp_reference"
+        old_value = result.rmp_reference
+        result.rmp_reference = (target_id or "RMP source").strip() or "RMP source"
+        new_value = result.rmp_reference
+        result.pv_decision = "add_to_rmp"
+    else:
+        raise ValueError("Unsupported literature link target.")
+    result.processing_status = "processed"
+    result.updated_by = actor_id
+    result.version += 1
+    log_audit(
+        db,
+        entity_type="LiteratureResult",
+        entity_id=result.id,
+        action=action,
+        field_name=field_name,
+        old_value=old_value,
+        new_value=new_value,
+        user_id=actor_id,
+        source_module=LITERATURE_SOURCE_MODULE,
+    )
+    db.commit()
+    db.refresh(result)
+    return result
+
+
+def close_literature_result(
+    db: Session,
+    result: LiteratureResult,
+    *,
+    changed_by_user_id: str | None = None,
+    comment: str | None = None,
+) -> LiteratureResult:
+    old_status = result.processing_status
+    result.processing_status = "closed"
+    if comment:
+        result.specialist_comment = (
+            f"{result.specialist_comment}\n{comment}"
+            if result.specialist_comment
+            else comment
+        )
+    result.updated_by = changed_by_user_id or audit_user_id(db)
+    result.version += 1
+    log_audit(
+        db,
+        entity_type="LiteratureResult",
+        entity_id=result.id,
+        action="close",
+        field_name="processing_status",
+        old_value=old_status,
+        new_value=result.processing_status,
+        comment=comment,
+        user_id=result.updated_by,
+        source_module=LITERATURE_SOURCE_MODULE,
+    )
+    db.commit()
+    db.refresh(result)
+    return result
+
+
+def literature_dashboard_stats(db: Session) -> dict[str, int]:
+    plans = list_literature_plans(db)
+    logs = list_literature_search_logs(db)
+    results = list_literature_results(db)
+    return {
+        "active_plans": sum(1 for plan in plans if plan.status == "active"),
+        "completed_searches": sum(1 for log in logs if log.status in {"completed", "reviewed", "closed"}),
+        "open_results": sum(1 for result in results if result.processing_status not in {"closed", "processed"}),
+        "action_required": sum(1 for result in results if result.pv_decision in LITERATURE_ACTION_DECISIONS),
+    }
+
+
+def export_literature_results_csv(results: list[LiteratureResult]) -> str:
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "period",
+            "partner",
+            "products",
+            "source",
+            "search_date",
+            "search_strategy",
+            "publications_found",
+            "relevant_publications",
+            "publication_title",
+            "doi",
+            "url",
+            "result_type",
+            "pv_decision",
+            "processing_status",
+            "comment",
+            "responsible",
+            "created_at",
+        ]
+    )
+    for result in results:
+        search_log = result.search_log
+        plan = result.plan
+        writer.writerow(
+            [
+                (
+                    f"{search_log.period_start} - {search_log.period_end}"
+                    if search_log
+                    else ""
+                ),
+                result.partner.partner_name if result.partner else "",
+                ", ".join(
+                    link.product.product_name if link.product else link.product_id
+                    for link in result.products
+                ),
+                search_log.search_source if search_log else result.journal_source or "",
+                search_log.search_date if search_log else "",
+                search_log.search_strategy if search_log else plan.search_strategy if plan else "",
+                search_log.publications_found if search_log else "",
+                search_log.relevant_publications if search_log else "",
+                result.publication_title,
+                result.doi or "",
+                result.url or "",
+                result.result_type,
+                result.pv_decision,
+                result.processing_status,
+                result.specialist_comment or "",
+                (
+                    plan.responsible_user.full_name
+                    if plan and plan.responsible_user
+                    else ""
+                ),
+                result.created_at,
+            ]
+        )
+    return output.getvalue()
 
 
 def dashboard_stats(db: Session) -> schemas.DashboardStats:

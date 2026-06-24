@@ -43,9 +43,20 @@
         </div>
         <div class="col-md-3">
             <label class="form-label">{{ _('Contract type') }}</label>
-            <select class="form-select" name="contract_type">
+            <select class="form-select" name="contract_type" data-contract-type>
                 <option value="pharmacovigilance_agreement" selected>{{ _('pharmacovigilance_agreement') }}</option>
                 <option value="additional_agreement">{{ _('additional_agreement') }}</option>
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Base contract') }}</label>
+            <select class="form-select" name="parent_contract_id" data-parent-contract>
+                <option value="">{{ _('Select base contract') }}</option>
+                {% for base_contract in base_contracts %}
+                <option value="{{ base_contract.id }}" data-partner-id="{{ base_contract.partner_id }}" data-product-id="{{ base_contract.product_id }}">
+                    {{ base_contract.contract_number }} - {{ base_contract.partner.partner_name if base_contract.partner else "" }} / {{ base_contract.product.product_name if base_contract.product else "" }}
+                </option>
+                {% endfor %}
             </select>
         </div>
         <div class="col-md-3">
@@ -75,10 +86,12 @@
                 <th>{{ _('Partner') }}</th>
                 <th>{{ _('Product') }}</th>
                 <th>{{ _('Contract type') }}</th>
+                <th>{{ _('Base contract') }}</th>
                 <th>{{ _('Contract number') }}</th>
                 <th>{{ _('Contract date') }}</th>
                 <th>{{ _('Valid until') }}</th>
                 <th>{{ _('Valid now?') }}</th>
+                <th>{{ _('Actions') }}</th>
             </tr>
             </thead>
             <tbody>
@@ -87,6 +100,15 @@
                 <td>{{ contract.partner.partner_name if contract.partner else "" }}</td>
                 <td>{{ contract.product.product_name if contract.product else "" }}</td>
                 <td>{{ _(contract.contract_type) }}</td>
+                <td>
+                    {% if contract.parent_contract %}
+                    <span class="fw-medium">{{ contract.parent_contract.contract_number }}</span>
+                    {% elif contract.contract_type == "additional_agreement" %}
+                    <span class="text-secondary">{{ _('Not attached') }}</span>
+                    {% else %}
+                    <span class="text-secondary">-</span>
+                    {% endif %}
+                </td>
                 <td class="fw-medium">{{ contract.contract_number }}</td>
                 <td>{{ contract.contract_date }}</td>
                 <td>{{ contract.valid_until }}</td>
@@ -97,12 +119,127 @@
                     <span class="badge text-bg-secondary">{{ _('No') }}</span>
                     {% endif %}
                 </td>
+                <td>
+                    <div class="d-flex flex-wrap gap-1">
+                        <button class="btn btn-outline-secondary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#contract-view-{{ contract.id }}" title="{{ _('View') }}"><i data-lucide="eye"></i></button>
+                        {% if has_permission('edit') or has_permission('manage_reference_data') %}
+                        <button class="btn btn-outline-primary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#contract-edit-{{ contract.id }}" title="{{ _('Edit') }}"><i data-lucide="pencil"></i></button>
+                        {% endif %}
+                        {% if has_permission('soft_delete') or has_permission('manage_reference_data') %}
+                        <form method="post" action="/contracts/{{ contract.id }}/delete">
+                            <button class="btn btn-outline-danger btn-sm icon-only" type="submit" title="{{ _('Delete') }}"><i data-lucide="trash-2"></i></button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </td>
             </tr>
+            <tr class="collapse" id="contract-view-{{ contract.id }}">
+                <td colspan="9">
+                    <div class="row g-2 small">
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Partner') }}</span><div>{{ contract.partner.partner_name if contract.partner else "" }}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Product') }}</span><div>{{ contract.product.product_name if contract.product else "" }}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Contract type') }}</span><div>{{ _(contract.contract_type) }}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Base contract') }}</span><div>{{ contract.parent_contract.contract_number if contract.parent_contract else "" }}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Contract number') }}</span><div>{{ contract.contract_number }}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Contract date') }}</span><div>{{ contract.contract_date }}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Valid until') }}</span><div>{{ contract.valid_until }}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Updated') }}</span><div>{{ contract.updated_at }}</div></div>
+                    </div>
+                </td>
+            </tr>
+            {% if has_permission('edit') or has_permission('manage_reference_data') %}
+            <tr class="collapse" id="contract-edit-{{ contract.id }}">
+                <td colspan="9">
+                    <form class="row g-2 align-items-end" method="post" action="/contracts/{{ contract.id }}/edit">
+                        <div class="col-md-3">
+                            <label class="form-label">{{ _('Partner') }}</label>
+                            <select class="form-select form-select-sm" name="partner_id" required>
+                                {% for partner in partners %}
+                                <option value="{{ partner.id }}" {% if contract.partner_id == partner.id %}selected{% endif %}>{{ partner.partner_name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">{{ _('Product') }}</label>
+                            <select class="form-select form-select-sm" name="product_id" required>
+                                {% for product in products %}
+                                <option value="{{ product.id }}" {% if contract.product_id == product.id %}selected{% endif %}>{{ product.product_name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">{{ _('Contract type') }}</label>
+                            <select class="form-select form-select-sm" name="contract_type" data-contract-type>
+                                <option value="pharmacovigilance_agreement" {% if contract.contract_type == "pharmacovigilance_agreement" %}selected{% endif %}>{{ _('pharmacovigilance_agreement') }}</option>
+                                <option value="additional_agreement" {% if contract.contract_type == "additional_agreement" %}selected{% endif %}>{{ _('additional_agreement') }}</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">{{ _('Base contract') }}</label>
+                            <select class="form-select form-select-sm" name="parent_contract_id" data-parent-contract>
+                                <option value="">{{ _('Select base contract') }}</option>
+                                {% for base_contract in base_contracts if base_contract.id != contract.id %}
+                                <option value="{{ base_contract.id }}" data-partner-id="{{ base_contract.partner_id }}" data-product-id="{{ base_contract.product_id }}" {% if contract.parent_contract_id == base_contract.id %}selected{% endif %}>
+                                    {{ base_contract.contract_number }} - {{ base_contract.partner.partner_name if base_contract.partner else "" }} / {{ base_contract.product.product_name if base_contract.product else "" }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">{{ _('Contract number') }}</label>
+                            <input class="form-control form-control-sm" name="contract_number" value="{{ contract.contract_number }}" required>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">{{ _('Contract date') }}</label>
+                            <input class="form-control form-control-sm" type="date" name="contract_date" value="{{ contract.contract_date }}" required>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">{{ _('Valid until') }}</label>
+                            <input class="form-control form-control-sm" type="date" name="valid_until" value="{{ contract.valid_until }}" required>
+                        </div>
+                        <div class="col-md-3 d-flex gap-2">
+                            <button class="btn btn-primary btn-sm icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Save') }}</span></button>
+                            <button class="btn btn-outline-secondary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#contract-edit-{{ contract.id }}" title="{{ _('Cancel') }}"><i data-lucide="x"></i></button>
+                        </div>
+                    </form>
+                </td>
+            </tr>
+            {% endif %}
             {% else %}
-            <tr><td colspan="7" class="text-secondary">{{ _('No contracts yet.') }}</td></tr>
+            <tr><td colspan="9" class="text-secondary">{{ _('No contracts yet.') }}</td></tr>
             {% endfor %}
             </tbody>
         </table>
     </div>
 </section>
+<script>
+    document.querySelectorAll("form").forEach((form) => {
+        const typeSelect = form.querySelector("[data-contract-type]");
+        const parentSelect = form.querySelector("[data-parent-contract]");
+        const partnerSelect = form.querySelector('[name="partner_id"]');
+        const productSelect = form.querySelector('[name="product_id"]');
+        if (!typeSelect || !parentSelect || !partnerSelect || !productSelect) {
+            return;
+        }
+
+        function syncParentContract() {
+            const isAdditional = typeSelect.value === "additional_agreement";
+            parentSelect.disabled = !isAdditional;
+            if (!isAdditional) {
+                parentSelect.value = "";
+                return;
+            }
+            const option = parentSelect.selectedOptions[0];
+            if (!option || !option.value) {
+                return;
+            }
+            partnerSelect.value = option.dataset.partnerId || partnerSelect.value;
+            productSelect.value = option.dataset.productId || productSelect.value;
+        }
+
+        typeSelect.addEventListener("change", syncParentContract);
+        parentSelect.addEventListener("change", syncParentContract);
+        syncParentContract();
+    });
+</script>
 {% endblock %}

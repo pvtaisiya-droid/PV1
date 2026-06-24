@@ -77,6 +77,10 @@ PLACEHOLDER_PAGES = {
         "title": "RMP",
         "description": "Risk management plan module.",
     },
+    "training": {
+        "title": "Training",
+        "description": "Training module.",
+    },
     "documents": {
         "title": "Documents",
         "description": "Document registry and controlled attachments module.",
@@ -109,6 +113,11 @@ def render_placeholder(request: Request, active_page: str) -> HTMLResponse:
 @router.get("/rmp", response_class=HTMLResponse)
 def rmp_page(request: Request):
     return render_placeholder(request, "rmp")
+
+
+@router.get("/training", response_class=HTMLResponse)
+def training_page(request: Request):
+    return render_placeholder(request, "training")
 
 
 @router.get("/documents", response_class=HTMLResponse)

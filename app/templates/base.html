@@ -9,149 +9,32 @@
 </head>
 <body>
 {% set nav_page = active_page|default('dashboard') %}
-{% set can_view = has_permission('view') %}
-{% set can_audit_view = has_permission('audit_view') %}
-{% set can_manage_users = has_permission('manage_users') %}
-{% set can_manage_reference = has_permission('manage_reference_data') %}
-{% set can_manage_settings = has_permission('manage_system_settings') %}
 {% set active_user = current_user() %}
 {% set active_roles = current_roles() %}
 {% set users_for_switch = available_users() %}
-{% if nav_page in ['partners', 'contract_contacts'] %}
-    {% set current_group = 'partners' %}
-{% elif nav_page in ['products', 'substances'] %}
-    {% set current_group = 'products' %}
-{% elif nav_page in ['contracts'] %}
-    {% set current_group = 'pv_agreements' %}
-{% elif nav_page in ['partner_reconciliation'] %}
-    {% set current_group = 'reconciliation' %}
-{% elif nav_page in ['incoming_requests', 'safety_reports'] %}
-    {% set current_group = 'incoming_requests' %}
-{% elif nav_page in ['cases'] %}
-    {% set current_group = 'icsr' %}
-{% elif nav_page in ['documents'] %}
-    {% set current_group = 'documents' %}
-{% elif nav_page in ['sops'] %}
-    {% set current_group = 'sops' %}
-{% elif nav_page in ['tasks'] %}
-    {% set current_group = 'tasks' %}
-{% elif nav_page in ['psur', 'submissions', 'rmp', 'psmf'] %}
-    {% set current_group = 'reports' %}
-{% elif nav_page in ['users_roles', 'settings', 'audit_log'] %}
-    {% set current_group = 'settings' %}
-{% else %}
-    {% set current_group = 'dashboard' %}
-{% endif %}
 
 {% macro sidebar_nav() -%}
-<nav class="sidebar-nav" aria-label="{{ _('Main navigation') }}" data-current-group="{{ current_group }}">
+{% set nav_state = sidebar_menu(nav_page) %}
+<nav class="sidebar-nav" aria-label="{{ _('Main navigation') }}" data-current-group="{{ nav_state.current_group }}">
     <div class="sidebar-primary" aria-label="{{ _('Main sections') }}">
-        {% if can_view %}
-        <button class="sidebar-main-button {% if current_group == 'dashboard' %}active{% endif %}" type="button" data-nav-group="dashboard" title="{{ _('Dashboard') }}"><i data-lucide="layout-dashboard"></i><span>{{ _('Dashboard') }}</span></button>
-        {% endif %}
-        {% if can_view or can_manage_reference %}
-        <button class="sidebar-main-button {% if current_group == 'partners' %}active{% endif %}" type="button" data-nav-group="partners" title="{{ _('Partners') }}"><i data-lucide="building-2"></i><span>{{ _('Partners') }}</span></button>
-        <button class="sidebar-main-button {% if current_group == 'products' %}active{% endif %}" type="button" data-nav-group="products" title="{{ _('Products') }}"><i data-lucide="package"></i><span>{{ _('Products') }}</span></button>
-        <button class="sidebar-main-button {% if current_group == 'pv_agreements' %}active{% endif %}" type="button" data-nav-group="pv_agreements" title="{{ _('PV Agreements') }}"><i data-lucide="file-signature"></i><span>{{ _('PV Agreements') }}</span></button>
-        {% endif %}
-        {% if can_view %}
-        <button class="sidebar-main-button {% if current_group == 'reconciliation' %}active{% endif %}" type="button" data-nav-group="reconciliation" title="{{ _('Reconciliation') }}"><i data-lucide="git-compare-arrows"></i><span>{{ _('Reconciliation') }}</span></button>
-        <button class="sidebar-main-button {% if current_group == 'incoming_requests' %}active{% endif %}" type="button" data-nav-group="incoming_requests" title="{{ _('Incoming Requests') }}"><i data-lucide="inbox"></i><span>{{ _('Incoming Requests') }}</span></button>
-        <button class="sidebar-main-button {% if current_group == 'icsr' %}active{% endif %}" type="button" data-nav-group="icsr" title="{{ _('ICSR') }}"><i data-lucide="folder-open"></i><span>{{ _('ICSR') }}</span></button>
-        <button class="sidebar-main-button {% if current_group == 'documents' %}active{% endif %}" type="button" data-nav-group="documents" title="{{ _('Documents') }}"><i data-lucide="files"></i><span>{{ _('Documents') }}</span></button>
-        <button class="sidebar-main-button {% if current_group == 'sops' %}active{% endif %}" type="button" data-nav-group="sops" title="{{ _('SOPs and Instructions') }}"><i data-lucide="scroll-text"></i><span>{{ _('SOPs and Instructions') }}</span></button>
-        <button class="sidebar-main-button {% if current_group == 'tasks' %}active{% endif %}" type="button" data-nav-group="tasks" title="{{ _('Tasks') }}"><i data-lucide="list-checks"></i><span>{{ _('Tasks') }}</span></button>
-        <button class="sidebar-main-button {% if current_group == 'reports' %}active{% endif %}" type="button" data-nav-group="reports" title="{{ _('Reports') }}"><i data-lucide="bar-chart-3"></i><span>{{ _('Reports') }}</span></button>
-        {% endif %}
-        {% if can_manage_users or can_manage_settings or can_audit_view %}
-        <button class="sidebar-main-button {% if current_group == 'settings' %}active{% endif %}" type="button" data-nav-group="settings" title="{{ _('Settings') }}"><i data-lucide="settings-2"></i><span>{{ _('Settings') }}</span></button>
-        {% endif %}
+        {% for group in nav_state.groups %}
+            {% if group.href %}
+            <a class="sidebar-main-button {% if group.active %}active{% endif %}" href="{{ group.href }}" data-nav-entry="{{ group.key }}" title="{{ _(group.label) }}"><i data-lucide="{{ group.icon }}"></i><span>{{ _(group.label) }}</span></a>
+            {% else %}
+            <button class="sidebar-main-button {% if group.active %}active{% endif %}" type="button" data-nav-entry="{{ group.key }}" data-nav-group="{{ group.key }}" title="{{ _(group.label) }}"><i data-lucide="{{ group.icon }}"></i><span>{{ _(group.label) }}</span></button>
+            {% endif %}
+        {% endfor %}
     </div>
 
     <div class="sidebar-secondary">
-        {% if can_view %}
-        <div class="sidebar-group-panel {% if current_group == 'dashboard' %}active{% endif %}" data-nav-panel="dashboard">
-            <div class="sidebar-section">{{ _('Dashboard') }}</div>
-            <a class="sidebar-sub-link {% if nav_page == 'dashboard' %}active{% endif %}" href="/" title="{{ _('Dashboard') }}"><i data-lucide="layout-dashboard"></i><span>{{ _('Dashboard') }}</span></a>
+        {% for group in nav_state.groups if group.children %}
+        <div class="sidebar-group-panel {% if group.active %}active{% endif %}" data-nav-panel="{{ group.key }}">
+            <div class="sidebar-section">{{ _(group.label) }}</div>
+            {% for child in group.children %}
+            <a class="sidebar-sub-link {% if child.active %}active{% endif %}" href="{{ child.href }}" title="{{ _(child.label) }}"><i data-lucide="{{ child.icon }}"></i><span>{{ _(child.label) }}</span></a>
+            {% endfor %}
         </div>
-        {% endif %}
-
-        {% if can_view or can_manage_reference %}
-        <div class="sidebar-group-panel {% if current_group == 'partners' %}active{% endif %}" data-nav-panel="partners">
-            <div class="sidebar-section">{{ _('Partners') }}</div>
-            <a class="sidebar-sub-link {% if nav_page == 'partners' %}active{% endif %}" href="/partners" title="{{ _('Partners') }}"><i data-lucide="building-2"></i><span>{{ _('Partner list') }}</span></a>
-            <a class="sidebar-sub-link {% if nav_page == 'contract_contacts' %}active{% endif %}" href="/contract-contacts" title="{{ _('Contacts') }}"><i data-lucide="contact"></i><span>{{ _('Contacts') }}</span></a>
-        </div>
-
-        <div class="sidebar-group-panel {% if current_group == 'products' %}active{% endif %}" data-nav-panel="products">
-            <div class="sidebar-section">{{ _('Products') }}</div>
-            <a class="sidebar-sub-link {% if nav_page == 'products' %}active{% endif %}" href="/products" title="{{ _('Products') }}"><i data-lucide="package"></i><span>{{ _('Product list') }}</span></a>
-            <a class="sidebar-sub-link {% if nav_page == 'substances' %}active{% endif %}" href="/substances" title="{{ _('Substances') }}"><i data-lucide="flask-conical"></i><span>{{ _('Substances') }}</span></a>
-        </div>
-
-        <div class="sidebar-group-panel {% if current_group == 'pv_agreements' %}active{% endif %}" data-nav-panel="pv_agreements">
-            <div class="sidebar-section">{{ _('PV Agreements') }}</div>
-            <a class="sidebar-sub-link {% if nav_page == 'contracts' %}active{% endif %}" href="/contracts" title="{{ _('PV Agreements') }}"><i data-lucide="file-signature"></i><span>{{ _('Agreements') }}</span></a>
-        </div>
-        {% endif %}
-
-        {% if can_view %}
-        <div class="sidebar-group-panel {% if current_group == 'reconciliation' %}active{% endif %}" data-nav-panel="reconciliation">
-            <div class="sidebar-section">{{ _('Reconciliation') }}</div>
-            <a class="sidebar-sub-link {% if nav_page == 'partner_reconciliation' %}active{% endif %}" href="/partner-reconciliation" title="{{ _('Reconciliation') }}"><i data-lucide="git-compare-arrows"></i><span>{{ _('Partner reconciliation') }}</span></a>
-        </div>
-
-        <div class="sidebar-group-panel {% if current_group == 'incoming_requests' %}active{% endif %}" data-nav-panel="incoming_requests">
-            <div class="sidebar-section">{{ _('Incoming Requests') }}</div>
-            <a class="sidebar-sub-link {% if nav_page == 'incoming_requests' %}active{% endif %}" href="/incoming-requests" title="{{ _('Incoming Requests') }}"><i data-lucide="sparkles"></i><span>{{ _('GPT analysis') }}</span></a>
-            <a class="sidebar-sub-link {% if nav_page == 'safety_reports' %}active{% endif %}" href="/safety-reports" title="{{ _('PV Intake') }}"><i data-lucide="inbox"></i><span>{{ _('PV Intake') }}</span></a>
-        </div>
-
-        <div class="sidebar-group-panel {% if current_group == 'icsr' %}active{% endif %}" data-nav-panel="icsr">
-            <div class="sidebar-section">{{ _('ICSR') }}</div>
-            <a class="sidebar-sub-link {% if nav_page == 'cases' %}active{% endif %}" href="/cases" title="{{ _('ICSRs') }}"><i data-lucide="folder-open"></i><span>{{ _('ICSR cases') }}</span></a>
-        </div>
-
-        <div class="sidebar-group-panel {% if current_group == 'documents' %}active{% endif %}" data-nav-panel="documents">
-            <div class="sidebar-section">{{ _('Documents') }}</div>
-            <a class="sidebar-sub-link {% if nav_page == 'documents' %}active{% endif %}" href="/documents" title="{{ _('Documents') }}"><i data-lucide="files"></i><span>{{ _('Document registry') }}</span></a>
-        </div>
-
-        <div class="sidebar-group-panel {% if current_group == 'sops' %}active{% endif %}" data-nav-panel="sops">
-            <div class="sidebar-section">{{ _('SOPs and Instructions') }}</div>
-            <a class="sidebar-sub-link {% if nav_page == 'sops' %}active{% endif %}" href="/sops" title="{{ _('SOPs and Instructions') }}"><i data-lucide="scroll-text"></i><span>{{ _('SOP register') }}</span></a>
-        </div>
-
-        <div class="sidebar-group-panel {% if current_group == 'tasks' %}active{% endif %}" data-nav-panel="tasks">
-            <div class="sidebar-section">{{ _('Tasks') }}</div>
-            <a class="sidebar-sub-link {% if nav_page == 'tasks' %}active{% endif %}" href="/tasks" title="{{ _('Tasks') }}"><i data-lucide="list-checks"></i><span>{{ _('Task list') }}</span></a>
-        </div>
-
-        <div class="sidebar-group-panel {% if current_group == 'reports' %}active{% endif %}" data-nav-panel="reports">
-            <div class="sidebar-section">{{ _('Reports') }}</div>
-            <a class="sidebar-sub-link {% if nav_page == 'psur' %}active{% endif %}" href="/psur" title="{{ _('PSUR / PBRER') }}"><i data-lucide="calendar-check"></i><span>{{ _('PSUR / PBRER') }}</span></a>
-            <a class="sidebar-sub-link {% if nav_page == 'submissions' %}active{% endif %}" href="/submissions" title="{{ _('Submissions') }}"><i data-lucide="send"></i><span>{{ _('Submissions') }}</span></a>
-            <a class="sidebar-sub-link {% if nav_page == 'psmf' %}active{% endif %}" href="/psmf" title="{{ _('PSMF') }}"><i data-lucide="library"></i><span>{{ _('PSMF') }}</span></a>
-            <a class="sidebar-sub-link {% if nav_page == 'rmp' %}active{% endif %}" href="/rmp" title="{{ _('RMP') }}"><i data-lucide="shield-check"></i><span>{{ _('RMP') }}</span></a>
-        </div>
-        {% endif %}
-
-        {% if can_manage_users or can_manage_settings or can_audit_view %}
-        <div class="sidebar-group-panel {% if current_group == 'settings' %}active{% endif %}" data-nav-panel="settings">
-            <div class="sidebar-section">{{ _('Settings') }}</div>
-            {% if can_manage_users %}
-            <a class="sidebar-sub-link {% if nav_page == 'users_roles' %}active{% endif %}" href="/users-roles#users" title="{{ _('Users') }}"><i data-lucide="user-round"></i><span>{{ _('Users') }}</span></a>
-            <a class="sidebar-sub-link" href="/users-roles#roles" title="{{ _('Roles') }}"><i data-lucide="shield-user"></i><span>{{ _('Roles') }}</span></a>
-            {% endif %}
-            {% if can_manage_settings %}
-            <a class="sidebar-sub-link {% if nav_page == 'settings' %}active{% endif %}" href="/settings" title="{{ _('Settings') }}"><i data-lucide="settings"></i><span>{{ _('Settings') }}</span></a>
-            <a class="sidebar-sub-link" href="/settings#dictionaries" title="{{ _('Dictionaries') }}"><i data-lucide="book-marked"></i><span>{{ _('Dictionaries') }}</span></a>
-            {% endif %}
-            {% if can_audit_view %}
-            <a class="sidebar-sub-link {% if nav_page == 'audit_log' %}active{% endif %}" href="/audit-log" title="{{ _('Audit Log') }}"><i data-lucide="history"></i><span>{{ _('Audit Log') }}</span></a>
-            {% endif %}
-        </div>
-        {% endif %}
+        {% endfor %}
     </div>
 
     <div class="sidebar-footer">
@@ -246,9 +129,12 @@
 
         function setGroup(group, persist) {
             navs.forEach((nav) => {
-                nav.querySelectorAll("[data-nav-group]").forEach((button) => {
-                    button.classList.toggle("active", button.dataset.navGroup === group);
-                    button.setAttribute("aria-pressed", button.dataset.navGroup === group ? "true" : "false");
+                nav.querySelectorAll("[data-nav-entry]").forEach((entry) => {
+                    const isActive = entry.dataset.navEntry === group;
+                    entry.classList.toggle("active", isActive);
+                    if (entry.dataset.navGroup) {
+                        entry.setAttribute("aria-pressed", isActive ? "true" : "false");
+                    }
                 });
                 nav.querySelectorAll("[data-nav-panel]").forEach((panel) => {
                     const isActive = panel.dataset.navPanel === group;

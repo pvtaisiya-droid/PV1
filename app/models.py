@@ -262,13 +262,14 @@ class Product(CommonMixin, Base):
 class Contract(CommonMixin, Base):
     __tablename__ = "tblContracts"
     __table_args__ = (
-        UniqueConstraint("partner_id", "product_id", name="uq_contract_partner_product"),
         Index("ix_contract_partner_product", "partner_id", "product_id"),
+        Index("ix_contract_parent_contract", "parent_contract_id"),
         Index("ix_contract_valid_until", "valid_until"),
     )
 
     partner_id = Column(String(36), ForeignKey("tblPartners.id"), nullable=False, index=True)
     product_id = Column(String(36), ForeignKey("tblProducts.id"), nullable=False, index=True)
+    parent_contract_id = Column(String(36), ForeignKey("tblContracts.id"), nullable=True)
     contract_type = Column(String(100), nullable=False, index=True)
     contract_number = Column(String(100), nullable=False, index=True)
     contract_date = Column(Date, nullable=False)
@@ -278,6 +279,17 @@ class Contract(CommonMixin, Base):
 
     partner = relationship("Partner", back_populates="contracts")
     product = relationship("Product", back_populates="contracts")
+    parent_contract = relationship(
+        "Contract",
+        remote_side="Contract.id",
+        back_populates="additional_agreements",
+        foreign_keys=[parent_contract_id],
+    )
+    additional_agreements = relationship(
+        "Contract",
+        back_populates="parent_contract",
+        foreign_keys="Contract.parent_contract_id",
+    )
     creator = relationship("User", foreign_keys=[created_by])
     updater = relationship("User", foreign_keys=[updated_by])
 
@@ -539,6 +551,7 @@ class Case(CommonMixin, Base):
     submissions = relationship("Submission", back_populates="case")
     audit_entries = relationship("AuditTrail", back_populates="case")
     psur_cases = relationship("PSURCase", back_populates="case")
+    incoming_requests = relationship("IncomingRequest", back_populates="case")
 
 
 class PSURPlan(CommonMixin, Base):
@@ -1090,11 +1103,13 @@ class IncomingRequest(CommonMixin, Base):
     gpt_json_output = Column(Text, nullable=True)
     human_confirmed = Column(Boolean, default=False, nullable=False)
     status = Column(String(50), default="new", nullable=False, index=True)
+    case_id = Column(String(36), ForeignKey("tblCases.id"), nullable=True, index=True)
     created_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
     updated_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
 
     partner = relationship("Partner", back_populates="incoming_requests")
     product = relationship("Product", back_populates="incoming_requests")
+    case = relationship("Case", back_populates="incoming_requests")
     creator = relationship("User", foreign_keys=[created_by])
     updater = relationship("User", foreign_keys=[updated_by])
 
@@ -1128,6 +1143,191 @@ class Submission(CommonMixin, Base):
     case = relationship("Case", back_populates="submissions")
     recipient_partner = relationship("Partner", back_populates="submissions")
     submitted_by = relationship("User")
+
+
+class LiteratureMonitoringPlan(CommonMixin, Base):
+    __tablename__ = "tblLiteratureMonitoringPlans"
+    __table_args__ = (
+        Index("ix_literature_plan_partner_status", "partner_id", "status"),
+        Index("ix_literature_plan_substance", "active_substance_id"),
+        Index("ix_literature_plan_responsible", "responsible_user_id"),
+        Index("ix_literature_plan_dates", "start_date", "end_date"),
+    )
+
+    partner_id = Column(String(36), ForeignKey("tblPartners.id"), nullable=False, index=True)
+    active_substance_id = Column(String(36), ForeignKey("tblSubstances.id"), nullable=True, index=True)
+    monitoring_sources = Column(Text, nullable=False)
+    frequency = Column(String(50), default="monthly", nullable=False, index=True)
+    search_strategy = Column(Text, nullable=True)
+    keywords = Column(Text, nullable=True)
+    territory = Column(String(255), nullable=True)
+    responsible_user_id = Column(String(36), ForeignKey("tblUsers.id"), nullable=True, index=True)
+    start_date = Column(Date, nullable=False, index=True)
+    end_date = Column(Date, nullable=True, index=True)
+    status = Column(String(50), default="active", nullable=False, index=True)
+    comment = Column(Text, nullable=True)
+    created_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+    updated_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+
+    partner = relationship("Partner")
+    active_substance = relationship("Substance")
+    responsible_user = relationship("User", foreign_keys=[responsible_user_id])
+    creator = relationship("User", foreign_keys=[created_by])
+    updater = relationship("User", foreign_keys=[updated_by])
+    products = relationship(
+        "LiteratureMonitoringPlanProduct",
+        back_populates="plan",
+        cascade="all, delete-orphan",
+    )
+    search_logs = relationship(
+        "LiteratureSearchLog",
+        back_populates="plan",
+        cascade="all, delete-orphan",
+    )
+    results = relationship("LiteratureResult", back_populates="plan")
+
+
+class LiteratureMonitoringPlanProduct(CommonMixin, Base):
+    __tablename__ = "tblLiteratureMonitoringPlanProducts"
+    __table_args__ = (
+        UniqueConstraint("plan_id", "product_id", name="uq_literature_plan_product"),
+        Index("ix_literature_plan_product_plan", "plan_id"),
+        Index("ix_literature_plan_product_product", "product_id"),
+    )
+
+    plan_id = Column(String(36), ForeignKey("tblLiteratureMonitoringPlans.id"), nullable=False)
+    product_id = Column(String(36), ForeignKey("tblProducts.id"), nullable=False)
+
+    plan = relationship("LiteratureMonitoringPlan", back_populates="products")
+    product = relationship("Product")
+
+
+class LiteratureSearchLog(CommonMixin, Base):
+    __tablename__ = "tblLiteratureSearchLogs"
+    __table_args__ = (
+        Index("ix_literature_log_plan", "plan_id"),
+        Index("ix_literature_log_partner_result", "partner_id", "result"),
+        Index("ix_literature_log_search_date", "search_date"),
+        Index("ix_literature_log_status", "status"),
+    )
+
+    plan_id = Column(String(36), ForeignKey("tblLiteratureMonitoringPlans.id"), nullable=False, index=True)
+    partner_id = Column(String(36), ForeignKey("tblPartners.id"), nullable=True, index=True)
+    active_substance_id = Column(String(36), ForeignKey("tblSubstances.id"), nullable=True, index=True)
+    search_date = Column(Date, nullable=False, index=True)
+    searched_by_user_id = Column(String(36), ForeignKey("tblUsers.id"), nullable=True, index=True)
+    period_start = Column(Date, nullable=False, index=True)
+    period_end = Column(Date, nullable=False, index=True)
+    search_source = Column(String(255), nullable=False, index=True)
+    search_strategy = Column(Text, nullable=True)
+    publications_found = Column(Integer, default=0, nullable=False)
+    relevant_publications = Column(Integer, default=0, nullable=False)
+    result = Column(String(50), default="nothing_found", nullable=False, index=True)
+    status = Column(String(50), default="completed", nullable=False, index=True)
+    summary = Column(Text, nullable=True)
+    comment = Column(Text, nullable=True)
+    created_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+    updated_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+
+    plan = relationship("LiteratureMonitoringPlan", back_populates="search_logs")
+    partner = relationship("Partner")
+    active_substance = relationship("Substance")
+    searched_by = relationship("User", foreign_keys=[searched_by_user_id])
+    creator = relationship("User", foreign_keys=[created_by])
+    updater = relationship("User", foreign_keys=[updated_by])
+    products = relationship(
+        "LiteratureSearchLogProduct",
+        back_populates="search_log",
+        cascade="all, delete-orphan",
+    )
+    results = relationship(
+        "LiteratureResult",
+        back_populates="search_log",
+        cascade="all, delete-orphan",
+    )
+
+
+class LiteratureSearchLogProduct(CommonMixin, Base):
+    __tablename__ = "tblLiteratureSearchLogProducts"
+    __table_args__ = (
+        UniqueConstraint("search_log_id", "product_id", name="uq_literature_log_product"),
+        Index("ix_literature_log_product_log", "search_log_id"),
+        Index("ix_literature_log_product_product", "product_id"),
+    )
+
+    search_log_id = Column(String(36), ForeignKey("tblLiteratureSearchLogs.id"), nullable=False)
+    product_id = Column(String(36), ForeignKey("tblProducts.id"), nullable=False)
+
+    search_log = relationship("LiteratureSearchLog", back_populates="products")
+    product = relationship("Product")
+
+
+class LiteratureResult(CommonMixin, Base):
+    __tablename__ = "tblLiteratureResults"
+    __table_args__ = (
+        Index("ix_literature_result_plan_status", "plan_id", "processing_status"),
+        Index("ix_literature_result_partner", "partner_id"),
+        Index("ix_literature_result_type_decision", "result_type", "pv_decision"),
+        Index("ix_literature_result_publication_date", "publication_date"),
+    )
+
+    search_log_id = Column(String(36), ForeignKey("tblLiteratureSearchLogs.id"), nullable=True, index=True)
+    plan_id = Column(String(36), ForeignKey("tblLiteratureMonitoringPlans.id"), nullable=False, index=True)
+    partner_id = Column(String(36), ForeignKey("tblPartners.id"), nullable=True, index=True)
+    active_substance_id = Column(String(36), ForeignKey("tblSubstances.id"), nullable=True, index=True)
+    publication_title = Column(String(500), nullable=False, index=True)
+    authors = Column(Text, nullable=True)
+    journal_source = Column(String(255), nullable=True, index=True)
+    publication_year = Column(Integer, nullable=True, index=True)
+    publication_date = Column(Date, nullable=True, index=True)
+    doi = Column(String(255), nullable=True, index=True)
+    url = Column(String(1000), nullable=True)
+    abstract = Column(Text, nullable=True)
+    relevance = Column(String(50), default="needs_assessment", nullable=False, index=True)
+    result_type = Column(String(50), default="other", nullable=False, index=True)
+    pv_decision = Column(String(50), default="no_action", nullable=False, index=True)
+    processing_status = Column(String(50), default="new", nullable=False, index=True)
+    specialist_comment = Column(Text, nullable=True)
+    article_pdf_document_id = Column(String(36), ForeignKey("tblAttachments.id"), nullable=True)
+    screenshot_document_id = Column(String(36), ForeignKey("tblAttachments.id"), nullable=True)
+    linked_case_id = Column(String(36), ForeignKey("tblCases.id"), nullable=True, index=True)
+    linked_psur_plan_id = Column(String(36), ForeignKey("tblPSURPlans.psur_plan_id"), nullable=True, index=True)
+    linked_psmf_component_id = Column(String(36), ForeignKey("psmf_components.id"), nullable=True, index=True)
+    rmp_reference = Column(String(255), nullable=True)
+    created_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+    updated_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+
+    search_log = relationship("LiteratureSearchLog", back_populates="results")
+    plan = relationship("LiteratureMonitoringPlan", back_populates="results")
+    partner = relationship("Partner")
+    active_substance = relationship("Substance")
+    article_pdf_document = relationship("Attachment", foreign_keys=[article_pdf_document_id])
+    screenshot_document = relationship("Attachment", foreign_keys=[screenshot_document_id])
+    linked_case = relationship("Case")
+    linked_psur_plan = relationship("PSURPlan")
+    linked_psmf_component = relationship("PSMFComponent")
+    creator = relationship("User", foreign_keys=[created_by])
+    updater = relationship("User", foreign_keys=[updated_by])
+    products = relationship(
+        "LiteratureResultProduct",
+        back_populates="result",
+        cascade="all, delete-orphan",
+    )
+
+
+class LiteratureResultProduct(CommonMixin, Base):
+    __tablename__ = "tblLiteratureResultProducts"
+    __table_args__ = (
+        UniqueConstraint("result_id", "product_id", name="uq_literature_result_product"),
+        Index("ix_literature_result_product_result", "result_id"),
+        Index("ix_literature_result_product_product", "product_id"),
+    )
+
+    result_id = Column(String(36), ForeignKey("tblLiteratureResults.id"), nullable=False)
+    product_id = Column(String(36), ForeignKey("tblProducts.id"), nullable=False)
+
+    result = relationship("LiteratureResult", back_populates="products")
+    product = relationship("Product")
 
 
 class PSMFComponent(CommonMixin, Base):

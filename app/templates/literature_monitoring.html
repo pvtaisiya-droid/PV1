@@ -1,0 +1,670 @@
+{% extends "base.html" %}
+{% block title %}{{ _('Literature Monitoring') }} - {{ _('PV MVP') }}{% endblock %}
+
+{% macro product_select(selected_ids) -%}
+<select class="form-select" name="product_ids" multiple size="4">
+    {% for product in products %}
+    <option value="{{ product.id }}" {% if product.id in selected_ids %}selected{% endif %}>{{ product.product_name }}</option>
+    {% endfor %}
+</select>
+{%- endmacro %}
+
+{% macro plan_form(action, plan=None) -%}
+{% set selected_product_ids = plan.products|map(attribute='product_id')|list if plan else [] %}
+<form class="row g-3" method="post" action="{{ action }}">
+    <div class="col-md-3">
+        <label class="form-label">{{ _('Partner') }}</label>
+        <select class="form-select" name="partner_id" required>
+            <option value="">{{ _('Select partner') }}</option>
+            {% for partner in partners %}
+            <option value="{{ partner.id }}" {% if plan and plan.partner_id == partner.id %}selected{% endif %}>{{ partner.partner_name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">{{ _('Products') }}</label>
+        {{ product_select(selected_product_ids) }}
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">{{ _('Active substance') }}</label>
+        <select class="form-select" name="active_substance_id">
+            <option value="">{{ _('None') }}</option>
+            {% for substance in substances %}
+            <option value="{{ substance.id }}" {% if plan and plan.active_substance_id == substance.id %}selected{% endif %}>{{ substance.substance_name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">{{ _('Frequency') }}</label>
+        <select class="form-select" name="frequency">
+            {% for option in plan_frequency_options %}
+            <option value="{{ option }}" {% if (plan and plan.frequency == option) or (not plan and option == 'monthly') %}selected{% endif %}>{{ _(option) }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">{{ _('Status') }}</label>
+        <select class="form-select" name="status_value">
+            {% for option in plan_status_options %}
+            <option value="{{ option }}" {% if (plan and plan.status == option) or (not plan and option == 'active') %}selected{% endif %}>{{ _(option) }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-4">
+        <label class="form-label">{{ _('Monitoring sources') }}</label>
+        <textarea class="form-control" name="monitoring_sources" rows="3" required>{{ plan.monitoring_sources if plan else '' }}</textarea>
+    </div>
+    <div class="col-md-4">
+        <label class="form-label">{{ _('Search strategy') }}</label>
+        <textarea class="form-control" name="search_strategy" rows="3">{{ (plan.search_strategy or '') if plan else '' }}</textarea>
+    </div>
+    <div class="col-md-4">
+        <label class="form-label">{{ _('Keywords') }}</label>
+        <textarea class="form-control" name="keywords" rows="3">{{ (plan.keywords or '') if plan else '' }}</textarea>
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">{{ _('Territory') }}</label>
+        <input class="form-control" name="territory" value="{{ (plan.territory or '') if plan else '' }}">
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">{{ _('Responsible') }}</label>
+        <select class="form-select" name="responsible_user_id">
+            <option value="">{{ _('None') }}</option>
+            {% for user in users %}
+            <option value="{{ user.id }}" {% if plan and plan.responsible_user_id == user.id %}selected{% endif %}>{{ user.full_name or user.email }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">{{ _('Start date') }}</label>
+        <input class="form-control" type="date" name="start_date" value="{{ plan.start_date if plan else '' }}" required>
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">{{ _('End date') }}</label>
+        <input class="form-control" type="date" name="end_date" value="{{ (plan.end_date or '') if plan else '' }}">
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">{{ _('Comment') }}</label>
+        <input class="form-control" name="comment" value="{{ (plan.comment or '') if plan else '' }}">
+    </div>
+    <div class="col-md-2 d-flex align-items-end gap-2">
+        <button class="btn btn-primary icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Save') }}</span></button>
+        <a class="btn btn-outline-secondary icon-only" href="/literature-monitoring?tab=plan" title="{{ _('Cancel') }}"><i data-lucide="x"></i></a>
+    </div>
+</form>
+{%- endmacro %}
+
+{% macro log_form(action, log=None) -%}
+{% set selected_product_ids = log.products|map(attribute='product_id')|list if log else [] %}
+<form class="row g-3" method="post" action="{{ action }}">
+    <div class="col-md-3">
+        <label class="form-label">{{ _('Monitoring plan') }}</label>
+        <select class="form-select" name="plan_id" required>
+            <option value="">{{ _('Select plan') }}</option>
+            {% for plan in plans_all %}
+            <option value="{{ plan.id }}" {% if log and log.plan_id == plan.id %}selected{% endif %}>{{ plan.partner.partner_name if plan.partner else '' }} / {{ product_names(plan.products) if product_names is defined else '' }} / {{ plan.start_date }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">{{ _('Products') }}</label>
+        {{ product_select(selected_product_ids) }}
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">{{ _('Partner') }}</label>
+        <select class="form-select" name="partner_id">
+            <option value="">{{ _('From plan') }}</option>
+            {% for partner in partners %}
+            <option value="{{ partner.id }}" {% if log and log.partner_id == partner.id %}selected{% endif %}>{{ partner.partner_name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">{{ _('Active substance') }}</label>
+        <select class="form-select" name="active_substance_id">
+            <option value="">{{ _('From plan') }}</option>
+            {% for substance in substances %}
+            <option value="{{ substance.id }}" {% if log and log.active_substance_id == substance.id %}selected{% endif %}>{{ substance.substance_name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">{{ _('Search date') }}</label>
+        <input class="form-control" type="date" name="search_date" value="{{ log.search_date if log else '' }}" required>
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">{{ _('Period start') }}</label>
+        <input class="form-control" type="date" name="period_start" value="{{ log.period_start if log else '' }}" required>
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">{{ _('Period end') }}</label>
+        <input class="form-control" type="date" name="period_end" value="{{ log.period_end if log else '' }}" required>
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">{{ _('Search source') }}</label>
+        <input class="form-control" name="search_source" value="{{ log.search_source if log else '' }}" required>
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">{{ _('Searched by') }}</label>
+        <select class="form-select" name="searched_by_user_id">
+            <option value="">{{ _('None') }}</option>
+            {% for user in users %}
+            <option value="{{ user.id }}" {% if log and log.searched_by_user_id == user.id %}selected{% endif %}>{{ user.full_name or user.email }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">{{ _('Found') }}</label>
+        <input class="form-control" type="number" min="0" name="publications_found" value="{{ log.publications_found if log else 0 }}">
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">{{ _('Relevant') }}</label>
+        <input class="form-control" type="number" min="0" name="relevant_publications" value="{{ log.relevant_publications if log else 0 }}">
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">{{ _('Result') }}</label>
+        <select class="form-select" name="result_value">
+            {% for option in search_result_options %}
+            <option value="{{ option }}" {% if (log and log.result == option) or (not log and option == 'nothing_found') %}selected{% endif %}>{{ _(option) }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">{{ _('Status') }}</label>
+        <select class="form-select" name="status_value">
+            {% for option in log_status_options %}
+            <option value="{{ option }}" {% if (log and log.status == option) or (not log and option == 'completed') %}selected{% endif %}>{{ _(option) }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-4">
+        <label class="form-label">{{ _('Search strategy') }}</label>
+        <textarea class="form-control" name="search_strategy" rows="3">{{ (log.search_strategy or '') if log else '' }}</textarea>
+    </div>
+    <div class="col-md-4">
+        <label class="form-label">{{ _('Summary') }}</label>
+        <textarea class="form-control" name="summary" rows="3">{{ (log.summary or '') if log else '' }}</textarea>
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">{{ _('Comment') }}</label>
+        <textarea class="form-control" name="comment" rows="3">{{ (log.comment or '') if log else '' }}</textarea>
+    </div>
+    <div class="col-md-1 d-flex align-items-end">
+        <button class="btn btn-primary w-100 icon-only" type="submit" title="{{ _('Save') }}"><i data-lucide="save"></i></button>
+    </div>
+</form>
+{%- endmacro %}
+
+{% macro result_form(action, result=None) -%}
+{% set selected_product_ids = result.products|map(attribute='product_id')|list if result else [] %}
+{% set prefill_log_id = request.query_params.get('log_id', '') if not result else '' %}
+{% set prefill_plan_id = request.query_params.get('plan_id', '') if not result else '' %}
+<form class="row g-3" method="post" action="{{ action }}" enctype="multipart/form-data">
+    <div class="col-md-3">
+        <label class="form-label">{{ _('Search log') }}</label>
+        <select class="form-select" name="search_log_id">
+            <option value="">{{ _('None') }}</option>
+            {% for log in logs_all %}
+            <option value="{{ log.id }}" {% if (result and result.search_log_id == log.id) or (not result and prefill_log_id == log.id) %}selected{% endif %}>{{ log.search_date }} / {{ log.search_source }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">{{ _('Monitoring plan') }}</label>
+        <select class="form-select" name="plan_id" required>
+            <option value="">{{ _('Select plan') }}</option>
+            {% for plan in plans_all %}
+            <option value="{{ plan.id }}" {% if (result and result.plan_id == plan.id) or (not result and prefill_plan_id == plan.id) %}selected{% endif %}>{{ plan.partner.partner_name if plan.partner else '' }} / {{ plan.start_date }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">{{ _('Products') }}</label>
+        {{ product_select(selected_product_ids) }}
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">{{ _('Publication title') }}</label>
+        <input class="form-control" name="publication_title" value="{{ result.publication_title if result else '' }}" required>
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">{{ _('Partner') }}</label>
+        <select class="form-select" name="partner_id">
+            <option value="">{{ _('From plan') }}</option>
+            {% for partner in partners %}
+            <option value="{{ partner.id }}" {% if result and result.partner_id == partner.id %}selected{% endif %}>{{ partner.partner_name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">{{ _('Active substance') }}</label>
+        <select class="form-select" name="active_substance_id">
+            <option value="">{{ _('From plan') }}</option>
+            {% for substance in substances %}
+            <option value="{{ substance.id }}" {% if result and result.active_substance_id == substance.id %}selected{% endif %}>{{ substance.substance_name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">{{ _('Authors') }}</label>
+        <input class="form-control" name="authors" value="{{ (result.authors or '') if result else '' }}">
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">{{ _('Journal / source') }}</label>
+        <input class="form-control" name="journal_source" value="{{ (result.journal_source or '') if result else '' }}">
+    </div>
+    <div class="col-md-1">
+        <label class="form-label">{{ _('Year') }}</label>
+        <input class="form-control" type="number" name="publication_year" value="{{ (result.publication_year or '') if result else '' }}">
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">{{ _('Publication date') }}</label>
+        <input class="form-control" type="date" name="publication_date" value="{{ (result.publication_date or '') if result else '' }}">
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">{{ _('DOI') }}</label>
+        <input class="form-control" name="doi" value="{{ (result.doi or '') if result else '' }}">
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">{{ _('URL') }}</label>
+        <input class="form-control" name="url" value="{{ (result.url or '') if result else '' }}">
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">{{ _('Relevance') }}</label>
+        <select class="form-select" name="relevance">
+            {% for option in relevance_options %}
+            <option value="{{ option }}" {% if (result and result.relevance == option) or (not result and option == 'needs_assessment') %}selected{% endif %}>{{ _(option) }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">{{ _('Result type') }}</label>
+        <select class="form-select" name="result_type">
+            {% for option in result_type_options %}
+            <option value="{{ option }}" {% if (result and result.result_type == option) or (not result and option == 'other') %}selected{% endif %}>{{ _(option) }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">{{ _('PV decision') }}</label>
+        <select class="form-select" name="pv_decision">
+            {% for option in pv_decision_options %}
+            <option value="{{ option }}" {% if (result and result.pv_decision == option) or (not result and option == 'no_action') %}selected{% endif %}>{{ _(option) }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">{{ _('Processing status') }}</label>
+        <select class="form-select" name="processing_status">
+            {% for option in processing_status_options %}
+            <option value="{{ option }}" {% if (result and result.processing_status == option) or (not result and option == 'new') %}selected{% endif %}>{{ _(option) }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-5">
+        <label class="form-label">{{ _('Abstract / summary') }}</label>
+        <textarea class="form-control" name="abstract" rows="3">{{ (result.abstract or '') if result else '' }}</textarea>
+    </div>
+    <div class="col-md-5">
+        <label class="form-label">{{ _('PV specialist comment') }}</label>
+        <textarea class="form-control" name="specialist_comment" rows="3">{{ (result.specialist_comment or '') if result else '' }}</textarea>
+    </div>
+    {% if not result %}
+    <div class="col-md-3">
+        <label class="form-label">{{ _('Article PDF') }}</label>
+        <input class="form-control" type="file" name="article_pdf">
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">{{ _('Search screenshot') }}</label>
+        <input class="form-control" type="file" name="search_screenshot">
+    </div>
+    {% endif %}
+    <div class="col-md-2 d-flex align-items-end">
+        <button class="btn btn-primary w-100 icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Save') }}</span></button>
+    </div>
+</form>
+{%- endmacro %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+        <h1 class="h3 mb-1">{{ _('Literature Monitoring') }}</h1>
+        <div class="text-secondary small">{{ filtered_count|default(0) }} {{ _('records') }}</div>
+    </div>
+    {% if tab == 'results' and has_permission('export') %}
+    <a class="btn btn-outline-secondary icon-button" href="/api/literature-monitoring/results/export.csv?search={{ filters.search }}&partner_id={{ filters.partner_id }}&product_id={{ filters.product_id }}&date_from={{ filters.date_from }}&date_to={{ filters.date_to }}&result_type={{ filters.result_type }}&processing_status={{ filters.processing_status }}&pv_decision={{ filters.pv_decision }}">
+        <i data-lucide="download"></i><span>{{ _('CSV') }}</span>
+    </a>
+    {% endif %}
+</div>
+
+{% if message %}<div class="alert alert-success py-2" role="status">{{ _(message) }}</div>{% endif %}
+{% if error %}<div class="alert alert-danger py-2" role="alert">{{ _(error) }}</div>{% endif %}
+{% if validation %}<div class="alert alert-warning py-2" role="alert">{{ _(validation) }}</div>{% endif %}
+
+<section class="metric-grid mb-4" aria-label="{{ _('Dashboard') }}">
+    <a class="metric-card" href="/literature-monitoring?tab=plan&status_filter=active">
+        <span>{{ _('Active plans') }}</span>
+        <strong>{{ stats.active_plans }}</strong>
+    </a>
+    <a class="metric-card" href="/literature-monitoring?tab=log">
+        <span>{{ _('Completed searches') }}</span>
+        <strong>{{ stats.completed_searches }}</strong>
+    </a>
+    <a class="metric-card warning" href="/literature-monitoring?tab=results&processing_status=new">
+        <span>{{ _('Open results') }}</span>
+        <strong>{{ stats.open_results }}</strong>
+    </a>
+    <a class="metric-card danger" href="/literature-monitoring?tab=results&pv_decision=create_icsr">
+        <span>{{ _('Action required') }}</span>
+        <strong>{{ stats.action_required }}</strong>
+    </a>
+</section>
+
+<ul class="nav nav-tabs mb-4">
+    <li class="nav-item"><a class="nav-link {% if tab == 'plan' %}active{% endif %}" href="/literature-monitoring?tab=plan">{{ _('Plan') }}</a></li>
+    <li class="nav-item"><a class="nav-link {% if tab == 'log' %}active{% endif %}" href="/literature-monitoring?tab=log">{{ _('Journal') }}</a></li>
+    <li class="nav-item"><a class="nav-link {% if tab == 'results' %}active{% endif %}" href="/literature-monitoring?tab=results">{{ _('Results') }}</a></li>
+</ul>
+
+{% if tab == 'plan' %}
+<section class="surface mb-4">
+    <h2 class="h6 section-title">{{ _('Filters') }}</h2>
+    <form class="row g-2 align-items-end" method="get" action="/literature-monitoring">
+        <input type="hidden" name="tab" value="plan">
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Search') }}</label>
+            <input class="form-control" name="search" value="{{ filters.search }}" placeholder="{{ _('Source') }} / {{ _('Strategy') }} / {{ _('Keywords') }}">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Partner') }}</label>
+            <select class="form-select" name="partner_id">
+                <option value="">{{ _('All') }}</option>
+                {% for partner in partners %}
+                <option value="{{ partner.id }}" {% if filters.partner_id == partner.id %}selected{% endif %}>{{ partner.partner_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Product') }}</label>
+            <select class="form-select" name="product_id">
+                <option value="">{{ _('All') }}</option>
+                {% for product in products %}
+                <option value="{{ product.id }}" {% if filters.product_id == product.id %}selected{% endif %}>{{ product.product_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Status') }}</label>
+            <select class="form-select" name="status_filter">
+                <option value="">{{ _('All') }}</option>
+                {% for option in plan_status_options %}
+                <option value="{{ option }}" {% if filters.status_filter == option %}selected{% endif %}>{{ _(option) }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Responsible') }}</label>
+            <select class="form-select" name="responsible_user_id">
+                <option value="">{{ _('All') }}</option>
+                {% for user in users %}
+                <option value="{{ user.id }}" {% if filters.responsible_user_id == user.id %}selected{% endif %}>{{ user.full_name or user.email }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-1 d-flex gap-1">
+            <button class="btn btn-primary icon-only" type="submit" title="{{ _('Search') }}"><i data-lucide="search"></i></button>
+            <a class="btn btn-outline-secondary icon-only" href="/literature-monitoring?tab=plan" title="{{ _('Cancel') }}"><i data-lucide="x"></i></a>
+        </div>
+    </form>
+</section>
+
+{% if has_permission('create') %}
+<section class="surface mb-4">
+    <h2 class="h6 section-title">{{ _('Create plan') }}</h2>
+    {{ plan_form('/literature-monitoring/plans') }}
+</section>
+{% endif %}
+
+<section class="surface">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead><tr><th>{{ _('Partner') }}</th><th>{{ _('Products') }}</th><th>{{ _('Sources') }}</th><th>{{ _('Frequency') }}</th><th>{{ _('Responsible') }}</th><th>{{ _('Period') }}</th><th>{{ _('Status') }}</th><th>{{ _('Actions') }}</th></tr></thead>
+            <tbody>
+            {% for plan in plans %}
+            <tr id="plan-{{ plan.id }}">
+                <td class="fw-medium">{{ plan.partner.partner_name if plan.partner else '' }}</td>
+                <td>{{ product_names(plan.products) if product_names is defined else '' }}</td>
+                <td class="text-break">{{ plan.monitoring_sources }}</td>
+                <td>{{ _(plan.frequency) }}</td>
+                <td>{{ plan.responsible_user.full_name if plan.responsible_user else '' }}</td>
+                <td>{{ plan.start_date }}{% if plan.end_date %} - {{ plan.end_date }}{% endif %}</td>
+                <td><span class="status-pill">{{ _(plan.status) }}</span></td>
+                <td>
+                    <div class="d-flex flex-wrap gap-1">
+                        <button class="btn btn-outline-secondary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#plan-view-{{ plan.id }}" title="{{ _('View') }}"><i data-lucide="eye"></i></button>
+                        {% if has_permission('edit') %}
+                        <button class="btn btn-outline-primary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#plan-edit-{{ plan.id }}" title="{{ _('Edit') }}"><i data-lucide="pencil"></i></button>
+                        {% endif %}
+                        {% if has_permission('edit') or has_permission('soft_delete') %}
+                        <form method="post" action="/literature-monitoring/plans/{{ plan.id }}/archive">
+                            <button class="btn btn-outline-danger btn-sm icon-only" type="submit" title="{{ _('Archive') }}"><i data-lucide="archive"></i></button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </td>
+            </tr>
+            <tr class="collapse" id="plan-view-{{ plan.id }}">
+                <td colspan="8">
+                    <div class="row g-2 small">
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Active substance') }}</span><div>{{ plan.active_substance.substance_name if plan.active_substance else '' }}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Territory') }}</span><div>{{ plan.territory or '' }}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Keywords') }}</span><div class="text-break">{{ plan.keywords or '' }}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Comment') }}</span><div>{{ plan.comment or '' }}</div></div>
+                        <div class="col-12"><span class="text-secondary">{{ _('Search strategy') }}</span><div class="text-break">{{ plan.search_strategy or '' }}</div></div>
+                    </div>
+                </td>
+            </tr>
+            {% if has_permission('edit') %}
+            <tr class="collapse" id="plan-edit-{{ plan.id }}"><td colspan="8">{{ plan_form('/literature-monitoring/plans/' ~ plan.id, plan) }}</td></tr>
+            {% endif %}
+            {% else %}
+            <tr><td colspan="8" class="text-secondary">{% if filters.active and total_count %}{{ _('No records match the filters.') }}{% else %}{{ _('No literature monitoring plans yet.') }}{% endif %}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% include "_pagination.html" %}
+</section>
+{% endif %}
+
+{% if tab == 'log' %}
+<section class="surface mb-4">
+    <h2 class="h6 section-title">{{ _('Filters') }}</h2>
+    <form class="row g-2 align-items-end" method="get" action="/literature-monitoring">
+        <input type="hidden" name="tab" value="log">
+        <div class="col-md-2"><label class="form-label">{{ _('Date from') }}</label><input class="form-control" type="date" name="date_from" value="{{ filters.date_from }}"></div>
+        <div class="col-md-2"><label class="form-label">{{ _('Date to') }}</label><input class="form-control" type="date" name="date_to" value="{{ filters.date_to }}"></div>
+        <div class="col-md-2"><label class="form-label">{{ _('Partner') }}</label><select class="form-select" name="partner_id"><option value="">{{ _('All') }}</option>{% for partner in partners %}<option value="{{ partner.id }}" {% if filters.partner_id == partner.id %}selected{% endif %}>{{ partner.partner_name }}</option>{% endfor %}</select></div>
+        <div class="col-md-2"><label class="form-label">{{ _('Product') }}</label><select class="form-select" name="product_id"><option value="">{{ _('All') }}</option>{% for product in products %}<option value="{{ product.id }}" {% if filters.product_id == product.id %}selected{% endif %}>{{ product.product_name }}</option>{% endfor %}</select></div>
+        <div class="col-md-2"><label class="form-label">{{ _('Search source') }}</label><input class="form-control" name="search_source" value="{{ filters.search_source }}"></div>
+        <div class="col-md-1"><label class="form-label">{{ _('Result') }}</label><select class="form-select" name="result_filter"><option value="">{{ _('All') }}</option>{% for option in search_result_options %}<option value="{{ option }}" {% if filters.result_filter == option %}selected{% endif %}>{{ _(option) }}</option>{% endfor %}</select></div>
+        <div class="col-md-1 d-flex gap-1"><button class="btn btn-primary icon-only" type="submit" title="{{ _('Search') }}"><i data-lucide="search"></i></button><a class="btn btn-outline-secondary icon-only" href="/literature-monitoring?tab=log" title="{{ _('Cancel') }}"><i data-lucide="x"></i></a></div>
+    </form>
+</section>
+
+{% if has_permission('create') %}
+<section class="surface mb-4">
+    <h2 class="h6 section-title">{{ _('Create journal record') }}</h2>
+    {{ log_form('/literature-monitoring/logs') }}
+</section>
+{% endif %}
+
+<section class="surface">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead><tr><th>{{ _('Search date') }}</th><th>{{ _('Plan') }}</th><th>{{ _('Source') }}</th><th>{{ _('Period') }}</th><th>{{ _('Found') }}</th><th>{{ _('Relevant') }}</th><th>{{ _('Result') }}</th><th>{{ _('Status') }}</th><th>{{ _('Actions') }}</th></tr></thead>
+            <tbody>
+            {% for log in logs %}
+            <tr id="log-{{ log.id }}">
+                <td class="fw-medium">{{ log.search_date }}</td>
+                <td>{{ log.plan.partner.partner_name if log.plan and log.plan.partner else '' }}<div class="text-secondary small">{{ product_names(log.products) if product_names is defined else '' }}</div></td>
+                <td>{{ log.search_source }}</td>
+                <td>{{ log.period_start }} - {{ log.period_end }}</td>
+                <td>{{ log.publications_found }}</td>
+                <td>{{ log.relevant_publications }}</td>
+                <td><span class="status-pill">{{ _(log.result) }}</span></td>
+                <td><span class="status-pill">{{ _(log.status) }}</span></td>
+                <td>
+                    <div class="d-flex flex-wrap gap-1">
+                        {% if log.result != 'nothing_found' %}
+                        <a class="btn btn-outline-primary btn-sm icon-only" href="/literature-monitoring?tab=results&log_id={{ log.id }}&plan_id={{ log.plan_id }}#add-result" title="{{ _('Add publication') }}"><i data-lucide="file-plus"></i></a>
+                        {% endif %}
+                        <a class="btn btn-outline-secondary btn-sm icon-only" href="/literature-monitoring?tab=results&search={{ log.search_source }}" title="{{ _('Related results') }}"><i data-lucide="list"></i></a>
+                        <button class="btn btn-outline-secondary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#log-view-{{ log.id }}" title="{{ _('View') }}"><i data-lucide="eye"></i></button>
+                        {% if has_permission('edit') %}
+                        <button class="btn btn-outline-primary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#log-edit-{{ log.id }}" title="{{ _('Edit') }}"><i data-lucide="pencil"></i></button>
+                        {% endif %}
+                    </div>
+                </td>
+            </tr>
+            <tr class="collapse" id="log-view-{{ log.id }}"><td colspan="9"><div class="row g-2 small"><div class="col-md-3"><span class="text-secondary">{{ _('Searched by') }}</span><div>{{ log.searched_by.full_name if log.searched_by else '' }}</div></div><div class="col-md-3"><span class="text-secondary">{{ _('Created') }}</span><div>{{ log.created_at }}</div></div><div class="col-md-3"><span class="text-secondary">{{ _('Summary') }}</span><div>{{ log.summary or '' }}</div></div><div class="col-md-3"><span class="text-secondary">{{ _('Comment') }}</span><div>{{ log.comment or '' }}</div></div><div class="col-12"><span class="text-secondary">{{ _('Search strategy') }}</span><div class="text-break">{{ log.search_strategy or '' }}</div></div></div></td></tr>
+            {% if has_permission('edit') %}
+            <tr class="collapse" id="log-edit-{{ log.id }}"><td colspan="9">{{ log_form('/literature-monitoring/logs/' ~ log.id, log) }}</td></tr>
+            {% endif %}
+            {% else %}
+            <tr><td colspan="9" class="text-secondary">{% if filters.active and total_count %}{{ _('No records match the filters.') }}{% else %}{{ _('No literature search log records yet.') }}{% endif %}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% include "_pagination.html" %}
+</section>
+{% endif %}
+
+{% if tab == 'results' %}
+<section class="surface mb-4">
+    <h2 class="h6 section-title">{{ _('Filters') }}</h2>
+    <form class="row g-2 align-items-end" method="get" action="/literature-monitoring">
+        <input type="hidden" name="tab" value="results">
+        <div class="col-md-2"><label class="form-label">{{ _('Date from') }}</label><input class="form-control" type="date" name="date_from" value="{{ filters.date_from }}"></div>
+        <div class="col-md-2"><label class="form-label">{{ _('Date to') }}</label><input class="form-control" type="date" name="date_to" value="{{ filters.date_to }}"></div>
+        <div class="col-md-2"><label class="form-label">{{ _('Partner') }}</label><select class="form-select" name="partner_id"><option value="">{{ _('All') }}</option>{% for partner in partners %}<option value="{{ partner.id }}" {% if filters.partner_id == partner.id %}selected{% endif %}>{{ partner.partner_name }}</option>{% endfor %}</select></div>
+        <div class="col-md-2"><label class="form-label">{{ _('Product') }}</label><select class="form-select" name="product_id"><option value="">{{ _('All') }}</option>{% for product in products %}<option value="{{ product.id }}" {% if filters.product_id == product.id %}selected{% endif %}>{{ product.product_name }}</option>{% endfor %}</select></div>
+        <div class="col-md-1"><label class="form-label">{{ _('Type') }}</label><select class="form-select" name="result_type"><option value="">{{ _('All') }}</option>{% for option in result_type_options %}<option value="{{ option }}" {% if filters.result_type == option %}selected{% endif %}>{{ _(option) }}</option>{% endfor %}</select></div>
+        <div class="col-md-1"><label class="form-label">{{ _('Status') }}</label><select class="form-select" name="processing_status"><option value="">{{ _('All') }}</option>{% for option in processing_status_options %}<option value="{{ option }}" {% if filters.processing_status == option %}selected{% endif %}>{{ _(option) }}</option>{% endfor %}</select></div>
+        <div class="col-md-1"><label class="form-label">{{ _('Decision') }}</label><select class="form-select" name="pv_decision"><option value="">{{ _('All') }}</option>{% for option in pv_decision_options %}<option value="{{ option }}" {% if filters.pv_decision == option %}selected{% endif %}>{{ _(option) }}</option>{% endfor %}</select></div>
+        <div class="col-md-1 d-flex gap-1"><button class="btn btn-primary icon-only" type="submit" title="{{ _('Search') }}"><i data-lucide="search"></i></button><a class="btn btn-outline-secondary icon-only" href="/literature-monitoring?tab=results" title="{{ _('Cancel') }}"><i data-lucide="x"></i></a></div>
+    </form>
+</section>
+
+{% if has_permission('create') or has_permission('upload') %}
+<section class="surface mb-4" id="add-result">
+    <h2 class="h6 section-title">{{ _('Add publication') }}</h2>
+    {{ result_form('/literature-monitoring/results') }}
+</section>
+{% endif %}
+
+<section class="surface">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead><tr><th>{{ _('Publication') }}</th><th>{{ _('Partner') }}</th><th>{{ _('Products') }}</th><th>{{ _('Source') }}</th><th>{{ _('Date') }}</th><th>{{ _('Type') }}</th><th>{{ _('Decision') }}</th><th>{{ _('Status') }}</th><th>{{ _('Actions') }}</th></tr></thead>
+            <tbody>
+            {% for result in results %}
+            <tr id="result-{{ result.id }}">
+                <td class="fw-medium"><div>{{ result.publication_title }}</div><div class="text-secondary small text-break">{{ result.doi or result.url or '' }}</div></td>
+                <td>{{ result.partner.partner_name if result.partner else '' }}</td>
+                <td>{{ product_names(result.products) if product_names is defined else '' }}</td>
+                <td>{{ result.journal_source or '' }}</td>
+                <td>{{ result.publication_date or result.publication_year or result.created_at.date() }}</td>
+                <td><span class="status-pill">{{ _(result.result_type) }}</span></td>
+                <td><span class="status-pill">{{ _(result.pv_decision) }}</span></td>
+                <td><span class="status-pill">{{ _(result.processing_status) }}</span></td>
+                <td>
+                    <div class="d-flex flex-wrap gap-1">
+                        <button class="btn btn-outline-secondary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#result-view-{{ result.id }}" title="{{ _('View') }}"><i data-lucide="eye"></i></button>
+                        {% if has_permission('edit') %}
+                        <button class="btn btn-outline-primary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#result-edit-{{ result.id }}" title="{{ _('Edit') }}"><i data-lucide="pencil"></i></button>
+                        {% endif %}
+                        {% if has_permission('create') or has_permission('icsr_workflow') %}
+                        <form method="post" action="/literature-monitoring/results/{{ result.id }}/create-icsr">
+                            <button class="btn btn-outline-primary btn-sm icon-only" type="submit" title="{{ _('Create ICSR') }}"><i data-lucide="folder-plus"></i></button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </td>
+            </tr>
+            <tr class="collapse" id="result-view-{{ result.id }}">
+                <td colspan="9">
+                    <div class="row g-3 small">
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Authors') }}</span><div>{{ result.authors or '' }}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Relevance') }}</span><div>{{ _(result.relevance) }}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Linked ICSR') }}</span><div>{% if result.linked_case %}<a href="/cases/{{ result.linked_case.id }}">{{ result.linked_case.case_number }}</a>{% endif %}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Linked PSUR') }}</span><div>{{ result.linked_psur_plan.psur_type if result.linked_psur_plan else '' }}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Linked PSMF') }}</span><div>{{ result.linked_psmf_component.code if result.linked_psmf_component else '' }}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('RMP reference') }}</span><div>{{ result.rmp_reference or '' }}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Article PDF') }}</span><div>{% if result.article_pdf_document %}<a href="/documents/{{ result.article_pdf_document.id }}/download">{{ result.article_pdf_document.file_name }}</a>{% endif %}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Search screenshot') }}</span><div>{% if result.screenshot_document %}<a href="/documents/{{ result.screenshot_document.id }}/download">{{ result.screenshot_document.file_name }}</a>{% endif %}</div></div>
+                        <div class="col-12"><span class="text-secondary">{{ _('Abstract / summary') }}</span><div class="text-break">{{ result.abstract or '' }}</div></div>
+                        <div class="col-12"><span class="text-secondary">{{ _('PV specialist comment') }}</span><div class="text-break">{{ result.specialist_comment or '' }}</div></div>
+                    </div>
+                    {% if has_permission('upload') or has_permission('edit') %}
+                    <form class="row g-2 align-items-end mt-3" method="post" action="/literature-monitoring/results/{{ result.id }}/documents" enctype="multipart/form-data">
+                        <div class="col-md-3"><label class="form-label">{{ _('Article PDF') }}</label><input class="form-control" type="file" name="article_pdf"></div>
+                        <div class="col-md-3"><label class="form-label">{{ _('Search screenshot') }}</label><input class="form-control" type="file" name="search_screenshot"></div>
+                        <div class="col-md-2"><button class="btn btn-outline-primary w-100 icon-button" type="submit"><i data-lucide="upload"></i><span>{{ _('Upload') }}</span></button></div>
+                    </form>
+                    {% endif %}
+                    {% if has_permission('edit') %}
+                    <div class="row g-2 align-items-end mt-2">
+                        <div class="col-md-4">
+                            <form class="d-flex gap-2" method="post" action="/literature-monitoring/results/{{ result.id }}/link">
+                                <input type="hidden" name="target" value="psur">
+                                <select class="form-select" name="target_id">
+                                    <option value="">{{ _('PSUR/PBRER Local') }}</option>
+                                    {% for plan in psur_plans %}
+                                    <option value="{{ plan.id }}">{{ plan.psur_type }} / {{ plan.reporting_period_start }} - {{ plan.reporting_period_end }}</option>
+                                    {% endfor %}
+                                </select>
+                                <button class="btn btn-outline-primary icon-only" type="submit" title="{{ _('Link') }}"><i data-lucide="link"></i></button>
+                            </form>
+                        </div>
+                        <div class="col-md-4">
+                            <form class="d-flex gap-2" method="post" action="/literature-monitoring/results/{{ result.id }}/link">
+                                <input type="hidden" name="target" value="psmf">
+                                <select class="form-select" name="target_id">
+                                    <option value="">{{ _('PSMF') }}</option>
+                                    {% for component in psmf_components %}
+                                    <option value="{{ component.id }}">{{ component.code }} / {{ component.title }}</option>
+                                    {% endfor %}
+                                </select>
+                                <button class="btn btn-outline-primary icon-only" type="submit" title="{{ _('Link') }}"><i data-lucide="link"></i></button>
+                            </form>
+                        </div>
+                        <div class="col-md-4">
+                            <form class="d-flex gap-2" method="post" action="/literature-monitoring/results/{{ result.id }}/link">
+                                <input type="hidden" name="target" value="rmp">
+                                <input class="form-control" name="target_id" value="{{ result.rmp_reference or '' }}" placeholder="{{ _('RMP reference') }}">
+                                <button class="btn btn-outline-primary icon-only" type="submit" title="{{ _('Link') }}"><i data-lucide="link"></i></button>
+                            </form>
+                        </div>
+                    </div>
+                    <form class="row g-2 align-items-end mt-2" method="post" action="/literature-monitoring/results/{{ result.id }}/close">
+                        <div class="col-md-10"><label class="form-label">{{ _('Comment') }}</label><input class="form-control" name="close_comment"></div>
+                        <div class="col-md-2"><button class="btn btn-outline-secondary w-100 icon-button" type="submit"><i data-lucide="check-circle"></i><span>{{ _('Close result') }}</span></button></div>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% if has_permission('edit') %}
+            <tr class="collapse" id="result-edit-{{ result.id }}"><td colspan="9">{{ result_form('/literature-monitoring/results/' ~ result.id, result) }}</td></tr>
+            {% endif %}
+            {% else %}
+            <tr><td colspan="9" class="text-secondary">{% if filters.active and total_count %}{{ _('No records match the filters.') }}{% else %}{{ _('No literature results yet.') }}{% endif %}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% include "_pagination.html" %}
+</section>
+{% endif %}
+{% endblock %}

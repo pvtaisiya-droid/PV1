@@ -114,6 +114,7 @@ class ProductRead(ProductBase, ORMModel):
 class ContractBase(BaseModel):
     partner_id: str
     product_id: str
+    parent_contract_id: str | None = None
     contract_type: Literal[
         "pharmacovigilance_agreement",
         "additional_agreement",
@@ -124,6 +125,10 @@ class ContractBase(BaseModel):
 
 
 class ContractCreate(ContractBase):
+    pass
+
+
+class ContractUpdate(ContractBase):
     pass
 
 
@@ -664,6 +669,7 @@ class IncomingRequestCreate(BaseModel):
     recommended_next_action: str | None = None
     validity_assessment: str | None = None
     gpt_json_output: str | None = None
+    case_id: str | None = None
     status: str = "confirmed"
 
 
@@ -697,6 +703,110 @@ class SOPCreate(BaseModel):
 
 
 class SOPRead(SOPCreate, ORMModel):
+    id: str
+    created_by: str | None = None
+    updated_by: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class LiteratureMonitoringPlanCreate(BaseModel):
+    partner_id: str
+    product_ids: list[str] = Field(default_factory=list)
+    active_substance_id: str | None = None
+    monitoring_sources: str
+    frequency: Literal["weekly", "monthly", "quarterly", "on_demand"] = "monthly"
+    search_strategy: str | None = None
+    keywords: str | None = None
+    territory: str | None = None
+    responsible_user_id: str | None = None
+    start_date: date
+    end_date: date | None = None
+    status: Literal["active", "paused", "archived"] = "active"
+    comment: str | None = None
+
+
+class LiteratureMonitoringPlanRead(LiteratureMonitoringPlanCreate, ORMModel):
+    id: str
+    created_by: str | None = None
+    updated_by: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class LiteratureSearchLogCreate(BaseModel):
+    plan_id: str
+    product_ids: list[str] = Field(default_factory=list)
+    partner_id: str | None = None
+    active_substance_id: str | None = None
+    search_date: date
+    searched_by_user_id: str | None = None
+    period_start: date
+    period_end: date
+    search_source: str
+    search_strategy: str | None = None
+    publications_found: int = 0
+    relevant_publications: int = 0
+    result: Literal[
+        "nothing_found",
+        "potential_icsr",
+        "signal",
+        "medical_information",
+    ] = "nothing_found"
+    status: Literal["draft", "completed", "reviewed", "closed"] = "completed"
+    summary: str | None = None
+    comment: str | None = None
+
+
+class LiteratureSearchLogRead(LiteratureSearchLogCreate, ORMModel):
+    id: str
+    created_by: str | None = None
+    updated_by: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class LiteratureResultCreate(BaseModel):
+    search_log_id: str | None = None
+    plan_id: str
+    product_ids: list[str] = Field(default_factory=list)
+    partner_id: str | None = None
+    active_substance_id: str | None = None
+    publication_title: str
+    authors: str | None = None
+    journal_source: str | None = None
+    publication_year: int | None = None
+    publication_date: date | None = None
+    doi: str | None = None
+    url: str | None = None
+    abstract: str | None = None
+    relevance: Literal["not_relevant", "relevant", "needs_assessment"] = "needs_assessment"
+    result_type: Literal[
+        "potential_icsr",
+        "signal",
+        "medical_information",
+        "safety_information",
+        "other",
+    ] = "other"
+    pv_decision: Literal[
+        "no_action",
+        "create_icsr",
+        "add_to_rmp",
+        "add_to_psur",
+        "add_to_psmf",
+        "discuss_required",
+    ] = "no_action"
+    processing_status: Literal["new", "under_review", "processed", "closed"] = "new"
+    specialist_comment: str | None = None
+    article_pdf_document_id: str | None = None
+    screenshot_document_id: str | None = None
+    linked_case_id: str | None = None
+    linked_psur_plan_id: str | None = None
+    linked_psmf_component_id: str | None = None
+    rmp_reference: str | None = None
+
+
+class LiteratureResultRead(LiteratureResultCreate, ORMModel):
     id: str
     created_by: str | None = None
     updated_by: str | None = None
