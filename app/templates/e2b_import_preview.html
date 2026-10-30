@@ -1,0 +1,256 @@
+{% extends "base.html" %}
+{% block title %}{{ _('E2B import preview') }} - {{ _('PV System') }}{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+        <h1 class="h3 mb-1">{{ _('E2B import preview') }}</h1>
+        <div class="text-secondary small">{{ batch.source_filename }} / {{ _(batch.status) }}</div>
+    </div>
+    <a class="btn btn-outline-secondary btn-sm icon-button" href="/safety-reports"><i data-lucide="arrow-left"></i><span>{{ _('Back') }}</span></a>
+</div>
+
+{% if message %}
+<div class="alert alert-success py-2" role="status">{{ _(message) }}</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-danger py-2" role="alert">{{ _(error) }}</div>
+{% endif %}
+{% if validation %}
+<div class="alert alert-warning py-2" role="alert">{{ _(validation) }}</div>
+{% endif %}
+
+{% set package_summary = preview.package_summary or {} %}
+{% set product_summary = preview.product_summary or {} %}
+{% set pv_scope_status = package_summary.pv_scope_status or product_summary.status %}
+{% set has_company_product = package_summary.has_company_product or product_summary.has_company_product %}
+{% set product_scope_checked = product_summary.scope_checked %}
+
+{% if product_scope_checked and pv_scope_status == 'not_pv_ars_candidate' and batch.status != 'not_pv_ars' %}
+<div class="alert alert-warning" role="alert">
+    <div class="fw-semibold">{{ _('No ARS company product was found in this E2B source.') }}</div>
+    <div class="small">{{ _('This package can be marked for partner reconciliation as not PV system ARS LLC / не ФН АРС. Normal case import is blocked until a company product is matched.') }}</div>
+</div>
+{% endif %}
+
+<section class="surface mb-4">
+    <h2 class="h6 section-title">{{ _('E2B import summary') }}</h2>
+    <div class="row g-3">
+        <div class="col-6 col-lg-2"><span class="text-secondary small">{{ _('Cases in archive') }}</span><div class="h4 mb-0">{{ package_summary.case_count or batch.detected_case_count }}</div></div>
+        <div class="col-6 col-lg-2"><span class="text-secondary small">{{ _('Messages') }}</span><div class="h4 mb-0">{{ batch.detected_message_count }}</div></div>
+        <div class="col-6 col-lg-2"><span class="text-secondary small">{{ _('Serious cases') }}</span><div class="h4 mb-0">{{ package_summary.serious_case_count or 0 }}</div></div>
+        <div class="col-6 col-lg-2"><span class="text-secondary small">{{ _('Deaths') }}</span><div class="h4 mb-0">{{ package_summary.death_case_count or 0 }}</div></div>
+        <div class="col-6 col-lg-2"><span class="text-secondary small">{{ _('Expectedness') }}</span><div class="fw-semibold">{{ _('Requires assessment') }}</div></div>
+        <div class="col-6 col-lg-2"><span class="text-secondary small">{{ _('RO due date') }}</span><div class="fw-semibold">{{ package_summary.earliest_submission_due_date or _('Not calculated') }}</div></div>
+        <div class="col-md-4"><span class="text-secondary small">{{ _('PV ARS scope') }}</span><div class="fw-semibold">
+            {% if not product_scope_checked %}
+            <span class="status-pill pv-status-neutral">{{ _('Not checked') }}</span>
+            {% elif has_company_product %}
+            <span class="status-pill pv-status-success">{{ _('Company product found') }}</span>
+            {% else %}
+            <span class="status-pill pv-status-warning">{{ _('not PV system ARS LLC / не ФН АРС') }}</span>
+            {% endif %}
+        </div></div>
+        <div class="col-md-4"><span class="text-secondary small">{{ _('Products') }}</span><div class="fw-semibold">
+            {% if product_scope_checked %}
+            {{ product_summary.company_product_count or 0 }} {{ _('company') }} / {{ product_summary.not_found_count or 0 }} {{ _('not found') }} / {{ product_summary.non_company_product_count or 0 }} {{ _('non-company') }}
+            {% else %}
+            {{ _('Not checked') }}
+            {% endif %}
+        </div></div>
+        <div class="col-md-4"><span class="text-secondary small">{{ _('Files') }}</span><div class="fw-semibold">{{ batch.detected_xml_count }} XML / {{ batch.detected_pdf_count }} PDF / {{ batch.detected_other_count }} {{ _('other') }}</div></div>
+        <div class="col-md-6"><span class="text-secondary small">{{ _('Errors / warnings') }}</span><div class="fw-semibold">{{ batch.error_count }} / {{ batch.warning_count }}</div></div>
+        <div class="col-md-6"><span class="text-secondary small">{{ _('Source checksum') }}</span><div class="small text-break">{{ batch.zip_checksum_sha256 }}</div></div>
+    </div>
+    {% if batch.duplicate_batch %}
+    <div class="alert alert-warning py-2 mt-3 mb-0">{{ _('Repeated E2B source detected.') }} {{ batch.duplicate_batch.source_filename }} / {{ batch.duplicate_batch.status }}</div>
+    {% endif %}
+</section>
+
+<div class="d-flex flex-wrap gap-2 mb-4">
+    <form method="post" action="/safety-reports/e2b-imports/{{ batch.id }}/confirm">
+<input type="hidden" name="expected_inputs" value="{{ case_input_snapshot }}">
+        <input type="hidden" name="expected_version" value="{{ batch.version }}">
+        <input type="hidden" name="expected_case_token" value="{{ expected_case_token }}">
+        <button class="btn btn-primary icon-button" type="submit" {% if preview.blocking_errors or batch.status in ['imported', 'cancelled', 'error', 'not_pv_ars'] %}disabled{% endif %}><i data-lucide="check"></i><span>{{ _('Import') }}</span></button>
+    </form>
+    {% if product_scope_checked and pv_scope_status == 'not_pv_ars_candidate' and batch.status not in ['imported', 'cancelled', 'not_pv_ars'] %}
+    <form method="post" action="/safety-reports/e2b-imports/{{ batch.id }}/mark-not-pv-ars">
+        <input type="hidden" name="expected_version" value="{{ batch.version }}">
+        <button class="btn btn-warning icon-button" type="submit"><i data-lucide="ban"></i><span>{{ _('Mark not PV ARS') }}</span></button>
+    </form>
+    {% endif %}
+    {% if has_permission('create') or has_permission('icsr_workflow') %}
+    <form method="post" action="/safety-reports/e2b-imports/{{ batch.id }}/recheck">
+        <input type="hidden" name="expected_version" value="{{ batch.version }}">
+        <input type="hidden" name="csrf" value="{{ csrf_token(request) }}">
+        <button class="btn btn-outline-secondary icon-button" type="submit" {% if batch.status in ['imported', 'not_pv_ars'] %}disabled{% endif %}><i data-lucide="refresh-cw"></i><span>{{ _('Re-check') }}</span></button>
+    </form>
+    {% endif %}
+    <form method="post" action="/safety-reports/e2b-imports/{{ batch.id }}/cancel">
+        <input type="hidden" name="expected_version" value="{{ batch.version }}">
+        <button class="btn btn-outline-secondary icon-button" type="submit" {% if batch.status == 'imported' %}disabled{% endif %}><i data-lucide="x"></i><span>{{ _('Cancel') }}</span></button>
+    </form>
+    {% if batch.created_case %}
+    <a class="btn btn-outline-primary icon-button" href="/cases/{{ batch.created_case.id }}"><i data-lucide="folder-open"></i><span>{{ _('Open case') }}</span></a>
+    {% endif %}
+</div>
+
+<section class="surface mb-4">
+    <h2 class="h6 section-title">{{ _('Package contents') }}</h2>
+    <div class="table-responsive">
+        <table class="table table-sm align-middle">
+            <thead><tr><th>{{ _('File') }}</th><th>{{ _('Role') }}</th><th>{{ _('Size') }}</th><th>{{ _('Status') }}</th><th>{{ _('Checksum') }}</th><th>{{ _('Message') }}</th><th>{{ _('Case') }}</th></tr></thead>
+            <tbody>
+            {% for file in preview.files %}
+            <tr>
+                <td class="text-break">{{ file.path }}</td>
+                <td>{{ _(file.role) }}</td>
+                <td>{{ file.size_bytes }}</td>
+                <td><span class="status-pill">{{ _(file.status) }}</span></td>
+                <td class="small text-break">{{ file.checksum_sha256 }}</td>
+                <td>{{ file.message_identifier or "" }}</td>
+                <td>{{ file.case_identifier or "" }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="text-secondary">{{ _('No files detected.') }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="surface mb-4">
+    <h2 class="h6 section-title">{{ _('Detected messages and cases') }}</h2>
+    <div class="table-responsive">
+        <table class="table table-sm align-middle">
+            <thead><tr><th>{{ _('Case key') }}</th><th>{{ _('Serious') }}</th><th>{{ _('Death') }}</th><th>{{ _('Expectedness') }}</th><th>{{ _('RO due date') }}</th><th>{{ _('Messages') }}</th></tr></thead>
+            <tbody>
+            {% for summary in preview.case_summaries %}
+            <tr>
+                <td>
+                    <div>{{ summary.case_key }}</div>
+                    <div class="small text-secondary">{{ summary.worldwide_case_id or summary.local_sender_case_id or "" }}</div>
+                </td>
+                <td>{% if summary.is_serious is none %}<span class="badge text-bg-secondary">{{ _('Not checked') }}</span>{% elif summary.is_serious %}<span class="badge text-bg-danger">{{ _('Yes') }}</span>{% else %}<span class="badge text-bg-secondary">{{ _('No') }}</span>{% endif %}</td>
+                <td>{% if summary.has_death is none %}<span class="badge text-bg-secondary">{{ _('Not checked') }}</span>{% elif summary.has_death %}<span class="badge text-bg-danger">{{ _('Yes') }}</span>{% else %}<span class="badge text-bg-secondary">{{ _('No') }}</span>{% endif %}</td>
+                <td>{{ _('Requires assessment') }}</td>
+                <td>{{ summary.submission_due_date or "" }}</td>
+                <td>
+                    {% for group in preview.case_groups if group.case_key == summary.case_key %}
+                    {% for message in group.messages %}
+                    <div class="small">{{ message.message_identifier or '-' }} / {{ message.message_version or '-' }} / {{ message.receiver or '-' }} / {{ message.file_name }}</div>
+                    {% endfor %}
+                    {% endfor %}
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" class="text-secondary">{{ _('No E2B messages detected.') }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+{% for file in preview.files if file.normalized %}
+{% set normalized = file.normalized %}
+<section class="surface mb-4">
+    <h2 class="h6 section-title">{{ file.file_name }}</h2>
+    <dl class="row compact-dl">
+        <dt class="col-sm-3">{{ _('Message ID') }}</dt><dd class="col-sm-9">{{ normalized.message.message_identifier or "" }}</dd>
+        <dt class="col-sm-3">{{ _('Version') }}</dt><dd class="col-sm-9">{{ normalized.message.message_version or "" }}</dd>
+        <dt class="col-sm-3">{{ _('Worldwide ID') }}</dt><dd class="col-sm-9">{{ normalized.message.worldwide_case_id or "" }}</dd>
+        <dt class="col-sm-3">{{ _('Sender') }}</dt><dd class="col-sm-9">{{ normalized.message.sender or "" }}</dd>
+        <dt class="col-sm-3">{{ _('Receiver') }}</dt><dd class="col-sm-9">{{ normalized.message.receiver or "" }}</dd>
+        <dt class="col-sm-3">{{ _('Country') }}</dt><dd class="col-sm-9">{{ normalized.message.country or "" }}</dd>
+    </dl>
+
+    <h3 class="h6 mt-4">{{ _('Patient') }}</h3>
+    <div class="table-responsive">
+        <table class="table table-sm"><tbody>
+            <tr><th>{{ _('Identifier') }}</th><td>{{ normalized.patient.initials or normalized.patient.identifier or "" }}</td><th>{{ _('Sex') }}</th><td>{{ normalized.patient.sex or "" }}</td><th>{{ _('Age') }}</th><td>{{ normalized.patient.age_value or "" }} {{ normalized.patient.age_unit or "" }}</td></tr>
+        </tbody></table>
+    </div>
+
+    <h3 class="h6 mt-4">{{ _('Reactions') }}</h3>
+    <div class="table-responsive">
+        <table class="table table-sm align-middle">
+            <thead><tr><th>{{ _('Reported term') }}</th><th>{{ _('MedDRA') }}</th><th>{{ _('Outcome') }}</th><th>{{ _('Serious') }}</th></tr></thead>
+            <tbody>
+            {% for reaction in normalized.reactions %}
+            <tr><td>{{ reaction.reported_term }}</td><td>{{ reaction.meddra_pt_code or reaction.meddra_llt_code or "" }} {{ reaction.meddra_pt_name or reaction.meddra_llt_name or "" }}</td><td>{{ reaction.outcome or "" }}</td><td>{% if reaction.is_serious %}{{ _('Yes') }}{% else %}{{ _('No') }}{% endif %}</td></tr>
+            {% else %}
+            <tr><td colspan="4" class="text-secondary">{{ _('No reactions.') }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <h3 class="h6 mt-4">{{ _('Products') }}</h3>
+    <div class="table-responsive">
+        <table class="table table-sm align-middle">
+            <thead><tr><th>{{ _('Product') }}</th><th>{{ _('PV ARS scope') }}</th><th>{{ _('Dictionary match') }}</th><th>{{ _('Substances') }}</th><th>{{ _('Role') }}</th><th>{{ _('Dose') }}</th><th>{{ _('Route') }}</th></tr></thead>
+            <tbody>
+            {% for product in normalized.products %}
+            {% set match = product.match or {} %}
+            <tr>
+                <td>{{ product.reported_product_name or "" }}</td>
+                <td>
+                    {% if not product_scope_checked %}
+                    <span class="status-pill pv-status-neutral">{{ _('Not checked') }}</span>
+                    {% elif match.is_company_product %}
+                    <span class="status-pill pv-status-success">{{ _('Company product') }}</span>
+                    {% elif match.status == 'exact_non_company_product' %}
+                    <span class="status-pill pv-status-neutral">{{ _('Non-company product') }}</span>
+                    {% elif match.status == 'requires_choice' %}
+                    <span class="status-pill pv-status-warning">{{ _('Requires choice') }}</span>
+                    {% else %}
+                    <span class="status-pill pv-status-warning">{{ _('Not found') }}</span>
+                    {% endif %}
+                </td>
+                <td>{{ match.product_name or match.status or "" }}</td>
+                <td>{{ product.active_substances|join(', ') }}</td>
+                <td>{{ _(product.drug_role) }}</td>
+                <td>{{ product.dose_value or "" }} {{ product.dose_unit or "" }}</td>
+                <td>{{ product.route or "" }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="text-secondary">{{ _('No products.') }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if normalized.literature.is_literature %}
+    <h3 class="h6 mt-4">{{ _('Literature') }}</h3>
+    <dl class="row compact-dl">
+        <dt class="col-sm-3">{{ _('Title') }}</dt><dd class="col-sm-9">{{ normalized.literature.title or "" }}</dd>
+        <dt class="col-sm-3">{{ _('PMID') }}</dt><dd class="col-sm-9">{{ normalized.literature.pmid or "" }}</dd>
+        <dt class="col-sm-3">{{ _('DOI') }}</dt><dd class="col-sm-9">{{ normalized.literature.doi or "" }}</dd>
+        <dt class="col-sm-3">{{ _('Citation') }}</dt><dd class="col-sm-9">{{ normalized.literature.citation or "" }}</dd>
+    </dl>
+    {% endif %}
+</section>
+{% endfor %}
+
+<section class="surface">
+    <h2 class="h6 section-title">{{ _('Errors and warnings') }}</h2>
+    <div class="table-responsive">
+        <table class="table table-sm align-middle">
+            <thead><tr><th>{{ _('Severity') }}</th><th>{{ _('Type') }}</th><th>{{ _('File') }}</th><th>{{ _('Message') }}</th></tr></thead>
+            <tbody>
+            {% for issue in batch.issues %}
+            <tr>
+                <td>{% if issue.is_blocking %}<span class="badge text-bg-danger">{{ _('Blocking') }}</span>{% else %}<span class="badge text-bg-warning">{{ _(issue.severity) }}</span>{% endif %}</td>
+                <td>{{ issue.issue_type }}</td>
+                <td>{{ issue.item.file_name if issue.item else "" }}</td>
+                <td>{{ issue.message }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="text-secondary">{{ _('No errors or warnings.') }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

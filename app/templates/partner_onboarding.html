@@ -1,0 +1,285 @@
+{% extends "base.html" %}
+{% block title %}Подключение нового партнёра - {{ _('PV System') }}{% endblock %}
+
+{% macro wizard_actions(step, optional_steps) -%}
+<div class="d-flex flex-wrap gap-2 justify-content-between align-items-center mt-4">
+    <div>
+        {% if step > 1 %}
+        <a class="btn btn-outline-secondary icon-button" href="/partner-onboarding/{{ wizard.id }}/step/{{ step - 1 }}"><i data-lucide="arrow-left"></i><span>Назад</span></a>
+        {% else %}
+        <a class="btn btn-outline-secondary icon-button" href="/"><i data-lucide="arrow-left"></i><span>Назад</span></a>
+        {% endif %}
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+        {% if step in optional_steps %}
+        <button class="btn btn-outline-secondary icon-button" type="submit" name="submit_action" value="skip"><i data-lucide="skip-forward"></i><span>Пропустить</span></button>
+        {% endif %}
+        <button class="btn btn-outline-primary icon-button" type="submit" name="submit_action" value="save_close"><i data-lucide="save"></i><span>Сохранить и закрыть</span></button>
+        <button class="btn btn-primary icon-button" type="submit" name="submit_action" value="save_continue"><i data-lucide="arrow-right"></i><span>{% if step == 7 %}Завершить{% else %}Сохранить и продолжить{% endif %}</span></button>
+    </div>
+</div>
+{%- endmacro %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+        <div class="text-secondary small">Быстрый сценарий</div>
+        <h1 class="h3 mb-1">Подключение нового партнёра</h1>
+        <div class="d-flex flex-wrap gap-2">
+            <span class="status-pill">{{ wizard.status }}</span>
+            {% if partner %}<a class="status-pill" href="/partners/{{ partner.id }}">{{ partner.partner_name }}</a>{% endif %}
+        </div>
+    </div>
+    {% if partner %}
+    <a class="btn btn-outline-primary btn-sm icon-button" href="/partners/{{ partner.id }}"><i data-lucide="building-2"></i><span>Карточка партнёра</span></a>
+    {% endif %}
+</div>
+
+{% if message %}<div class="alert alert-success py-2">{{ message }}</div>{% endif %}
+{% if error %}<div class="alert alert-danger py-2">{{ error }}</div>{% endif %}
+{% if validation %}<div class="alert alert-warning py-2">{{ validation }}</div>{% endif %}
+
+<section class="surface mb-3">
+    <div class="pv-onboarding-steps">
+        {% for step_id, label in steps %}
+        <a class="pv-onboarding-step {% if step_id == step %}active{% endif %} {% if step_id in completed_steps %}done{% endif %}" href="/partner-onboarding/{{ wizard.id }}/step/{{ step_id }}">
+            <span>{{ step_id }}</span><strong>{{ label }}</strong>
+        </a>
+        {% endfor %}
+    </div>
+</section>
+
+<form method="post" action="/partner-onboarding/{{ wizard.id }}/step/{{ step }}" enctype="multipart/form-data">
+<input type="hidden" name="expected_snapshot" value="{{ expected_snapshot }}">
+<input type="hidden" name="expected_version" value="{{ wizard.version }}">
+    {% if step == 1 %}
+    <section class="surface">
+        <h2 class="h5 mb-3">Партнёр</h2>
+        {% if duplicate_candidates %}
+        <div class="alert alert-warning">
+            <div class="fw-semibold mb-2">Похожие партнёры</div>
+            <div class="d-flex flex-wrap gap-2">
+                {% for candidate in duplicate_candidates %}
+                <a class="btn btn-outline-secondary btn-sm" href="/partners/{{ candidate.id }}" target="_blank">{{ candidate.partner_name }}</a>
+                {% endfor %}
+            </div>
+            <input type="hidden" name="duplicate_ack" value="true">
+        </div>
+        {% endif %}
+        <div class="row g-3">
+            <div class="col-md-3">
+                <label class="form-label">Код партнёра *</label>
+                <input class="form-control" name="partner_code" value="{{ form_values.partner_code or partner.partner_code if partner else form_values.partner_code or '' }}" required>
+            </div>
+            <div class="col-md-5">
+                <label class="form-label">Название *</label>
+                <input class="form-control" name="partner_name" value="{{ form_values.partner_name or partner.partner_name if partner else form_values.partner_name or '' }}" required>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Статус</label>
+                {% set selected_type = form_values.partner_type or (partner.partner_type if partner else 'registration_in_progress') %}
+                <select class="form-select" name="partner_type">
+                    {% for value, label in [('registration_in_progress', 'Подключение'), ('fn', 'Действующий'), ('archive', 'Архив')] %}
+                    <option value="{{ value }}" {% if selected_type == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Частота сверки</label>
+                {% set selected_frequency = form_values.reconciliation_frequency or (partner.reconciliation_frequency if partner else 'not_conducted') %}
+                <select class="form-select" name="reconciliation_frequency">
+                    {% for value, label in [('not_conducted', 'Не проводится'), ('monthly', 'Ежемесячно'), ('quarterly', 'Ежеквартально')] %}
+                    <option value="{{ value }}" {% if selected_frequency == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        {{ wizard_actions(step, optional_steps) }}
+    </section>
+    {% elif step == 2 %}
+    <section class="surface">
+        <h2 class="h5 mb-3">Контактные лица</h2>
+        <div class="table-responsive mb-3">
+            <table class="table table-sm align-middle">
+                <thead><tr><th>ФИО</th><th>E-mail</th><th>Должность</th><th>Тип</th><th>Сверка</th></tr></thead>
+                <tbody>
+                {% for contact in contacts %}
+                <tr><td>{{ contact.last_name }} {{ contact.first_name }} {{ contact.patronymic or '' }}</td><td>{{ contact.email or '' }}</td><td>{{ contact.position }}</td><td>{{ contact.contact_type }}</td><td>{% if contact.is_reconciliation_recipient %}основной{% elif contact.cc_reconciliation %}копия{% else %}-{% endif %}</td></tr>
+                {% else %}
+                <tr><td colspan="5" class="text-secondary">Контакты пока не добавлены.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="row g-3">
+            <div class="col-md-3"><label class="form-label">Фамилия</label><input class="form-control" name="last_name"></div>
+            <div class="col-md-3"><label class="form-label">Имя</label><input class="form-control" name="first_name"></div>
+            <div class="col-md-3"><label class="form-label">Отчество</label><input class="form-control" name="patronymic"></div>
+            <div class="col-md-3"><label class="form-label">Должность</label><input class="form-control" name="position"></div>
+            <div class="col-md-3"><label class="form-label">Тип контакта</label><select class="form-select" name="contact_type">{% for value, label in contact_type_options %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></div>
+            <div class="col-md-3"><label class="form-label">Статус контакта</label><select class="form-select" name="contact_status"><option value="current">Действующий</option><option value="inactive">Неактивный</option></select></div>
+            <div class="col-md-3"><label class="form-label">Актуальный</label><select class="form-select" name="is_current"><option value="yes">Да</option><option value="no">Нет</option></select></div>
+            <div class="col-12"><h3 class="h6 mb-0">Контактные данные</h3></div>
+            <div class="col-md-3"><label class="form-label">Email</label><input class="form-control" type="email" name="email"></div>
+            <div class="col-md-3"><label class="form-label">Мобильный телефон</label><input class="form-control" name="mobile_phone"></div>
+            <div class="col-md-3"><label class="form-label">Рабочий телефон</label><input class="form-control" name="work_phone"></div>
+            <div class="col-md-3"><label class="form-label">Добавочный номер</label><input class="form-control" name="extension_phone"></div>
+            <div class="col-md-3"><label class="form-label">Сайт компании</label><input class="form-control" name="company_website"></div>
+            <div class="col-md-6"><label class="form-label">Адрес</label><input class="form-control" name="address"></div>
+            <div class="col-md-3"><label class="form-label">Участие в сверке сообщений</label><select class="form-select" name="reconciliation_participation">{% for value, label in reconciliation_participation_options %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></div>
+            <div class="col-md-12"><label class="form-label">Комментарии</label><textarea class="form-control" name="comments" rows="2"></textarea></div>
+        </div>
+        {{ wizard_actions(step, optional_steps) }}
+    </section>
+    {% elif step == 3 %}
+    <section class="surface">
+        <h2 class="h5 mb-3">Договоры и дополнительные соглашения</h2>
+        {% if not contracts %}<div class="alert alert-warning py-2">Договор можно добавить позже; завершение партнёра это не блокирует.</div>{% endif %}
+        <div class="table-responsive mb-3">
+            <table class="table table-sm align-middle">
+                <thead><tr><th>Тип</th><th>Номер</th><th>Даты</th><th>Связан с</th><th>Препараты</th></tr></thead>
+                <tbody>
+                {% for contract in contracts %}
+                <tr><td>{{ contract.contract_type }}</td><td>{{ contract.contract_number }}</td><td>{{ contract.contract_date }} - {{ contract.valid_until }}</td><td>{{ contract.parent_contract.contract_number if contract.parent_contract else '-' }}</td><td>{% for product in contract.linked_products %}<span class="status-pill">{{ product.product_name }}</span>{% endfor %}</td></tr>
+                {% else %}
+                <tr><td colspan="5" class="text-secondary">Договоры и ДС пока не добавлены.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="row g-3">
+            <div class="col-md-4"><label class="form-label">Тип договора</label><select class="form-select" name="contract_type"><option value="pharmacovigilance_agreement">Договор по фармаконадзору</option><option value="additional_agreement">Дополнительное соглашение</option></select></div>
+            <div class="col-md-4"><label class="form-label">Основной договор</label><select class="form-select" name="parent_contract_id"><option value="">Не требуется</option>{% for contract in base_contracts %}<option value="{{ contract.id }}">{{ contract.contract_number }}</option>{% endfor %}</select></div>
+            <div class="col-md-4"><label class="form-label">Номер</label><input class="form-control" name="contract_number"></div>
+            <div class="col-md-3"><label class="form-label">Дата</label><input class="form-control" type="date" name="contract_date"></div>
+            <div class="col-md-3"><label class="form-label">Действителен до</label><input class="form-control" type="date" name="valid_until"></div>
+        </div>
+        {{ wizard_actions(step, optional_steps) }}
+    </section>
+    {% elif step == 4 %}
+    <section class="surface">
+        <h2 class="h5 mb-3">Препараты и регистрационные удостоверения</h2>
+        <div class="table-responsive mb-3">
+            <table class="table table-sm align-middle">
+                <thead><tr><th>Препарат</th><th>РУ</th><th>Роль</th><th>Договор/ДС</th></tr></thead>
+                <tbody>
+                {% for row in linked_product_rows %}
+                <tr><td>{{ row.product.product_name if row.product else row.product_id }}</td><td>{{ row.registration_certificate.registration_number if row.registration_certificate else 'не выбрано' }}</td><td>{{ row.partner_role }}</td><td>{{ row.contract.contract_number if row.contract else '-' }}</td></tr>
+                {% else %}
+                <tr><td colspan="4" class="text-secondary">Связи с препаратами пока не добавлены.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="row g-3">
+            <input type="hidden" name="product_mode" value="existing">
+            <div class="col-md-6"><label class="form-label">Торговое наименование</label><input class="form-control" name="product_name" list="partner-product-names" autocomplete="off"><datalist id="partner-product-names">{% for product in products %}<option value="{{ product.product_name }}">{% endfor %}</datalist></div>
+            <div class="col-md-6"><label class="form-label">Действующее вещество — найти в справочнике</label><select class="form-select" name="active_substance_id"><option value="">Не выбрано</option>{% for substance in substances %}<option value="{{ substance.id }}">{{ substance.substance_name }}{% if substance.inn_name %} / {{ substance.inn_name }}{% endif %}{% if substance.atc_code %} ({{ substance.atc_code }}){% endif %}</option>{% endfor %}</select></div>
+            <div class="col-12">
+                <details class="border rounded p-3">
+                    <summary class="fw-semibold">Действующее вещество не найдено — добавить новое?</summary>
+                    <div class="row g-3 mt-1">
+                        <div class="col-md-4"><label class="form-label">Наименование RU</label><input class="form-control" name="substance_name_ru"></div>
+                        <div class="col-md-4"><label class="form-label">Наименование EN</label><input class="form-control" name="substance_name_en"></div>
+                        <div class="col-md-4"><label class="form-label">АТХ / ATC-код</label><input class="form-control" name="substance_atc_code"></div>
+                    </div>
+                </details>
+            </div>
+            <div class="col-md-6"><label class="form-label">Лекарственная форма — найти в справочнике</label><select class="form-select" name="dosage_form_id"><option value="">Не выбрано</option>{% for form in dosage_forms %}<option value="{{ form.id }}">{{ form.name_ru }}{% if form.group_ru %} — {{ form.group_ru }}{% endif %}</option>{% endfor %}</select></div>
+            <div class="col-md-3"><label class="form-label">Дозировка</label><input class="form-control" name="strength"></div>
+            <div class="col-md-3"><label class="form-label">Комментарий</label><input class="form-control" name="link_comment"></div>
+            <div class="col-12">
+                <details class="border rounded p-3">
+                    <summary class="fw-semibold">Лекарственная форма не найдена — добавить новую?</summary>
+                    <div class="row g-3 mt-1">
+                        <div class="col-md-3"><label class="form-label">ЛФ на русском</label><input class="form-control" name="dosage_form_name_ru"></div>
+                        <div class="col-md-3"><label class="form-label">ЛФ на английском</label><input class="form-control" name="dosage_form_name_en"></div>
+                        <div class="col-md-3"><label class="form-label">Группа на русском</label><input class="form-control" name="dosage_form_group_ru"></div>
+                        <div class="col-md-3"><label class="form-label">Группа на английском</label><input class="form-control" name="dosage_form_group_en"></div>
+                    </div>
+                </details>
+            </div>
+        </div>
+        {{ wizard_actions(step, optional_steps) }}
+    </section>
+    {% elif step == 5 %}
+    <section class="surface">
+        <h2 class="h5 mb-3">Услуги и цены</h2>
+        <div class="row g-3">
+            <div class="col-md-3"><label class="form-label">Договор</label><select class="form-select" name="service_contract_id"><option value="">-</option>{% for contract in contracts %}<option value="{{ contract.id }}">{{ contract.contract_number }}</option>{% endfor %}</select></div>
+            <div class="col-md-4"><label class="form-label">Услуга</label><select class="form-select" name="service_id"><option value="">-</option>{% for service in accounting_services %}<option value="{{ service.id }}">{{ service.name }}</option>{% endfor %}</select></div>
+            <div class="col-md-2"><label class="form-label">Ед.</label><input class="form-control" name="service_unit"></div>
+            <div class="col-md-2"><label class="form-label">Цена</label><input class="form-control" type="number" step="0.01" min="0" name="service_price"></div>
+            <div class="col-md-12"><label class="form-label">Комментарий к услуге</label><input class="form-control" name="service_comment"></div>
+        </div>
+        {{ wizard_actions(step, optional_steps) }}
+    </section>
+    {% elif step == 6 %}
+    <section class="surface">
+        <h2 class="h5 mb-3">Документы</h2>
+        <div class="table-responsive mb-3">
+            <table class="table table-sm align-middle">
+                <thead><tr><th>Название</th><th>Тип</th><th>Версия</th><th>Статус</th><th>Дата</th></tr></thead>
+                <tbody>
+                {% for document in documents %}
+                <tr><td>{{ document.document_title or document.file_name }}</td><td>{{ document.document_type or document.attachment_type }}</td><td>{{ document.document_version or '' }}</td><td>{{ document.status }}</td><td>{{ document.document_date or document.uploaded_at or document.created_at }}</td></tr>
+                {% else %}
+                <tr><td colspan="5" class="text-secondary">Документы пока не добавлены.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="row g-3">
+            <div class="col-md-4"><label class="form-label">Файл</label><input class="form-control" type="file" name="document_file"></div>
+            <div class="col-md-4"><label class="form-label">Название</label><input class="form-control" name="document_title"></div>
+            <div class="col-md-4"><label class="form-label">Тип</label><select class="form-select" name="document_type">{% for type in document_types %}<option value="{{ type }}">{{ type }}</option>{% endfor %}</select></div>
+            <div class="col-md-2"><label class="form-label">Версия</label><input class="form-control" name="document_version"></div>
+            <div class="col-md-2"><label class="form-label">Дата</label><input class="form-control" type="date" name="document_date"></div>
+            <div class="col-md-3"><label class="form-label">Статус</label><select class="form-select" name="document_status">{% for status in document_statuses %}<option value="{{ status }}">{{ status }}</option>{% endfor %}</select></div>
+            <div class="col-md-5"><label class="form-label">Комментарий</label><input class="form-control" name="document_comment"></div>
+        </div>
+        {{ wizard_actions(step, optional_steps) }}
+    </section>
+    {% elif step == 7 %}
+    <section class="surface">
+        <h2 class="h5 mb-3">Проверка</h2>
+        {% if summary %}
+        <div class="pv-summary-strip mb-3">
+            <div class="pv-summary-tile"><span>Партнёр</span><strong>{{ summary.partner.partner_name if summary.partner else '-' }}</strong></div>
+            <div class="pv-summary-tile"><span>Контакты</span><strong>{{ summary.contacts_count }}</strong></div>
+            <div class="pv-summary-tile"><span>Договоры</span><strong>{{ summary.contracts|length }}</strong></div>
+            <div class="pv-summary-tile"><span>ДС</span><strong>{{ summary.additional_agreements_count }}</strong></div>
+            <div class="pv-summary-tile"><span>Препараты</span><strong>{{ summary.products|length }}</strong></div>
+            <div class="pv-summary-tile"><span>РУ</span><strong>{{ summary.registration_count }}</strong></div>
+            <div class="pv-summary-tile"><span>Документы</span><strong>{{ summary.documents_count }}</strong></div>
+            <div class="pv-summary-tile"><span>Услуги</span><strong>{{ summary.services_count }}</strong></div>
+        </div>
+        <h3 class="h6">Требует внимания</h3>
+        <div class="row g-3">
+            <div class="col-md-6">
+                <div class="fw-semibold mb-2">Блокирующие</div>
+                <ul class="pv-compact-list">
+                    {% for item in summary.blocking_attention %}
+                    <li><i data-lucide="circle-alert"></i><span>{{ item.text }}</span></li>
+                    {% else %}
+                    <li><i data-lucide="check"></i><span>Блокирующих ошибок нет.</span></li>
+                    {% endfor %}
+                </ul>
+            </div>
+            <div class="col-md-6">
+                <div class="fw-semibold mb-2">Неблокирующие</div>
+                <ul class="pv-compact-list">
+                    {% for item in summary.nonblocking_attention %}
+                    <li><i data-lucide="triangle-alert"></i><span>{{ item.text }}</span></li>
+                    {% else %}
+                    <li><i data-lucide="check"></i><span>Неблокирующих замечаний нет.</span></li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+        {% endif %}
+        {{ wizard_actions(step, optional_steps) }}
+    </section>
+    {% endif %}
+</form>
+{% endblock %}

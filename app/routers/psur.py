@@ -1,3 +1,4 @@
+from app.concurrency import snapshot_token, protect_snapshot, PSUR_INPUTS
 from datetime import date
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
@@ -7,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app import crud, schemas
 from app.auth import require_any_permission, require_permission
+from app.concurrency import require_version
 from app.database import get_db
 from app.models import PSURPartnerRequest
 from app.statuses import status_codes
@@ -137,6 +139,7 @@ def psur_page(
         "psur.html",
         {
             "request": request,
+            "input_snapshot": snapshot_token(db, PSUR_INPUTS),
             "active_page": "psur",
             "plans": plans,
             "filters": filters,
@@ -209,6 +212,7 @@ def psur_detail(
         "psur_detail.html",
         {
             "request": request,
+            "input_snapshot": snapshot_token(db, PSUR_INPUTS),
             "active_page": "psur",
             "plan": plan,
             "tasks": crud.list_psur_tasks(db, plan.id),
@@ -225,6 +229,7 @@ def psur_detail(
 def update_psur_plan_form(
     psur_plan_id: str,
     request: Request,
+    expected_version: int = Form(..., gt=0),
     product_id: str | None = Form(None),
     psur_type: str = Form("PSUR"),
     reporting_period_start: str = Form(...),
@@ -240,6 +245,7 @@ def update_psur_plan_form(
     plan = crud.get_psur_plan(db, psur_plan_id)
     if not plan:
         return redirect_with_message("/psur", error="PSUR plan not found.")
+    require_version(plan, expected_version)
     crud.update_psur_plan(
         db,
         plan,
@@ -267,6 +273,7 @@ def update_psur_plan_form(
 def update_psur_status_form(
     psur_plan_id: str,
     request: Request,
+    expected_version: int = Form(..., gt=0),
     status_value: str = Form(...),
     change_reason: str | None = Form(None),
     db: Session = Depends(get_db),
@@ -274,6 +281,7 @@ def update_psur_status_form(
     plan = crud.get_psur_plan(db, psur_plan_id)
     if not plan:
         return redirect_with_message("/psur", error="PSUR plan not found.")
+    require_version(plan, expected_version)
     crud.update_psur_status(
         db,
         plan,
@@ -287,12 +295,14 @@ def update_psur_status_form(
 def delete_psur_plan_form(
     psur_plan_id: str,
     request: Request,
+    expected_version: int = Form(..., gt=0),
     delete_reason: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     plan = crud.get_psur_plan(db, psur_plan_id)
     if not plan:
         return redirect_with_message("/psur", error="PSUR plan not found.")
+    require_version(plan, expected_version)
     crud.delete_psur_plan(
         db,
         plan,
@@ -308,6 +318,7 @@ def delete_psur_plan_form(
 )
 def add_psur_product_form(
     psur_plan_id: str,
+    expected_version: int = Form(..., gt=0),
     product_id: str = Form(...),
     country: str | None = Form(None),
     marketing_authorisation_number: str | None = Form(None),
@@ -320,6 +331,7 @@ def add_psur_product_form(
         return redirect_with_message("/psur", error="PSUR plan not found.")
     if not crud.get_product(db, product_id):
         return redirect_with_message(f"/psur/{psur_plan_id}#products", validation="Product not found.")
+    require_version(plan, expected_version)
     try:
         crud.add_psur_product(
             db,
@@ -339,10 +351,17 @@ def add_psur_product_form(
 
 
 @router.post("/psur/{psur_plan_id}/find-cases", dependencies=[Depends(require_permission("edit"))])
-def find_psur_cases_form(psur_plan_id: str, db: Session = Depends(get_db)):
+def find_psur_cases_form(
+    psur_plan_id: str,
+    expected_version: int = Form(..., gt=0),
+    expected_inputs: str = Form(..., min_length=64, max_length=64),
+    db: Session = Depends(get_db),
+):
     plan = crud.get_psur_plan(db, psur_plan_id)
     if not plan:
         return redirect_with_message("/psur", error="PSUR plan not found.")
+    require_version(plan, expected_version)
+    protect_snapshot(db, PSUR_INPUTS, expected_inputs)
     created = crud.find_and_link_psur_cases(db, plan)
     return redirect_with_message(
         f"/psur/{psur_plan_id}#cases",
@@ -355,6 +374,8 @@ def update_psur_case_form(
     psur_plan_id: str,
     psur_case_id: str,
     request: Request,
+    expected_version: int = Form(..., gt=0),
+    expected_row_version: int = Form(..., gt=0),
     case_included: bool = Form(False),
     reason_excluded: str | None = Form(None),
     seriousness: str | None = Form(None),
@@ -363,9 +384,14 @@ def update_psur_case_form(
     assessment_comment: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
+    plan = crud.get_psur_plan(db, psur_plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="PSUR plan not found")
     psur_case = crud.get_psur_case(db, psur_case_id)
     if not psur_case or psur_case.psur_plan_id != psur_plan_id:
         return redirect_with_message(f"/psur/{psur_plan_id}#cases", error="Case not found.")
+    require_version(plan, expected_version)
+    require_version(psur_case, expected_row_version)
     crud.update_psur_case(
         db,
         psur_case,
@@ -389,10 +415,12 @@ def update_psur_case_form(
 def create_partner_requests_form(
     psur_plan_id: str,
     request: Request,
+    expected_version: int = Form(..., gt=0),
     partner_ids: list[str] = Form([]),
     request_type: str = Form("Cases"),
     request_date: str | None = Form(None),
     due_date: str | None = Form(None),
+    expected_inputs: str = Form(..., min_length=64, max_length=64),
     db: Session = Depends(get_db),
 ):
     plan = crud.get_psur_plan(db, psur_plan_id)
@@ -403,6 +431,8 @@ def create_partner_requests_form(
             f"/psur/{psur_plan_id}#partner-requests",
             validation="Select at least one partner.",
         )
+    require_version(plan, expected_version)
+    protect_snapshot(db, PSUR_INPUTS, expected_inputs)
     created = crud.create_psur_partner_requests(
         db,
         plan,
@@ -426,6 +456,8 @@ def update_partner_request_form(
     psur_plan_id: str,
     request_id: str,
     request: Request,
+    expected_version: int = Form(..., gt=0),
+    expected_row_version: int = Form(..., gt=0),
     partner_id: str = Form(...),
     contact_person_id: str | None = Form(None),
     request_type: str = Form("Cases"),
@@ -450,6 +482,12 @@ def update_partner_request_form(
     )
     if not request_row:
         return redirect_with_message(f"/psur/{psur_plan_id}#partner-requests", error="Request not found.")
+    require_version(plan, expected_version)
+    require_version(request_row, expected_row_version)
+    if document_id:
+        document = next((row for row in plan.documents if row.id == document_id and not row.is_deleted), None)
+        if document is None:
+            raise HTTPException(status_code=400, detail="Document does not belong to this PSUR plan")
     crud.update_psur_partner_request(
         db,
         request_row,
@@ -476,6 +514,8 @@ def update_section_form(
     psur_plan_id: str,
     section_id: str,
     request: Request,
+    expected_version: int = Form(..., gt=0),
+    expected_row_version: int = Form(..., gt=0),
     section_status: str = Form("Draft"),
     assigned_to: str | None = Form(None),
     reviewed_by: str | None = Form(None),
@@ -484,9 +524,14 @@ def update_section_form(
     human_confirmed: bool = Form(False),
     db: Session = Depends(get_db),
 ):
+    plan = crud.get_psur_plan(db, psur_plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="PSUR plan not found")
     section = crud.get_psur_section(db, section_id)
     if not section or section.psur_plan_id != psur_plan_id:
         return redirect_with_message(f"/psur/{psur_plan_id}#sections", error="Section not found.")
+    require_version(plan, expected_version)
+    require_version(section, expected_row_version)
     crud.update_psur_section(
         db,
         section,
@@ -511,12 +556,18 @@ def generate_section_draft_form(
     psur_plan_id: str,
     section_id: str,
     request: Request,
+    expected_version: int = Form(..., gt=0),
+    expected_row_version: int = Form(..., gt=0),
+    expected_inputs: str = Form(..., min_length=64, max_length=64),
     db: Session = Depends(get_db),
 ):
     plan = crud.get_psur_plan(db, psur_plan_id)
     section = crud.get_psur_section(db, section_id)
     if not plan or not section or section.psur_plan_id != psur_plan_id:
         return redirect_with_message(f"/psur/{psur_plan_id}#sections", error="Section not found.")
+    require_version(plan, expected_version)
+    require_version(section, expected_row_version)
+    protect_snapshot(db, PSUR_INPUTS, expected_inputs)
     crud.generate_psur_section_draft(
         db,
         plan,
@@ -536,6 +587,7 @@ def generate_section_draft_form(
 def add_psur_document_form(
     psur_plan_id: str,
     request: Request,
+    expected_version: int = Form(..., gt=0),
     document_type: str = Form("Draft"),
     file_name: str = Form(...),
     file_path: str | None = Form(None),
@@ -549,6 +601,7 @@ def add_psur_document_form(
         return redirect_with_message("/psur", error="PSUR plan not found.")
     if not file_name.strip():
         return redirect_with_message(f"/psur/{psur_plan_id}#documents", validation="File name is required.")
+    require_version(plan, expected_version)
     crud.add_psur_document(
         db,
         plan,
@@ -572,6 +625,7 @@ def add_psur_document_form(
 def add_psur_task_form(
     psur_plan_id: str,
     request: Request,
+    expected_version: int = Form(..., gt=0),
     title: str = Form(...),
     description: str | None = Form(None),
     status_value: str = Form("Open"),
@@ -585,6 +639,8 @@ def add_psur_task_form(
         return redirect_with_message("/psur", error="PSUR plan not found.")
     if not title.strip():
         return redirect_with_message(f"/psur/{psur_plan_id}#tasks", validation="Task title is required.")
+    require_version(plan, expected_version)
+    plan.version += 1
     crud.create_task(
         db,
         schemas.TaskCreate(
@@ -598,7 +654,9 @@ def add_psur_task_form(
             related_entity_id=psur_plan_id,
         ),
         created_by_user_id=current_user_id(request),
+        commit=False,
     )
+    db.commit()
     return redirect_with_message(f"/psur/{psur_plan_id}#tasks", message="Task saved.")
 
 
@@ -630,12 +688,19 @@ def api_get_psur_plan(psur_plan_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/api/psur/{psur_plan_id}/cases/export.csv", dependencies=[Depends(require_permission("export"))])
-def api_export_psur_cases(psur_plan_id: str, db: Session = Depends(get_db)):
+def api_export_psur_cases(
+    psur_plan_id: str,
+    dosage_form_language: str = "ru",
+    db: Session = Depends(get_db),
+):
     plan = crud.get_psur_plan(db, psur_plan_id)
     if not plan:
         raise HTTPException(status_code=404, detail="PSUR plan not found")
     return Response(
-        crud.export_psur_cases_csv(plan),
+        crud.export_psur_cases_csv(
+            plan,
+            dosage_form_language=dosage_form_language,
+        ),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=psur_case_line_listing.csv"},
     )
@@ -656,7 +721,8 @@ def api_export_psur_partner_requests(psur_plan_id: str, db: Session = Depends(ge
     )
 
 
-@router.get("/api/psur/{psur_plan_id}/audit/export.csv", dependencies=[Depends(require_permission("export"))])
+@router.get("/api/psur/{psur_plan_id}/audit/export.csv",
+            dependencies=[Depends(require_permission("export")), Depends(require_permission("audit_view"))])
 def api_export_psur_audit(psur_plan_id: str, db: Session = Depends(get_db)):
     plan = crud.get_psur_plan(db, psur_plan_id)
     if not plan:
@@ -669,12 +735,19 @@ def api_export_psur_audit(psur_plan_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/api/psur/{psur_plan_id}/summary.rtf", dependencies=[Depends(require_permission("export"))])
-def api_export_psur_summary(psur_plan_id: str, db: Session = Depends(get_db)):
+def api_export_psur_summary(
+    psur_plan_id: str,
+    dosage_form_language: str = "ru",
+    db: Session = Depends(get_db),
+):
     plan = crud.get_psur_plan(db, psur_plan_id)
     if not plan:
         raise HTTPException(status_code=404, detail="PSUR plan not found")
     return Response(
-        crud.export_psur_summary_rtf(plan),
+        crud.export_psur_summary_rtf(
+            plan,
+            dosage_form_language=dosage_form_language,
+        ),
         media_type="application/rtf",
         headers={"Content-Disposition": "attachment; filename=psur_plan_summary.rtf"},
     )

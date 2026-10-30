@@ -1,13 +1,31 @@
 {% extends "base.html" %}
-{% block title %}{{ report.safety_report_number }} - {{ _('PV MVP') }}{% endblock %}
+{% from "_immutable_documents.html" import immutable_documents_block with context %}
+{% block title %}{{ report.safety_report_number }} - {{ _('PV System') }}{% endblock %}
 
 {% block content %}
+{% set minimum_criteria_complete = report.minimum_criteria_patient and report.minimum_criteria_reporter and report.minimum_criteria_product and report.minimum_criteria_event %}
+{% set triage_needs_completion = report.triage_status in ['new', 'in_triage'] or not minimum_criteria_complete %}
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
     <div>
+        <div class="text-secondary small">Сообщение по безопасности</div>
         <h1 class="h3 mb-1">{{ report.safety_report_number }}</h1>
-        <div class="text-secondary small">{{ _(report.source_type or "source") }} / {{ report.received_date or "" }}</div>
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            <span class="status-pill {% if report.case %}pv-status-success{% elif triage_needs_completion %}pv-status-warning{% else %}pv-status-neutral{% endif %}">{% if report.case %}Кейс создан{% elif triage_needs_completion %}Требует проверки{% else %}{{ _(report.triage_status) }}{% endif %}</span>
+            <span class="text-secondary small">{% if report.case %}Сообщение связано с кейсом.{% elif triage_needs_completion %}Проверьте критерии и завершите триаж.{% else %}Сообщение проверено и готово к следующему шагу.{% endif %}</span>
+        </div>
     </div>
-    <a class="btn btn-outline-secondary btn-sm icon-button" href="/safety-reports"><i data-lucide="arrow-left"></i><span>{{ _('Back') }}</span></a>
+    <div class="d-flex flex-wrap gap-2">
+        <a class="btn btn-outline-secondary btn-sm icon-button" href="/safety-reports"><i data-lucide="arrow-left"></i><span>{{ _('Back') }}</span></a>
+        {% if report.case %}
+        <a class="btn btn-primary btn-sm icon-button" href="/cases/{{ report.case.id }}"><i data-lucide="folder-open"></i><span>Открыть кейс</span></a>
+        {% elif report.is_valid_icsr and (has_permission('create') or has_permission('icsr_workflow')) %}
+        <form method="post" action="/safety-reports/{{ report.id }}/create-case">
+<input type="hidden" name="expected_inputs" value="{{ input_snapshot }}">
+                <input type="hidden" name="expected_version" value="{{ report.version }}"><button class="btn btn-primary btn-sm icon-button" type="submit"><i data-lucide="folder-plus"></i><span>Создать кейс</span></button></form>
+        {% elif has_permission('edit') or has_permission('icsr_workflow') %}
+        <button class="btn btn-primary btn-sm icon-button" type="button" data-safety-triage-toggle aria-controls="safety-triage-edit" aria-expanded="false"><i data-lucide="list-checks"></i><span>Завершить триаж</span></button>
+        {% endif %}
+    </div>
 </div>
 
 {% if message %}
@@ -32,7 +50,42 @@
                 <dd class="col-sm-9">{{ report.reporter_country_code or "" }}</dd>
                 <dt class="col-sm-3">{{ _('Partner') }}</dt>
                 <dd class="col-sm-9">{{ report.partner.partner_name if report.partner else "" }}</dd>
+                <dt class="col-sm-3">{{ _('Products') }}</dt>
+                <dd class="col-sm-9">{{ report.product_names|join(', ') }}</dd>
+                <dt class="col-sm-3">{{ _('Source') }}</dt>
+                <dd class="col-sm-9">{{ _(report.source_type) }}</dd>
+                <dt class="col-sm-3">{{ _('Message direction') }}</dt>
+                <dd class="col-sm-9"><span class="status-pill {% if report.message_direction == 'needs_review' %}pv-status-warning{% endif %}">{{ _(report.message_direction) }}</span></dd>
             </dl>
+            <form class="row g-2 align-items-end mb-3" method="post" action="/safety-reports/{{ report.id }}/direction">
+                <input type="hidden" name="expected_version" value="{{ report.version }}">
+                <div class="col-md-8">
+                    <label class="form-label">{{ _('Message direction') }}</label>
+                    <select class="form-select" name="message_direction" required>
+                        <option value="" disabled {% if report.message_direction == 'needs_review' %}selected{% endif %}>{{ _('Select message direction') }}</option>
+                        <option value="partner_to_our_company" {% if report.message_direction == 'partner_to_our_company' %}selected{% endif %}>{{ _('partner_to_our_company') }}</option>
+                        <option value="our_company_to_partner" {% if report.message_direction == 'our_company_to_partner' %}selected{% endif %}>{{ _('our_company_to_partner') }}</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <button class="btn btn-outline-primary w-100 icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Save') }}</span></button>
+                </div>
+            </form>
+            <form class="row g-2 align-items-end mb-3" method="post" action="/safety-reports/{{ report.id }}/products">
+                <input type="hidden" name="expected_version" value="{{ report.version }}">
+                <div class="col-md-8">
+                    <label class="form-label">{{ _('Products') }}</label>
+                    <select class="form-select" name="product_ids" multiple size="4">
+                        {% for product in products %}
+                        <option value="{{ product.id }}" {% if product.id in report.product_ids %}selected{% endif %}>{{ product.product_name }}</option>
+                        {% endfor %}
+                    </select>
+                    <div class="form-text">{{ _('Select one or more products.') }}</div>
+                </div>
+                <div class="col-md-4">
+                    <button class="btn btn-outline-primary w-100 icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Save') }}</span></button>
+                </div>
+            </form>
             <div class="raw-text">{{ report.raw_text or "" }}</div>
         </section>
 
@@ -44,13 +97,27 @@
                 <span class="{% if report.minimum_criteria_product %}criteria-ok{% else %}criteria-missing{% endif %}">{{ _('Product') }}</span>
                 <span class="{% if report.minimum_criteria_event %}criteria-ok{% else %}criteria-missing{% endif %}">{{ _('Event') }}</span>
             </div>
+            {% if not minimum_criteria_complete %}
+            <div class="text-secondary small mt-3">Чтобы определить дальнейший маршрут, укажите пациента, отправителя, препарат и нежелательное явление.</div>
+            {% endif %}
         </section>
     </div>
 
     <div class="col-lg-5">
         <section class="surface mb-4">
-            <h2 class="h6 section-title">{{ _('Triage') }}</h2>
-            <form class="row g-3" method="post" action="/safety-reports/{{ report.id }}/triage">
+            <div class="d-flex justify-content-between align-items-center gap-2 mb-3" data-safety-triage-view>
+                <h2 class="h6 section-title mb-0">{{ _('Triage') }}</h2>
+                <button class="btn btn-outline-primary btn-sm icon-button" type="button" data-safety-triage-toggle aria-controls="safety-triage-edit" aria-expanded="false">
+                    <i data-lucide="pencil"></i><span>{{ _('Edit') }}</span>
+                </button>
+            </div>
+            <div class="row g-3" data-safety-triage-view>
+                <div class="col-md-6"><span class="text-secondary small">{{ _('Status') }}</span><div>{{ _(report.triage_status) }}</div></div>
+                <div class="col-md-6"><span class="text-secondary small">{{ _('Valid ICSR') }}</span><div>{% if report.is_valid_icsr %}{{ _('Yes') }}{% else %}{{ _('No') }}{% endif %}</div></div>
+                <div class="col-12"><span class="text-secondary small">{{ _('Comment') }}</span><div>{{ report.triage_comment or "" }}</div></div>
+            </div>
+            <form class="row g-3" method="post" action="/safety-reports/{{ report.id }}/triage" id="safety-triage-edit" hidden>
+                <input type="hidden" name="expected_version" value="{{ report.version }}">
                 <div class="col-md-6">
                     <label class="form-label">{{ _('Status') }}</label>
                     <select class="form-select" name="triage_status">
@@ -80,16 +147,18 @@
                 </div>
                 <div class="col-12">
                     <button class="btn btn-primary icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Save triage') }}</span></button>
+                    <button class="btn btn-outline-secondary icon-button" type="button" data-safety-triage-toggle><i data-lucide="x"></i><span>{{ _('Cancel') }}</span></button>
                 </div>
             </form>
         </section>
         {% endif %}
 
         <section class="surface">
-            <h2 class="h6 section-title">{{ _('Actions') }}</h2>
+            <h2 class="h6 section-title">Дополнительные действия</h2>
             <div class="d-flex flex-wrap gap-2">
                 {% if has_permission('edit') or has_permission('icsr_workflow') %}
                 <form method="post" action="/safety-reports/{{ report.id }}/triage">
+                <input type="hidden" name="expected_version" value="{{ report.version }}">
                     <input type="hidden" name="triage_status" value="valid_icsr">
                     <input type="hidden" name="is_valid_icsr" value="true">
                     <input type="hidden" name="minimum_criteria_patient" value="true">
@@ -99,13 +168,16 @@
                     <button class="btn btn-success btn-sm icon-button" type="submit"><i data-lucide="check"></i><span>{{ _('Mark valid ICSR') }}</span></button>
                 </form>
                 <form method="post" action="/safety-reports/{{ report.id }}/triage">
+                <input type="hidden" name="expected_version" value="{{ report.version }}">
                     <input type="hidden" name="triage_status" value="invalid">
                     <button class="btn btn-outline-danger btn-sm icon-button" type="submit"><i data-lucide="x"></i><span>{{ _('Mark invalid') }}</span></button>
                 </form>
                 {% endif %}
-                {% if has_permission('create') or has_permission('icsr_workflow') %}
+                {% if not report.case and not report.is_valid_icsr and (has_permission('create') or has_permission('icsr_workflow')) %}
                 <form method="post" action="/safety-reports/{{ report.id }}/create-case">
-                    <button class="btn btn-primary btn-sm icon-button" type="submit"><i data-lucide="folder-plus"></i><span>{{ _('Create Case') }}</span></button>
+<input type="hidden" name="expected_inputs" value="{{ input_snapshot }}">
+                <input type="hidden" name="expected_version" value="{{ report.version }}">
+                    <button class="btn btn-outline-primary btn-sm icon-button" type="submit"><i data-lucide="folder-plus"></i><span>{{ _('Create Case') }}</span></button>
                 </form>
                 {% endif %}
                 {% if report.case %}
@@ -115,4 +187,26 @@
         </section>
     </div>
 </div>
+{{ immutable_documents_block(immutable_documents, 'SafetySource', report.id, report.partner_id or '', 'Приложение В-1.1' if report.partner_id else 'Приложение В-1', 'PARTNER_SPECIFIC' if report.partner_id else 'GLOBAL', '/safety-reports/' ~ report.id, 'Нередактируемые документы источника сообщения', context_version=report.version) }}
+<script>
+document.querySelectorAll("[data-safety-triage-toggle]").forEach((button) => {
+    button.addEventListener("click", () => {
+        const panel = document.getElementById("safety-triage-edit");
+        if (!panel) {
+            return;
+        }
+        const willOpen = panel.hidden;
+        panel.hidden = !willOpen;
+        document.querySelectorAll("[data-safety-triage-view]").forEach((viewElement) => {
+            viewElement.hidden = willOpen;
+        });
+        document.querySelectorAll("[data-safety-triage-toggle][aria-controls='safety-triage-edit']").forEach((toggle) => {
+            toggle.setAttribute("aria-expanded", willOpen ? "true" : "false");
+        });
+        if (willOpen) {
+            panel.querySelector("input, select, textarea")?.focus();
+        }
+    });
+});
+</script>
 {% endblock %}

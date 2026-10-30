@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% from "_immutable_documents.html" import immutable_documents_block with context %}
+{% block title %}Обучение - {{ _('PV System') }}{% endblock %}
+{% block content %}
+<div class="mb-3"><h1 class="h3 mb-1">Обучение сотрудников</h1><div class="text-secondary small">Документы об обучении хранятся в едином реестре и включаются в приложение Ж-4.</div></div>
+{% if message %}<div class="alert alert-success py-2">{{ _(message) }}</div>{% endif %}
+{% if error %}<div class="alert alert-danger py-2">{{ _(error) }}</div>{% endif %}
+{% if validation %}<div class="alert alert-warning py-2">{{ _(validation) }}</div>{% endif %}
+<section class="surface mb-3"><form class="row g-2 align-items-end" method="get" action="/training"><div class="col-md-5"><label class="form-label">Карточка сотрудника</label><select class="form-select" name="employee_id"><option value="">Общий раздел обучения</option>{% for employee in employees %}<option value="{{ employee.id }}" {% if selected_employee and selected_employee.id == employee.id %}selected{% endif %}>{{ employee.full_name or employee.login or employee.email }}</option>{% endfor %}</select></div><div class="col-md-2"><button class="btn btn-primary" type="submit">Открыть</button></div></form></section>
+{% if selected_employee %}
+{{ immutable_documents_block(documents, 'Employee', selected_employee.id, '', 'Приложение Ж-4', 'GLOBAL', '/training?employee_id=' ~ selected_employee.id, 'Нередактируемые документы сотрудника', context_version=selected_employee.version) }}
+{% else %}
+{{ immutable_documents_block(documents, 'Training', 'registry', '', 'Приложение Ж-4', 'GLOBAL', '/training', 'Нередактируемые документы раздела обучения') }}
+{% endif %}
+{% endblock %}

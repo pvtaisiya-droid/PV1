@@ -1,7 +1,9 @@
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from app.message_directions import MessageDirection, ResolvedMessageDirection
 
 
 class ORMModel(BaseModel):
@@ -16,6 +18,7 @@ class PermissionRead(ORMModel):
 
 
 class RoleRead(ORMModel):
+    version: int
     id: str
     role_code: str
     role_name: str
@@ -24,14 +27,16 @@ class RoleRead(ORMModel):
 
 
 class UserCreate(BaseModel):
-    email: str
+    login: str
+    password: str
     full_name: str | None = None
     role_ids: list[str] = Field(default_factory=list)
 
 
 class UserRead(ORMModel):
+    version: int
     id: str
-    email: str
+    login: str
     full_name: str | None = None
     role: str
     is_active: bool
@@ -54,6 +59,7 @@ class PartnerBase(BaseModel):
     reconciliation_frequency: Literal["monthly", "quarterly", "not_conducted"] = (
         "not_conducted"
     )
+    address: str | None = None
 
 
 class PartnerCreate(PartnerBase):
@@ -61,6 +67,7 @@ class PartnerCreate(PartnerBase):
 
 
 class PartnerRead(PartnerBase, ORMModel):
+    version: int
     id: str
     created_at: datetime
     updated_at: datetime
@@ -81,31 +88,113 @@ class SubstanceCreate(SubstanceBase):
 
 
 class SubstanceRead(SubstanceBase, ORMModel):
+    version: int
     id: str
     created_at: datetime
     updated_at: datetime
 
 
+class DosageFormBase(BaseModel):
+    name_ru: str
+    name_en: str | None = None
+    group_ru: str | None = None
+    group_en: str | None = None
+    is_active: bool = True
+    sort_order: int | None = None
+
+
+class DosageFormCreate(DosageFormBase):
+    pass
+
+
+class DosageFormRead(DosageFormBase, ORMModel):
+    id: int
+    row_version: int
+
+
 class ProductBase(BaseModel):
-    product_code: str
+    product_code: str | None = None
     product_name: str
     product_name_normalized: str | None = None
     dosage_form: str | None = None
+    dosage_form_id: int | None = None
     strength: str | None = None
     route: str | None = None
     mah_partner_id: str | None = None
     authorization_number: str | None = None
     authorization_country_code: str | None = None
     authorization_status: str | None = None
+    comment: str | None = None
     is_company_product: bool = True
     is_active: bool = True
 
 
 class ProductCreate(ProductBase):
     active_substance: str | None = None
+    active_substance_id: str | None = None
 
 
 class ProductRead(ProductBase, ORMModel):
+    version: int
+    id: str
+    dosage_form_ref: DosageFormRead | None = None
+    dosage_form_name_ru: str | None = None
+    dosage_form_name_en: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ProductRegistrationCertificateBase(BaseModel):
+    product_id: str
+    registration_number: str
+    registration_date: date | None = None
+    valid_until: date | None = None
+    status: str = "active"
+    holder: str | None = None
+    country_code: str | None = None
+    dosage_form: str | None = None
+    strength: str | None = None
+    comment: str | None = None
+
+
+class ProductRegistrationCertificateCreate(ProductRegistrationCertificateBase):
+    pass
+
+
+class ProductRegistrationCertificateRead(ProductRegistrationCertificateBase, ORMModel):
+    version: int
+    id: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class PartnerProductRegistrationLinkCreate(BaseModel):
+    partner_id: str
+    product_id: str
+    registration_certificate_id: str | None = None
+    contract_id: str | None = None
+    partner_role: str = "mah"
+    comment: str | None = None
+
+
+class PartnerProductRegistrationLinkRead(
+    PartnerProductRegistrationLinkCreate,
+    ORMModel,
+):
+    id: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class PartnerOnboardingWizardCreate(BaseModel):
+    partner_id: str | None = None
+    current_step: int = 1
+    completed_steps: str = ""
+    status: str = "draft"
+    user_id: str | None = None
+
+
+class PartnerOnboardingWizardRead(PartnerOnboardingWizardCreate, ORMModel):
     id: str
     created_at: datetime
     updated_at: datetime
@@ -113,7 +202,8 @@ class ProductRead(ProductBase, ORMModel):
 
 class ContractBase(BaseModel):
     partner_id: str
-    product_id: str
+    product_id: str | None = None
+    product_ids: list[str] = Field(default_factory=list)
     parent_contract_id: str | None = None
     contract_type: Literal[
         "pharmacovigilance_agreement",
@@ -122,6 +212,19 @@ class ContractBase(BaseModel):
     contract_number: str
     contract_date: date
     valid_until: date
+
+    @model_validator(mode="after")
+    def normalize_product_ids(self):
+        product_ids: list[str] = []
+        for product_id in self.product_ids or []:
+            if product_id and product_id not in product_ids:
+                product_ids.append(product_id)
+        if self.product_id and self.product_id not in product_ids:
+            product_ids.insert(0, self.product_id)
+        if product_ids:
+            self.product_id = product_ids[0]
+        self.product_ids = product_ids
+        return self
 
 
 class ContractCreate(ContractBase):
@@ -133,6 +236,7 @@ class ContractUpdate(ContractBase):
 
 
 class ContractRead(ContractBase, ORMModel):
+    version: int
     id: str
     is_current: bool
     created_at: datetime
@@ -146,11 +250,17 @@ class ContractContactBase(BaseModel):
     patronymic: str | None = None
     email: str | None = None
     position: str
+    mobile_phone: str | None = None
+    work_phone: str | None = None
+    extension_phone: str | None = None
+    company_website: str | None = None
+    address: str | None = None
     is_current: bool = True
     is_pv_contact: bool = True
     is_reconciliation_recipient: bool = True
     cc_reconciliation: bool = False
     is_primary: bool = False
+    is_billing_contact: bool = False
     contact_type: str | None = "pv"
     comments: str | None = None
 
@@ -161,6 +271,7 @@ class ContractContactCreate(ContractContactBase):
 
 class ContractContactRead(ContractContactBase, ORMModel):
     id: str
+    version: int
     created_at: datetime
     updated_at: datetime
 
@@ -284,7 +395,9 @@ class SafetyReportBase(BaseModel):
     received_at: datetime | None = None
     received_date: date | None = None
     source_type: str | None = "email"
+    message_direction: MessageDirection
     partner_id: str | None = None
+    product_ids: list[str] = Field(default_factory=list)
     reporter_name: str | None = None
     reporter_email: str | None = None
     reporter_country_code: str | None = None
@@ -304,7 +417,9 @@ class SafetyReportCreate(SafetyReportBase):
 
 
 class SafetyReportRead(SafetyReportBase, ORMModel):
+    input_snapshot: str | None = None
     id: str
+    version: int
     triaged_by_user_id: str | None = None
     triaged_at: datetime | None = None
     case_id: str | None = None
@@ -323,9 +438,23 @@ class TriageUpdate(BaseModel):
     change_reason: str | None = None
 
 
+class MessageDirectionUpdate(BaseModel):
+    message_direction: ResolvedMessageDirection
+
+
+class SafetyReportTriageUpdate(TriageUpdate):
+    expected_version: int = Field(..., gt=0)
+
+
+class SafetyReportProductSelectionUpdate(BaseModel):
+    product_ids: list[str] = Field(default_factory=list)
+    expected_version: int = Field(..., gt=0)
+
+
 class CaseBase(BaseModel):
     case_number: str | None = None
     worldwide_case_id: str | None = None
+    local_sender_case_id: str | None = None
     safety_report_id: str | None = None
     partner_id: str | None = None
     case_version: int = 1
@@ -341,6 +470,8 @@ class CaseBase(BaseModel):
     narrative: str | None = None
     company_comment: str | None = None
     medical_review_comment: str | None = None
+    source_country_code: str | None = None
+    data_review_status: str | None = None
     workflow_status: str = "new"
     assigned_to_user_id: str | None = None
     due_date: date | None = None
@@ -352,6 +483,15 @@ class CaseCreate(CaseBase):
 
 class CaseRead(CaseBase, ORMModel):
     id: str
+    version: int
+    full_case_code: str
+    numbering_partner_id: str | None = None
+    numbering_partner_code: str
+    numbering_year: int | None = None
+    numbering_sequence: int | None = None
+    number_is_provisional: bool
+    primary_external_identifier: str | None = None
+    version_label: str
     is_locked: bool
     locked_by_user_id: str | None = None
     locked_at: datetime | None = None
@@ -360,8 +500,39 @@ class CaseRead(CaseBase, ORMModel):
 
 
 class CaseStatusUpdate(BaseModel):
+    expected_version: int = Field(gt=0)
     workflow_status: str
     change_reason: str | None = None
+
+
+class CaseNumberingPartnerUpdate(BaseModel):
+    partner_id: str
+    reason: str | None = None
+
+
+class CasePartnerLinkCreate(BaseModel):
+    partner_id: str
+    relationship_type: str = "related"
+
+
+class CasePartnerLinkRead(CasePartnerLinkCreate, ORMModel):
+    id: str
+    case_id: str
+
+
+class CaseIdentifierCreate(BaseModel):
+    identifier_value: str
+    partner_id: str | None = None
+    organization_name: str | None = None
+    identifier_type: str = "partner_case_number"
+    received_date: date | None = None
+    is_primary: bool = False
+
+
+class CaseIdentifierRead(CaseIdentifierCreate, ORMModel):
+    id: str
+    case_id: str
+    created_at: datetime
 
 
 class PatientCreate(BaseModel):
@@ -444,10 +615,25 @@ class ReactionRead(ReactionCreate, ORMModel):
     updated_at: datetime
 
 
+class CausalityAssessmentCreate(BaseModel):
+    case_product_id: str
+    reaction_id: str
+    causality_method: str
+    relatedness: str
+    naranjo_score: int | None = None
+    naranjo_answers: dict[str, str] = Field(default_factory=dict)
+    assessor_role: str
+    assessor_name: str
+    assessor_organization: str | None = None
+    assessment_date: date
+    assessment_comment: str | None = None
+
+
 class FollowUpCreate(BaseModel):
     follow_up_number: int | None = None
     received_date: date | None = None
     source_type: str | None = None
+    message_direction: MessageDirection
     description: str | None = None
     significant_new_information: bool = False
     processed_by_user_id: str | None = None
@@ -482,15 +668,25 @@ class SubmissionCreate(BaseModel):
     submitted_by_user_id: str | None = None
 
 
+class SubmissionCreateRequest(SubmissionCreate):
+    expected_object_version: int = Field(..., gt=0)
+
+
 class SubmissionRead(SubmissionCreate, ORMModel):
     id: str
+    version: int
     created_at: datetime
     updated_at: datetime
 
 
 class SubmissionStatusUpdate(BaseModel):
+    expected_version: int = Field(..., gt=0)
     submission_status: str
     error_message: str | None = None
+    submission_number: str | None = None
+    submitted_at: datetime | None = None
+    acknowledged_at: datetime | None = None
+    acknowledgement_code: str | None = None
 
 
 class PSURPlanBase(BaseModel):
@@ -514,6 +710,7 @@ class PSURPlanCreate(PSURPlanBase):
 
 class PSURPlanRead(PSURPlanBase, ORMModel):
     id: str
+    version: int
     created_by: str | None = None
     created_at: datetime
     updated_at: datetime
@@ -656,10 +853,21 @@ class TaskRead(TaskCreate, ORMModel):
 
 class IncomingRequestCreate(BaseModel):
     source_text: str
+    message_number: str | None = None
+    received_date: date | None = None
+    received_time: str | None = None
+    source_type: str | None = None
+    source_name: str | None = None
+    channel: str | None = None
     request_type: str | None = None
     partner_id: str | None = None
     product_id: str | None = None
+    product_ids: list[str] = Field(default_factory=list)
+    active_substance_id: str | None = None
     active_substance: str | None = None
+    reporter_name: str | None = None
+    reporter_contact: str | None = None
+    message_category: str | None = None
     possible_icsr: str = "no"
     patient_information: str | None = None
     adverse_event: str | None = None
@@ -671,13 +879,74 @@ class IncomingRequestCreate(BaseModel):
     gpt_json_output: str | None = None
     case_id: str | None = None
     status: str = "confirmed"
+    triage_status: str = "not_started"
+    safety_relevance: str | None = None
+    potential_icsr: str | None = None
+    validity_status: str | None = None
+    has_identifiable_patient: bool = False
+    has_identifiable_reporter: bool = False
+    has_suspect_product: bool = False
+    has_adverse_event: bool = False
+    missing_criteria: str | None = None
+    triage_result: str | None = None
+    triage_comment: str | None = None
+
+    @model_validator(mode="after")
+    def normalize_product_ids(self):
+        product_ids: list[str] = []
+        for product_id in self.product_ids or []:
+            if product_id and product_id not in product_ids:
+                product_ids.append(product_id)
+        if self.product_id and self.product_id not in product_ids:
+            product_ids.insert(0, self.product_id)
+        self.product_id = product_ids[0] if product_ids else None
+        self.product_ids = product_ids
+        return self
 
 
 class IncomingRequestRead(IncomingRequestCreate, ORMModel):
+    input_snapshot: str | None = None
+    version: int
     id: str
     human_confirmed: bool
     created_by: str | None = None
     updated_by: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class IncomingRequestTriageUpdate(BaseModel):
+    triage_status: str = "in_progress"
+    safety_relevance: str | None = None
+    potential_icsr: str | None = None
+    validity_status: str | None = None
+    has_identifiable_patient: bool = False
+    has_identifiable_reporter: bool = False
+    has_suspect_product: bool = False
+    has_adverse_event: bool = False
+    missing_criteria: str | None = None
+    triage_result: str | None = None
+    triage_comment: str | None = None
+    manual_override: bool = False
+
+
+class MessageProductSelectionUpdate(BaseModel):
+    product_ids: list[str] = Field(default_factory=list)
+
+
+class IncomingRequestCaseLinkCreate(BaseModel):
+    case_id: str
+    link_type: str = "manual_link"
+    comment: str | None = None
+
+
+class IncomingRequestCaseLinkRead(ORMModel):
+    id: str
+    incoming_request_id: str
+    case_id: str
+    link_type: str
+    comment: str | None = None
+    created_by: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -727,6 +996,7 @@ class LiteratureMonitoringPlanCreate(BaseModel):
 
 
 class LiteratureMonitoringPlanRead(LiteratureMonitoringPlanCreate, ORMModel):
+    version: int
     id: str
     created_by: str | None = None
     updated_by: str | None = None
@@ -759,6 +1029,7 @@ class LiteratureSearchLogCreate(BaseModel):
 
 
 class LiteratureSearchLogRead(LiteratureSearchLogCreate, ORMModel):
+    version: int
     id: str
     created_by: str | None = None
     updated_by: str | None = None
@@ -807,6 +1078,7 @@ class LiteratureResultCreate(BaseModel):
 
 
 class LiteratureResultRead(LiteratureResultCreate, ORMModel):
+    version: int
     id: str
     created_by: str | None = None
     updated_by: str | None = None
@@ -842,6 +1114,7 @@ class PSMFComponentVersionCreate(BaseModel):
 
 class PSMFComponentVersionRead(PSMFComponentVersionCreate, ORMModel):
     id: str
+    row_version: int
     approved_by: str | None = None
     approved_at: datetime | None = None
     is_locked: bool
@@ -882,3 +1155,23 @@ class CaseOverview(BaseModel):
     reactions: list[ReactionRead] = Field(default_factory=list)
     followups: list[FollowUpRead] = Field(default_factory=list)
     submissions: list[SubmissionRead] = Field(default_factory=list)
+
+
+class IncomingRequestVersion(BaseModel):
+    expected_version: int = Field(gt=0)
+
+
+class IncomingRequestCaseVersion(IncomingRequestVersion):
+    expected_inputs: str = Field(min_length=64, max_length=64)
+
+
+class IncomingRequestProductsUpdate(MessageProductSelectionUpdate, IncomingRequestVersion):
+    pass
+
+
+class VersionedIncomingRequestTriageUpdate(IncomingRequestTriageUpdate, IncomingRequestVersion):
+    pass
+
+
+class VersionedIncomingRequestCaseLinkCreate(IncomingRequestCaseLinkCreate, IncomingRequestVersion):
+    expected_case_version: int = Field(gt=0)

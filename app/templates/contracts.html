@@ -1,5 +1,286 @@
 {% extends "base.html" %}
-{% block title %}{{ _('Contracts') }} - {{ _('PV MVP') }}{% endblock %}
+{% from "_immutable_documents.html" import immutable_documents_block with context %}
+{% block title %}{{ _('Contracts') }} - {{ _('PV System') }}{% endblock %}
+
+{% macro product_badges(contract) -%}
+    {% set contract_products = contract.linked_products %}
+    {% if contract_products %}
+        <div class="contract-product-list">
+        {% for product in contract_products %}
+            <span class="status-pill">{{ product.product_name }}</span>
+        {% endfor %}
+        </div>
+    {% else %}
+        <span class="text-secondary">-</span>
+    {% endif %}
+{%- endmacro %}
+
+{% macro linked_products_modal(contract, prefix) -%}
+    <div class="modal fade" id="{{ prefix }}-contract-products-{{ contract.id }}" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 class="modal-title h6 mb-0">Связанные ЛП: {{ contract.contract_number }}</h3>
+                    <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="{{ _('Cancel') }}"></button>
+                </div>
+                <div class="modal-body">
+                    {% set contract_products = contract.linked_products %}
+                    {% if contract_products %}
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle">
+                            <thead><tr><th>{{ _('Code') }}</th><th>{{ _('Product') }}</th><th>{{ _('MAH partner') }}</th><th>{{ _('Status') }}</th></tr></thead>
+                            <tbody>
+                            {% for product in contract_products %}
+                            <tr>
+                                <td class="fw-medium">{{ product.product_code }}</td>
+                                <td>{{ product.product_name }}</td>
+                                <td>{{ product.mah_partner.partner_name if product.mah_partner else "" }}</td>
+                                <td><span class="status-pill">{{ _(product.authorization_status) if product.authorization_status else _('None') }}</span></td>
+                            </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="text-secondary">{{ _('No products yet.') }}</div>
+                    {% endif %}
+                </div>
+                <div class="modal-footer">
+                    <a class="btn btn-primary btn-sm icon-button" href="/products?partner_id={{ contract.partner_id }}"><i data-lucide="pencil"></i><span>Редактировать</span></a>
+                    <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-dismiss="modal">{{ _('Cancel') }}</button>
+                </div>
+            </div>
+        </div>
+    </div>
+{%- endmacro %}
+
+{% macro base_contract_options(current_contract) -%}
+    <option value="">{{ _('Select base contract') }}</option>
+    {% for base_contract in base_contracts if not current_contract or base_contract.id != current_contract.id %}
+        {% set base_product_names = base_contract.linked_products|map(attribute='product_name')|join(', ') %}
+        <option value="{{ base_contract.id }}" data-partner-id="{{ base_contract.partner_id }}" data-product-ids="{{ base_contract.product_ids|join(',') }}" {% if current_contract and current_contract.parent_contract_id == base_contract.id %}selected{% endif %}>
+            {{ base_contract.contract_number }} - {{ base_contract.partner.partner_name if base_contract.partner else "" }}{% if base_product_names %} / {{ base_product_names }}{% endif %}
+        </option>
+    {% endfor %}
+{%- endmacro %}
+
+{% macro contract_actions(contract, prefix) -%}
+    <div class="d-flex flex-wrap gap-1">
+        <button class="btn btn-outline-secondary btn-sm icon-button" type="button" data-bs-toggle="modal" data-bs-target="#{{ prefix }}-contract-products-{{ contract.id }}"><i data-lucide="list"></i><span>ЛП</span></button>
+        <button class="btn btn-outline-secondary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#{{ prefix }}-contract-view-{{ contract.id }}" title="{{ _('View') }}"><i data-lucide="eye"></i></button>
+        {% if has_permission('edit') or has_permission('manage_reference_data') %}
+        <button class="btn btn-outline-primary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#{{ prefix }}-contract-edit-{{ contract.id }}" title="{{ _('Edit') }}"><i data-lucide="pencil"></i></button>
+        {% endif %}
+        {% if has_permission('soft_delete') or has_permission('manage_reference_data') %}
+        <form method="post" action="/contracts/{{ contract.id }}/delete">
+            <input type="hidden" name="expected_version" value="{{ contract.version }}">
+            <button class="btn btn-outline-danger btn-sm icon-only" type="submit" title="{{ _('Delete') }}" data-confirm-message="{{ _('Delete contract confirmation') }}"><i data-lucide="trash-2"></i></button>
+        </form>
+        {% endif %}
+    </div>
+    {{ linked_products_modal(contract, prefix) }}
+{%- endmacro %}
+
+{% macro contract_detail(contract, prefix) -%}
+    {% set contract_tariffs = accounting_tariffs_by_contract.get(contract.id, []) if accounting_tariffs_by_contract is defined else [] %}
+    {% set contract_warnings = pv_contract_attention(contract, contract_tariffs) %}
+    {% set contract_actions = pv_contract_next_actions(contract, contract_tariffs) %}
+    {% set contract_primary_action = contract_actions[0] if contract_actions else none %}
+    <div class="row g-2 small">
+        <div class="col-md-3"><span class="text-secondary">{{ _('Partner') }}</span><div>{{ contract.partner.partner_name if contract.partner else "" }}</div></div>
+        <div class="col-md-3"><span class="text-secondary">{{ _('Products') }}</span><div>{{ product_badges(contract) }}</div></div>
+        <div class="col-md-3"><span class="text-secondary">{{ _('Contract type') }}</span><div>{{ _(contract.contract_type) }}</div></div>
+        <div class="col-md-3"><span class="text-secondary">{{ _('Base contract') }}</span><div>{{ contract.parent_contract.contract_number if contract.parent_contract else "" }}</div></div>
+        <div class="col-md-3"><span class="text-secondary">{{ _('Contract number') }}</span><div>{{ contract.contract_number }}</div></div>
+        <div class="col-md-3"><span class="text-secondary">{{ _('Contract date') }}</span><div>{{ contract.contract_date }}</div></div>
+        <div class="col-md-3"><span class="text-secondary">{{ _('Valid until') }}</span><div>{{ contract.valid_until }}</div></div>
+        <div class="col-md-3"><span class="text-secondary">{{ _('Updated') }}</span><div>{{ contract.updated_at }}</div></div>
+    </div>
+    <div class="pv-card-grid mt-3">
+        <div class="pv-related-card">
+            <div class="pv-card-heading"><span>Связанные записи</span><i data-lucide="network"></i></div>
+            <div class="pv-related-grid">
+                <div class="pv-related-item"><strong>{% if contract.partner %}1{% else %}0{% endif %}</strong><span>партнер</span></div>
+                <div class="pv-related-item"><strong>{{ contract.linked_products|length }}</strong><span>препараты</span></div>
+                <div class="pv-related-item"><strong>{{ contract.additional_agreements|rejectattr('is_deleted')|list|length }}</strong><span>ДС</span></div>
+                <div class="pv-related-item"><strong>{{ contract_tariffs|length }}</strong><span>услуги</span></div>
+                <div class="pv-related-item"><strong>{{ contract.accounting_periods|rejectattr('is_deleted')|list|length }}</strong><span>начисления</span></div>
+            </div>
+        </div>
+        <div class="d-grid gap-2">
+            <div class="pv-attention-card">
+                <div class="pv-card-heading"><span>Требует внимания</span><i data-lucide="triangle-alert"></i></div>
+                {% if contract_warnings %}
+                <ul class="pv-compact-list">
+                    {% for warning in contract_warnings %}
+                    <li><i data-lucide="circle-alert"></i><span>{{ warning }}</span></li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <div class="text-secondary small">Критичных пробелов по карточке не найдено.</div>
+                {% endif %}
+            </div>
+            {% if contract_primary_action %}
+            <div class="pv-next-card">
+                <div class="pv-card-heading"><span>Следующее действие</span><i data-lucide="arrow-right-circle"></i></div>
+                <div class="pv-action-list">
+                    <div class="text-secondary small">После этого можно вернуться к остальным сведениям по договору.</div>
+                    <a class="btn btn-primary btn-sm icon-button" href="{{ contract_primary_action.href }}"><i data-lucide="arrow-right"></i><span>{{ contract_primary_action.label }}</span></a>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    <div class="mt-3 pt-3 border-top">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+            <h3 class="h6 mb-0">Тарифы для бухгалтерии</h3>
+            <a class="btn btn-outline-primary btn-sm icon-button" href="/accounting-data?contract_id={{ contract.id }}"><i data-lucide="calculator"></i><span>Расшифровки</span></a>
+        </div>
+        {% set contract_tariffs = accounting_tariffs_by_contract.get(contract.id, []) if accounting_tariffs_by_contract is defined else [] %}
+        {% if contract_tariffs %}
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-2">
+                <thead><tr><th>Услуга</th><th>Единица</th><th>Цена по договору</th><th>Комментарий</th><th>Активен</th><th></th></tr></thead>
+                <tbody>
+                {% for tariff in contract_tariffs %}
+                <tr>
+                    <td>{{ tariff.service.name if tariff.service else "" }}</td>
+                    <td>{{ tariff.unit }}</td>
+                    <td>{{ "%.2f"|format(tariff.price or 0) }}</td>
+                    <td>{{ tariff.comment or "" }}</td>
+                    <td>{% if tariff.is_active %}<span class="badge text-bg-success">{{ _('Yes') }}</span>{% else %}<span class="badge text-bg-secondary">{{ _('No') }}</span>{% endif %}</td>
+                    <td>
+                        <form method="post" action="/contracts/accounting-tariffs/{{ tariff.id }}/delete">
+                            <input type="hidden" name="expected_version" value="{{ tariff.version }}">
+                            <button class="btn btn-outline-danger btn-sm icon-only" type="submit" title="{{ _('Delete') }}" data-confirm-message="{{ _('Delete tariff confirmation') }}"><i data-lucide="trash-2"></i></button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-secondary small mb-2">Тарифы пока не заданы.</div>
+        {% endif %}
+        {% if has_permission('edit') or has_permission('manage_reference_data') %}
+        <form class="row g-2 align-items-end" method="post" action="/contracts/{{ contract.id }}/accounting-tariffs">
+            <input type="hidden" name="expected_version" value="{{ contract.version }}">
+            <div class="col-md-4">
+                <label class="form-label">Услуга</label>
+                <select class="form-select form-select-sm" name="service_id" required>
+                    {% for service in accounting_services %}
+                    <option value="{{ service.id }}">{{ service.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Единица</label>
+                <input class="form-control form-control-sm" name="unit" required>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Цена по договору</label>
+                <input class="form-control form-control-sm" type="number" name="price" min="0" step="0.01" required>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Комментарий</label>
+                <input class="form-control form-control-sm" name="comment">
+            </div>
+            <div class="col-md-1">
+                <label class="form-check mb-2">
+                    <input class="form-check-input" type="checkbox" name="is_active" value="true" checked>
+                    <span class="form-check-label">Активен</span>
+                </label>
+            </div>
+            <div class="col-md-2">
+                <button class="btn btn-primary btn-sm icon-button" type="submit"><i data-lucide="plus"></i><span>Добавить тариф</span></button>
+            </div>
+        </form>
+        {% endif %}
+    </div>
+    {{ immutable_documents_block(documents_by_contract.get(contract.id, []), 'Contract', contract.id, contract.partner_id, 'Приложение Б-3.1', 'PARTNER_SPECIFIC', '/contracts?partner_id=' ~ contract.partner_id, 'Нередактируемые документы договора', context_version=contract.version) }}
+{%- endmacro %}
+
+{% macro contract_edit_form(contract, prefix) -%}
+    {% if has_permission('edit') or has_permission('manage_reference_data') %}
+    <form class="row g-2 align-items-end" method="post" action="/contracts/{{ contract.id }}/edit">
+        <input type="hidden" name="expected_version" value="{{ contract.version }}">
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Partner') }}</label>
+            <select class="form-select form-select-sm" name="partner_id" required>
+                {% for partner in partners %}
+                <option value="{{ partner.id }}" {% if contract.partner_id == partner.id %}selected{% endif %}>{{ partner.partner_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Contract type') }}</label>
+            <select class="form-select form-select-sm" name="contract_type" data-contract-type>
+                <option value="pharmacovigilance_agreement" {% if contract.contract_type == "pharmacovigilance_agreement" %}selected{% endif %}>{{ _('pharmacovigilance_agreement') }}</option>
+                <option value="additional_agreement" {% if contract.contract_type == "additional_agreement" %}selected{% endif %}>{{ _('additional_agreement') }}</option>
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Base contract') }}</label>
+            <select class="form-select form-select-sm" name="parent_contract_id" data-parent-contract>
+                {{ base_contract_options(contract) }}
+            </select>
+            <div class="form-text">{{ _('Choose the base contract only for an additional agreement.') }}</div>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Contract number') }}</label>
+            <input class="form-control form-control-sm" name="contract_number" value="{{ contract.contract_number }}" placeholder="PV-2026-001" required>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Contract date') }}</label>
+            <input class="form-control form-control-sm" type="date" name="contract_date" value="{{ contract.contract_date }}" required>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Valid until') }}</label>
+            <input class="form-control form-control-sm" type="date" name="valid_until" value="{{ contract.valid_until }}" required>
+            <div class="form-text">{{ _('Contract end date cannot be earlier than contract date.') }}</div>
+        </div>
+        <div class="col-md-2">
+            <label class="form-check mb-2">
+                <input class="form-check-input" type="checkbox" name="is_active" value="true" {% if contract.is_current %}checked{% endif %}>
+                <span class="form-check-label">{{ _('Valid now?') }}</span>
+            </label>
+        </div>
+        <div class="col-md-3 d-flex gap-2">
+            <button class="btn btn-primary btn-sm icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Save contract') }}</span></button>
+            <button class="btn btn-outline-secondary btn-sm icon-button" type="button" data-bs-toggle="collapse" data-bs-target="#{{ prefix }}-contract-edit-{{ contract.id }}"><i data-lucide="x"></i><span>{{ _('Cancel') }}</span></button>
+        </div>
+    </form>
+    {% endif %}
+{%- endmacro %}
+
+{% macro contract_tree_row(contract, prefix, is_additional=False) -%}
+    <div class="contract-tree-row{% if is_additional %} contract-tree-row-additional{% endif %}">
+        <div class="contract-tree-main">
+            <div class="contract-tree-marker" aria-hidden="true"></div>
+            <div class="contract-tree-body">
+                <div class="d-flex flex-wrap align-items-center gap-2">
+                    <span class="fw-semibold">{{ contract.contract_number }}</span>
+                    <span class="badge {% if contract.is_current %}text-bg-success{% else %}text-bg-secondary{% endif %}">{% if contract.is_current %}{{ _('Yes') }}{% else %}{{ _('No') }}{% endif %}</span>
+                    <span class="text-secondary small">{{ _(contract.contract_type) }}</span>
+                </div>
+                <div class="small text-secondary">{{ contract.contract_date }} - {{ contract.valid_until }}</div>
+                <div class="mt-2">{{ product_badges(contract) }}</div>
+            </div>
+        </div>
+        <div class="contract-tree-actions">
+            {{ contract_actions(contract, prefix) }}
+        </div>
+    </div>
+    <div class="collapse contract-inline-panel" id="{{ prefix }}-contract-view-{{ contract.id }}">
+        {{ contract_detail(contract, prefix) }}
+    </div>
+    {% if has_permission('edit') or has_permission('manage_reference_data') %}
+    <div class="collapse contract-inline-panel" id="{{ prefix }}-contract-edit-{{ contract.id }}">
+        {{ contract_edit_form(contract, prefix) }}
+    </div>
+    {% endif %}
+{%- endmacro %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
@@ -19,25 +300,39 @@
 <div class="alert alert-warning py-2" role="alert">{{ _(validation) }}</div>
 {% endif %}
 
-{% if has_permission('create') or has_permission('manage_reference_data') %}
 <section class="surface mb-4">
-    <h2 class="h6 section-title">{{ _('Add Contract') }}</h2>
-    <form class="row g-3" method="post" action="/contracts">
-        <div class="col-md-3">
+    <h2 class="h6 section-title">{{ _('Search') }}</h2>
+    <form class="row g-3 align-items-end" method="get" action="/contracts" data-search-form>
+        <div class="col-md-4">
+            <label class="form-label">{{ _('Search') }}</label>
+            <input class="form-control" name="search" value="{{ filters.search }}" placeholder="{{ _('Contract number') }} or {{ _('Product') }}">
+        </div>
+        <div class="col-md-4">
             <label class="form-label">{{ _('Partner') }}</label>
-            <select class="form-select" name="partner_id" required>
-                <option value="" disabled selected>{{ _('Select partner') }}</option>
+            <select class="form-select" name="partner_id" data-search-partner>
+                <option value="">{{ _('All') }}</option>
                 {% for partner in partners %}
-                <option value="{{ partner.id }}">{{ partner.partner_name }}</option>
+                <option value="{{ partner.id }}" {% if filters.partner_id == partner.id %}selected{% endif %}>{{ partner.partner_name }}</option>
                 {% endfor %}
             </select>
         </div>
+        <div class="col-md-4 d-flex gap-2">
+            <button class="btn btn-primary icon-button" type="submit"><i data-lucide="search"></i><span>{{ _('Search') }}</span></button>
+            <a class="btn btn-outline-secondary icon-button" href="/contracts"><i data-lucide="x"></i><span>{{ _('Clear search') }}</span></a>
+        </div>
+    </form>
+</section>
+
+{% if has_permission('create') or has_permission('manage_reference_data') %}
+<section class="surface mb-4">
+    <h2 class="h6 section-title">{{ _('Add Contract') }}</h2>
+    <form class="row g-3" method="post" action="/contracts" data-add-contract-form>
         <div class="col-md-3">
-            <label class="form-label">{{ _('Product') }}</label>
-            <select class="form-select" name="product_id" required>
-                <option value="" disabled selected>{{ _('Select product') }}</option>
-                {% for product in products %}
-                <option value="{{ product.id }}">{{ product.product_name }}</option>
+            <label class="form-label">{{ _('Partner') }}</label>
+            <select class="form-select" name="partner_id" required data-add-partner>
+                <option value="" disabled {% if not filters.partner_id %}selected{% endif %}>{{ _('Select partner') }}</option>
+                {% for partner in partners %}
+                <option value="{{ partner.id }}" {% if filters.partner_id == partner.id %}selected{% endif %}>{{ partner.partner_name }}</option>
                 {% endfor %}
             </select>
         </div>
@@ -51,17 +346,13 @@
         <div class="col-md-3">
             <label class="form-label">{{ _('Base contract') }}</label>
             <select class="form-select" name="parent_contract_id" data-parent-contract>
-                <option value="">{{ _('Select base contract') }}</option>
-                {% for base_contract in base_contracts %}
-                <option value="{{ base_contract.id }}" data-partner-id="{{ base_contract.partner_id }}" data-product-id="{{ base_contract.product_id }}">
-                    {{ base_contract.contract_number }} - {{ base_contract.partner.partner_name if base_contract.partner else "" }} / {{ base_contract.product.product_name if base_contract.product else "" }}
-                </option>
-                {% endfor %}
+                {{ base_contract_options(None) }}
             </select>
+            <div class="form-text">{{ _('Choose the base contract only for an additional agreement.') }}</div>
         </div>
         <div class="col-md-3">
             <label class="form-label">{{ _('Contract number') }}</label>
-            <input class="form-control" name="contract_number" required>
+            <input class="form-control" name="contract_number" placeholder="PV-2026-001" required>
         </div>
         <div class="col-md-2">
             <label class="form-label">{{ _('Contract date') }}</label>
@@ -70,21 +361,64 @@
         <div class="col-md-2">
             <label class="form-label">{{ _('Valid until') }}</label>
             <input class="form-control" type="date" name="valid_until" required>
+            <div class="form-text">{{ _('Contract end date cannot be earlier than contract date.') }}</div>
         </div>
         <div class="col-md-2 d-flex align-items-end">
-            <button class="btn btn-primary w-100 icon-button" type="submit" {% if not partners or not products %}disabled{% endif %}><i data-lucide="plus"></i><span>{{ _('Add') }}</span></button>
+            <button class="btn btn-primary w-100 icon-button" type="submit" {% if not partners %}disabled{% endif %}><i data-lucide="plus"></i><span>{{ _('Add contract') }}</span></button>
         </div>
     </form>
 </section>
 {% endif %}
 
+{% if selected_partner %}
+<section class="surface mb-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+        <div>
+            <h2 class="h6 section-title mb-1">Договоры и дополнительные соглашения выбранного партнера</h2>
+            <div class="fw-semibold">{{ selected_partner.partner_name }}</div>
+        </div>
+        <a class="btn btn-outline-secondary btn-sm icon-button" href="/partners/{{ selected_partner.id }}"><i data-lucide="external-link"></i><span>{{ _('View') }}</span></a>
+    </div>
+    {% if selected_contract_tree %}
+    <div class="contract-tree">
+        {% for item in selected_contract_tree %}
+            {% if item.contract %}
+                <div class="contract-tree-group">
+                    {{ contract_tree_row(item.contract, 'selected', False) }}
+                    {% if item.additional_agreements %}
+                    <div class="contract-tree-children">
+                        {% for agreement in item.additional_agreements %}
+                            {{ contract_tree_row(agreement, 'selected', True) }}
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                </div>
+            {% else %}
+                <div class="contract-tree-group">
+                    <div class="small text-secondary mb-2">{{ _('Not attached') }}</div>
+                    <div class="contract-tree-children">
+                        {% for agreement in item.additional_agreements %}
+                            {{ contract_tree_row(agreement, 'selected', True) }}
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state text-secondary"><i data-lucide="search"></i><span>{{ _('No records match the filters.') }}</span></div>
+    {% endif %}
+</section>
+{% endif %}
+
+{% if not selected_partner %}
 <section class="surface">
     <div class="table-responsive">
         <table class="table table-hover align-middle">
             <thead>
             <tr>
                 <th>{{ _('Partner') }}</th>
-                <th>{{ _('Product') }}</th>
+                <th>{{ _('Products') }}</th>
                 <th>{{ _('Contract type') }}</th>
                 <th>{{ _('Base contract') }}</th>
                 <th>{{ _('Contract number') }}</th>
@@ -98,7 +432,7 @@
             {% for contract in contracts %}
             <tr>
                 <td>{{ contract.partner.partner_name if contract.partner else "" }}</td>
-                <td>{{ contract.product.product_name if contract.product else "" }}</td>
+                <td>{{ product_badges(contract) }}</td>
                 <td>{{ _(contract.contract_type) }}</td>
                 <td>
                     {% if contract.parent_contract %}
@@ -119,106 +453,30 @@
                     <span class="badge text-bg-secondary">{{ _('No') }}</span>
                     {% endif %}
                 </td>
-                <td>
-                    <div class="d-flex flex-wrap gap-1">
-                        <button class="btn btn-outline-secondary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#contract-view-{{ contract.id }}" title="{{ _('View') }}"><i data-lucide="eye"></i></button>
-                        {% if has_permission('edit') or has_permission('manage_reference_data') %}
-                        <button class="btn btn-outline-primary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#contract-edit-{{ contract.id }}" title="{{ _('Edit') }}"><i data-lucide="pencil"></i></button>
-                        {% endif %}
-                        {% if has_permission('soft_delete') or has_permission('manage_reference_data') %}
-                        <form method="post" action="/contracts/{{ contract.id }}/delete">
-                            <button class="btn btn-outline-danger btn-sm icon-only" type="submit" title="{{ _('Delete') }}"><i data-lucide="trash-2"></i></button>
-                        </form>
-                        {% endif %}
-                    </div>
-                </td>
+                <td>{{ contract_actions(contract, 'list') }}</td>
             </tr>
-            <tr class="collapse" id="contract-view-{{ contract.id }}">
-                <td colspan="9">
-                    <div class="row g-2 small">
-                        <div class="col-md-3"><span class="text-secondary">{{ _('Partner') }}</span><div>{{ contract.partner.partner_name if contract.partner else "" }}</div></div>
-                        <div class="col-md-3"><span class="text-secondary">{{ _('Product') }}</span><div>{{ contract.product.product_name if contract.product else "" }}</div></div>
-                        <div class="col-md-3"><span class="text-secondary">{{ _('Contract type') }}</span><div>{{ _(contract.contract_type) }}</div></div>
-                        <div class="col-md-3"><span class="text-secondary">{{ _('Base contract') }}</span><div>{{ contract.parent_contract.contract_number if contract.parent_contract else "" }}</div></div>
-                        <div class="col-md-3"><span class="text-secondary">{{ _('Contract number') }}</span><div>{{ contract.contract_number }}</div></div>
-                        <div class="col-md-3"><span class="text-secondary">{{ _('Contract date') }}</span><div>{{ contract.contract_date }}</div></div>
-                        <div class="col-md-3"><span class="text-secondary">{{ _('Valid until') }}</span><div>{{ contract.valid_until }}</div></div>
-                        <div class="col-md-3"><span class="text-secondary">{{ _('Updated') }}</span><div>{{ contract.updated_at }}</div></div>
-                    </div>
-                </td>
+            <tr class="collapse" id="list-contract-view-{{ contract.id }}">
+                <td colspan="9"><div class="contract-inline-panel">{{ contract_detail(contract, 'list') }}</div></td>
             </tr>
             {% if has_permission('edit') or has_permission('manage_reference_data') %}
-            <tr class="collapse" id="contract-edit-{{ contract.id }}">
-                <td colspan="9">
-                    <form class="row g-2 align-items-end" method="post" action="/contracts/{{ contract.id }}/edit">
-                        <div class="col-md-3">
-                            <label class="form-label">{{ _('Partner') }}</label>
-                            <select class="form-select form-select-sm" name="partner_id" required>
-                                {% for partner in partners %}
-                                <option value="{{ partner.id }}" {% if contract.partner_id == partner.id %}selected{% endif %}>{{ partner.partner_name }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label">{{ _('Product') }}</label>
-                            <select class="form-select form-select-sm" name="product_id" required>
-                                {% for product in products %}
-                                <option value="{{ product.id }}" {% if contract.product_id == product.id %}selected{% endif %}>{{ product.product_name }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label">{{ _('Contract type') }}</label>
-                            <select class="form-select form-select-sm" name="contract_type" data-contract-type>
-                                <option value="pharmacovigilance_agreement" {% if contract.contract_type == "pharmacovigilance_agreement" %}selected{% endif %}>{{ _('pharmacovigilance_agreement') }}</option>
-                                <option value="additional_agreement" {% if contract.contract_type == "additional_agreement" %}selected{% endif %}>{{ _('additional_agreement') }}</option>
-                            </select>
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label">{{ _('Base contract') }}</label>
-                            <select class="form-select form-select-sm" name="parent_contract_id" data-parent-contract>
-                                <option value="">{{ _('Select base contract') }}</option>
-                                {% for base_contract in base_contracts if base_contract.id != contract.id %}
-                                <option value="{{ base_contract.id }}" data-partner-id="{{ base_contract.partner_id }}" data-product-id="{{ base_contract.product_id }}" {% if contract.parent_contract_id == base_contract.id %}selected{% endif %}>
-                                    {{ base_contract.contract_number }} - {{ base_contract.partner.partner_name if base_contract.partner else "" }} / {{ base_contract.product.product_name if base_contract.product else "" }}
-                                </option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label">{{ _('Contract number') }}</label>
-                            <input class="form-control form-control-sm" name="contract_number" value="{{ contract.contract_number }}" required>
-                        </div>
-                        <div class="col-md-2">
-                            <label class="form-label">{{ _('Contract date') }}</label>
-                            <input class="form-control form-control-sm" type="date" name="contract_date" value="{{ contract.contract_date }}" required>
-                        </div>
-                        <div class="col-md-2">
-                            <label class="form-label">{{ _('Valid until') }}</label>
-                            <input class="form-control form-control-sm" type="date" name="valid_until" value="{{ contract.valid_until }}" required>
-                        </div>
-                        <div class="col-md-3 d-flex gap-2">
-                            <button class="btn btn-primary btn-sm icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Save') }}</span></button>
-                            <button class="btn btn-outline-secondary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#contract-edit-{{ contract.id }}" title="{{ _('Cancel') }}"><i data-lucide="x"></i></button>
-                        </div>
-                    </form>
-                </td>
+            <tr class="collapse" id="list-contract-edit-{{ contract.id }}">
+                <td colspan="9"><div class="contract-inline-panel">{{ contract_edit_form(contract, 'list') }}</div></td>
             </tr>
             {% endif %}
             {% else %}
-            <tr><td colspan="9" class="text-secondary">{{ _('No contracts yet.') }}</td></tr>
+            <tr><td colspan="9" class="empty-state-cell"><div class="empty-state text-secondary"><i data-lucide="file-signature"></i><span>{{ _('No contracts yet.') }}</span></div></td></tr>
             {% endfor %}
             </tbody>
         </table>
     </div>
 </section>
+{% endif %}
 <script>
     document.querySelectorAll("form").forEach((form) => {
         const typeSelect = form.querySelector("[data-contract-type]");
         const parentSelect = form.querySelector("[data-parent-contract]");
         const partnerSelect = form.querySelector('[name="partner_id"]');
-        const productSelect = form.querySelector('[name="product_id"]');
-        if (!typeSelect || !parentSelect || !partnerSelect || !productSelect) {
+        if (!typeSelect || !parentSelect || !partnerSelect) {
             return;
         }
 
@@ -234,12 +492,24 @@
                 return;
             }
             partnerSelect.value = option.dataset.partnerId || partnerSelect.value;
-            productSelect.value = option.dataset.productId || productSelect.value;
         }
 
         typeSelect.addEventListener("change", syncParentContract);
         parentSelect.addEventListener("change", syncParentContract);
         syncParentContract();
     });
+
+    const searchPartner = document.querySelector("[data-search-partner]");
+    const addPartner = document.querySelector("[data-add-partner]");
+    function clearDifferentPartner(source, target) {
+        if (!source || !target || !source.value || !target.value || source.value === target.value) {
+            return;
+        }
+        target.value = "";
+    }
+    if (searchPartner && addPartner) {
+        searchPartner.addEventListener("change", () => clearDifferentPartner(searchPartner, addPartner));
+        addPartner.addEventListener("change", () => clearDifferentPartner(addPartner, searchPartner));
+    }
 </script>
 {% endblock %}

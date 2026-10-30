@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}{{ _('Create Case / ICSR') }} - {{ _('PV System') }}{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+        <h1 class="h3 mb-1">{{ _('Create Case / ICSR') }}</h1>
+        <div class="text-secondary small">{{ _('Source message') }} {{ item.message_number or item.id[:8] }}</div>
+    </div>
+    <a class="btn btn-outline-secondary btn-sm icon-button" href="/incoming-requests"><i data-lucide="arrow-left"></i><span>{{ _('Back') }}</span></a>
+</div>
+
+{% if message %}
+<div class="alert alert-success py-2" role="status">{{ _(message) }}</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-danger py-2" role="alert">{{ _(error) }}</div>
+{% endif %}
+{% if validation %}
+<div class="alert alert-warning py-2" role="alert">{{ _(validation) }}</div>
+{% endif %}
+
+<div class="row g-4">
+    <div class="col-lg-5">
+        <section class="surface h-100">
+            <h2 class="h6 section-title">{{ _('Source message') }}</h2>
+            <dl class="row compact-dl">
+                <dt class="col-sm-4">{{ _('Message no.') }}</dt><dd class="col-sm-8">{{ item.message_number or item.id[:8] }}</dd>
+                <dt class="col-sm-4">{{ _('Received') }}</dt><dd class="col-sm-8">{{ item.received_date or item.created_at.date() }}</dd>
+                <dt class="col-sm-4">{{ _('Partner') }}</dt><dd class="col-sm-8">{{ item.partner.partner_name if item.partner else "" }}</dd>
+                <dt class="col-sm-4">{{ _('Products') }}</dt><dd class="col-sm-8">{{ item.product_names|join(', ') }}</dd>
+                <dt class="col-sm-4">{{ _('Triage result') }}</dt><dd class="col-sm-8">{{ _(item.triage_result or "") }}</dd>
+                <dt class="col-sm-4">{{ _('Validity status') }}</dt><dd class="col-sm-8">{{ _(item.validity_status or "") }}</dd>
+            </dl>
+            <div class="raw-text">{{ item.source_text }}</div>
+        </section>
+    </div>
+    <div class="col-lg-7">
+        <section class="surface">
+            <h2 class="h6 section-title">{{ _('Preview case data') }}</h2>
+            <form class="row g-3" method="post" action="/incoming-requests/{{ item.id }}/create-case">
+<input type="hidden" name="expected_inputs" value="{{ input_snapshot }}">
+                <input type="hidden" name="expected_version" value="{{ item.version }}">
+                <div class="col-md-6">
+                    <label class="form-label">{{ _('Case no.') }}</label>
+                    <input class="form-control" value="Присваивается автоматически" disabled>
+                    <div class="form-text">Номер будет взят из последовательности партнёра сообщения или области UNASSIGNED.</div>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">{{ _('Workflow status') }}</label>
+                    <input class="form-control" name="workflow_status" value="{{ case_defaults.workflow_status }}">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">{{ _('Case type') }}</label>
+                    <input class="form-control" name="case_type" value="{{ case_defaults.case_type }}">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">{{ _('Report type') }}</label>
+                    <input class="form-control" name="report_type" value="{{ case_defaults.report_type }}">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">{{ _('Initial received date') }}</label>
+                    <input class="form-control" type="date" name="initial_received_date" value="{{ case_defaults.initial_received_date }}">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">{{ _('Latest received date') }}</label>
+                    <input class="form-control" type="date" name="latest_received_date" value="{{ case_defaults.latest_received_date }}">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">{{ _('Seriousness') }}</label>
+                    <select class="form-select" name="seriousness">
+                        <option value="non-serious" {% if case_defaults.seriousness == 'non-serious' %}selected{% endif %}>{{ _('non-serious') }}</option>
+                        <option value="serious" {% if case_defaults.seriousness == 'serious' %}selected{% endif %}>{{ _('serious') }}</option>
+                    </select>
+                </div>
+                <div class="col-12">
+                    <label class="form-label">{{ _('Narrative') }}</label>
+                    <textarea class="form-control" rows="10" name="narrative">{{ case_defaults.narrative }}</textarea>
+                </div>
+                <div class="col-12 d-flex flex-wrap gap-2">
+                    <button class="btn btn-primary icon-button" type="submit"><i data-lucide="folder-plus"></i><span>{{ _('Confirm and create case') }}</span></button>
+                    <a class="btn btn-outline-secondary icon-button" href="/incoming-requests"><i data-lucide="x"></i><span>{{ _('Cancel') }}</span></a>
+                </div>
+            </form>
+        </section>
+    </div>
+</div>
+{% endblock %}

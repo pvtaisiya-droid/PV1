@@ -3,11 +3,11 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% block title %}{{ _('PV MVP') }}{% endblock %}</title>
+    <title>{% block title %}{{ _('PV System') }}{% endblock %}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="{{ url_for('static', path='style.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', path='style.css') }}?v=20260818-2" rel="stylesheet">
 </head>
-<body>
+<body data-page="{{ active_page|default('dashboard') }}" data-lang="{{ request.state.lang }}">
 {% set nav_page = active_page|default('dashboard') %}
 {% set active_user = current_user() %}
 {% set active_roles = current_roles() %}
@@ -47,18 +47,18 @@
 
 <div class="app-layout">
     <aside class="app-sidebar d-none d-lg-flex">
-        <a class="sidebar-brand" href="/" title="{{ _('PV MVP') }}" aria-label="ARS PharmRussia PV MVP">
+        <a class="sidebar-brand" href="/" title="{{ _('PV System') }}" aria-label="ARS PharmRussia PV System">
             <span class="sidebar-mark">PV</span>
-            <span class="sidebar-name">{{ _('PV MVP') }}</span>
+            <span class="sidebar-name">{{ _('PV System') }}</span>
         </a>
         {{ sidebar_nav() }}
     </aside>
 
     <div class="offcanvas offcanvas-start app-sidebar-mobile d-lg-none" tabindex="-1" id="mainSidebar" aria-labelledby="mainSidebarLabel">
         <div class="offcanvas-header">
-            <a class="sidebar-brand" href="/" id="mainSidebarLabel" aria-label="ARS PharmRussia PV MVP">
+            <a class="sidebar-brand" href="/" id="mainSidebarLabel" aria-label="ARS PharmRussia PV System">
                 <img class="brand-logo" src="{{ url_for('static', path='brand/ars-pharmrussia-logo.png') }}" alt="ARS PharmRussia">
-                <span class="brand-product">{{ _('PV MVP') }}</span>
+                <span class="brand-product">{{ _('PV System') }}</span>
             </a>
             <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="{{ _('Close') }}"></button>
         </div>
@@ -72,19 +72,15 @@
             <button class="btn btn-outline-secondary btn-sm icon-only d-lg-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#mainSidebar" aria-controls="mainSidebar" title="{{ _('Menu') }}">
                 <i data-lucide="menu"></i>
             </button>
-            <a class="mobile-brand" href="/" aria-label="ARS PharmRussia PV MVP">
+            <a class="mobile-brand" href="/" aria-label="ARS PharmRussia PV System">
                 <img class="brand-logo" src="{{ url_for('static', path='brand/ars-pharmrussia-logo.png') }}" alt="ARS PharmRussia">
             </a>
             <div class="topbar-spacer"></div>
             <div class="d-flex flex-wrap align-items-center gap-2">
-                <div class="current-user-chip" title="{{ _('Application mode') }}">
-                    <i data-lucide="{% if request.state.app_mode == 'prod' %}shield-check{% else %}info{% endif %}"></i>
-                    <span>{{ _(request.state.app_mode|upper) }}</span>
-                </div>
                 {% if active_user %}
                 <div class="current-user-chip" title="{{ active_roles|join(', ') }}">
                     <i data-lucide="circle-user-round"></i>
-                    <span>{{ active_user.full_name or active_user.email }}</span>
+                    <span>{{ active_user.full_name or active_user.login }}</span>
                 </div>
                 {% endif %}
                 {% if users_for_switch %}
@@ -92,15 +88,25 @@
                     <input type="hidden" name="next_url" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}">
                     <select class="form-select form-select-sm" name="user_id" aria-label="{{ _('Switch user') }}" onchange="this.form.submit()">
                         {% for user in users_for_switch %}
-                        <option value="{{ user.id }}" {% if active_user and user.id == active_user.id %}selected{% endif %}>{{ user.full_name or user.email }}</option>
+                        <option value="{{ user.id }}" {% if active_user and user.id == active_user.id %}selected{% endif %}>{{ user.full_name or user.login }}</option>
                         {% endfor %}
                     </select>
+                </form>
+                {% endif %}
+                {% if active_user %}
+                <form method="post" action="/logout">
+                    <button class="btn btn-outline-secondary btn-sm icon-button" type="submit" title="{{ _('Log out') }}">
+                        <i data-lucide="log-out"></i><span>{{ _('Log out') }}</span>
+                    </button>
                 </form>
                 {% endif %}
                 <div class="btn-group btn-group-sm language-switch" role="group" aria-label="Language">
                     <a class="btn btn-outline-secondary {% if request.state.lang == 'ru' %}active{% endif %}" href="{{ lang_url('ru') }}">RU</a>
                     <a class="btn btn-outline-secondary {% if request.state.lang == 'en' %}active{% endif %}" href="{{ lang_url('en') }}">EN</a>
                 </div>
+                <button class="btn btn-outline-primary btn-sm icon-button page-guide-button" type="button" data-page-guide-open title="{% if request.state.lang == 'ru' %}Помощь по странице{% else %}Page help{% endif %}">
+                    <i data-lucide="circle-help"></i><span>{% if request.state.lang == 'ru' %}Помощь{% else %}Help{% endif %}</span>
+                </button>
                 {% if request.state.app_mode != 'prod' %}
                 <a class="btn btn-outline-secondary btn-sm icon-button" href="/docs" title="{{ _('API docs') }}">
                     <i data-lucide="book-open"></i><span>{{ _('API') }}</span>
@@ -174,6 +180,17 @@
                 return;
             }
             const target = window.location.pathname + window.location.hash;
+            let matchedGroup = null;
+            navs.forEach((nav) => {
+                const matchingLink = nav.querySelector(`a[href="${target}"]`);
+                const panel = matchingLink?.closest("[data-nav-panel]");
+                if (panel) {
+                    matchedGroup = panel.dataset.navPanel;
+                }
+            });
+            if (matchedGroup) {
+                setGroup(matchedGroup, false);
+            }
             document.querySelectorAll(".sidebar-group-panel.active").forEach((panel) => {
                 const matchingLink = panel.querySelector(`a[href="${target}"]`);
                 if (!matchingLink) {
@@ -203,22 +220,103 @@
         updateCollapsedState(window.localStorage.getItem(storageKey) === "1");
     })();
 
+    function fieldLabel(field) {
+        const id = field.getAttribute("id");
+        const label = id ? document.querySelector(`label[for="${CSS.escape(id)}"]`) : field.closest("div")?.querySelector("label");
+        return (label?.textContent || field.getAttribute("aria-label") || field.getAttribute("name") || "{{ _('Field') }}").replace("*", "").trim();
+    }
+
+    function validationMessage(field) {
+        const label = fieldLabel(field);
+        if (field.validity.valueMissing) {
+            if (field.tagName === "SELECT") {
+                return "{{ _('Select a value for') }} " + label.toLowerCase() + ".";
+            }
+            return "{{ _('Fill in') }} " + label.toLowerCase() + ".";
+        }
+        if (field.validity.typeMismatch && field.type === "email") {
+            return "{{ _('Enter a valid email address.') }}";
+        }
+        if (field.validity.rangeUnderflow || field.validity.rangeOverflow || field.validity.badInput) {
+            return "{{ _('Enter a correct value.') }}";
+        }
+        return field.validationMessage || "{{ _('Check this field.') }}";
+    }
+
+    function showFieldError(field) {
+        field.classList.add("is-invalid");
+        let error = field.parentElement?.querySelector(`.field-error[data-field-error-for="${field.name}"]`);
+        if (!error) {
+            error = document.createElement("div");
+            error.className = "field-error";
+            error.dataset.fieldErrorFor = field.name;
+            field.insertAdjacentElement("afterend", error);
+        }
+        error.textContent = validationMessage(field);
+    }
+
+    document.addEventListener("input", function (event) {
+        const field = event.target;
+        if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement || field instanceof HTMLSelectElement) {
+            if (field.checkValidity()) {
+                field.classList.remove("is-invalid");
+            }
+        }
+    });
+
+    document.addEventListener("change", function (event) {
+        const field = event.target;
+        if (field instanceof HTMLSelectElement && field.checkValidity()) {
+            field.classList.remove("is-invalid");
+        }
+    });
+
     document.addEventListener("submit", function (event) {
         const form = event.target;
         if (!(form instanceof HTMLFormElement)) {
             return;
         }
-        const action = form.getAttribute("action") || "";
-        const isSoftDelete = action.endsWith("/delete") || action.includes("/delete?") || action.endsWith("/archive") || action.includes("/archive?");
-        if (!isSoftDelete || form.dataset.confirmed === "true") {
+        if (!form.checkValidity()) {
+            event.preventDefault();
+            event.stopPropagation();
+            const invalidFields = Array.from(form.querySelectorAll("input, select, textarea")).filter((field) => !field.checkValidity());
+            invalidFields.forEach(showFieldError);
+            invalidFields[0]?.focus();
             return;
         }
-        if (!window.confirm("{{ _('Archive or delete this record?') }}")) {
+
+        const action = form.getAttribute("action") || "";
+        const isSoftDelete = action.endsWith("/delete") || action.includes("/delete?") || action.endsWith("/archive") || action.includes("/archive?");
+        function markSubmitting() {
+            const submitter = event.submitter;
+            if (submitter instanceof HTMLButtonElement && submitter.type === "submit" && !submitter.disabled) {
+                submitter.dataset.originalText = submitter.textContent.trim();
+                submitter.classList.add("btn-loading");
+                const label = submitter.querySelector("span");
+                if (label) {
+                    label.textContent = submitter.dataset.loadingText || "{{ _('Saving...') }}";
+                }
+                window.setTimeout(() => {
+                    submitter.disabled = true;
+                }, 0);
+            }
+        }
+
+        if (!isSoftDelete || form.dataset.confirmed === "true") {
+            markSubmitting();
+            return;
+        }
+        const submitter = event.submitter;
+        const message = submitter?.dataset.confirmMessage || form.dataset.confirmMessage || "{{ _('This action cannot be undone. Continue?') }}";
+        if (!window.confirm(message)) {
             event.preventDefault();
         } else {
             form.dataset.confirmed = "true";
+            markSubmitting();
         }
     });
 </script>
+<script src="{{ url_for('static', path='user_guide.js') }}"></script>
+<script src="{{ url_for('static', path='concurrency_forms.js') }}"></script>
 </body>
 </html>

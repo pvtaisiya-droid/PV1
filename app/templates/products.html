@@ -1,12 +1,37 @@
 {% extends "base.html" %}
-{% block title %}{{ _('Products') }} - {{ _('PV MVP') }}{% endblock %}
+{% from "_immutable_documents.html" import immutable_documents_block with context %}
+{% block title %}{{ _('Products') }} - {{ _('PV System') }}{% endblock %}
+
+{% macro contract_label(contract) -%}
+    {{ contract.contract_number }} - {{ _(contract.contract_type) }}{% if contract.partner %} / {{ contract.partner.partner_name }}{% endif %}
+{%- endmacro %}
+
+{% macro substance_badges(product) -%}
+    {% set visible_substances = namespace(found=false) %}
+    {% for link in product.substance_links if not link.is_deleted and link.substance and not link.substance.is_deleted %}
+        {% set visible_substances.found = true %}
+        <span class="badge text-bg-light">{{ link.substance.substance_name }}</span>
+    {% endfor %}
+    {% if not visible_substances.found %}<span class="text-secondary">-</span>{% endif %}
+{%- endmacro %}
+
+{% macro dosage_form_label(product) -%}
+    {{ product.dosage_form_ref.name_ru if product.dosage_form_ref else product.dosage_form or "" }}
+{%- endmacro %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
     <div>
         <h1 class="h3 mb-1">{{ _('Products') }}</h1>
         <div class="text-secondary small">{{ filtered_count|default(products|length) }} {{ _('products') }}</div>
     </div>
+    {% if has_permission('export') %}
+        {% if filters.partner_id %}
+        <a class="btn btn-outline-secondary btn-sm icon-button" href="/api/products/export.xlsx?partner_id={{ filters.partner_id }}"><i data-lucide="download"></i><span>{{ _('Export to Excel') }}</span></a>
+        {% else %}
+        <button class="btn btn-outline-secondary btn-sm icon-button" type="button" disabled title="Сначала выберите ДРУ"><i data-lucide="download"></i><span>{{ _('Export to Excel') }}</span></button>
+        {% endif %}
+    {% endif %}
 </div>
 
 {% if message %}
@@ -20,14 +45,14 @@
 {% endif %}
 
 <section class="surface mb-4">
-    <h2 class="h6 section-title">{{ _('Filters') }}</h2>
+    <h2 class="h6 section-title">{{ _('Search') }}</h2>
     <form class="row g-2 align-items-end" method="get" action="/products">
         <div class="col-md-4">
             <label class="form-label">{{ _('Search') }}</label>
-            <input class="form-control" name="search" value="{{ filters.search }}" placeholder="{{ _('Code') }} / {{ _('Name') }} / {{ _('Substances') }}">
+            <input class="form-control" name="search" value="{{ filters.search }}" placeholder="{{ _('Trade name') }}, {{ _('Active substance') }} or {{ _('Comment') }}">
         </div>
         <div class="col-md-3">
-            <label class="form-label">{{ _('MAH partner') }}</label>
+            <label class="form-label">{{ _('DRA') }}</label>
             <select class="form-select" name="partner_id">
                 <option value="">{{ _('All') }}</option>
                 {% for partner in partners %}
@@ -46,64 +71,105 @@
         </div>
         <div class="col-md-3 d-flex flex-wrap gap-2">
             <button class="btn btn-primary icon-button" type="submit"><i data-lucide="search"></i><span>{{ _('Search') }}</span></button>
-            <a class="btn btn-outline-secondary icon-button" href="/products"><i data-lucide="x"></i><span>{{ _('Cancel') }}</span></a>
+            <a class="btn btn-outline-secondary icon-button" href="/products"><i data-lucide="x"></i><span>{{ _('Clear search') }}</span></a>
         </div>
     </form>
 </section>
+
+{% if unlinked_products %}
+<section class="surface mb-4 product-unlinked-section">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+        <div>
+            <h2 class="h6 section-title mb-1">{{ _('Products without DRA links') }}</h2>
+            <div class="text-secondary small">{{ unlinked_products|length }} {{ _('products') }}</div>
+        </div>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead>
+            <tr>
+                <th>{{ _('Trade name') }}</th>
+                <th>{{ _('Active substance') }}</th>
+                <th>{{ _('Status') }}</th>
+                {% if has_permission('edit') or has_permission('manage_reference_data') %}
+                <th>{{ _('DRA') }}</th>
+                {% endif %}
+            </tr>
+            </thead>
+            <tbody>
+            {% for product in unlinked_products %}
+            <tr>
+                <td class="fw-medium">{{ product.product_name }}</td>
+                <td>{{ substance_badges(product) }}</td>
+                <td><span class="status-pill">{{ _(product.authorization_status) if product.authorization_status else _('None') }}</span></td>
+                {% if has_permission('edit') or has_permission('manage_reference_data') %}
+                <td>
+                    <form class="d-flex flex-wrap gap-2" method="post" action="/products/{{ product.id }}/partner-link">
+                        <input type="hidden" name="expected_version" value="{{ product.version }}">
+                        <select class="form-select form-select-sm" name="mah_partner_id" required>
+                            <option value="" disabled selected>{{ _('Select DRA') }}</option>
+                            {% for partner in partners %}
+                            <option value="{{ partner.id }}">{{ partner.partner_name }}</option>
+                            {% endfor %}
+                        </select>
+                        <button class="btn btn-primary btn-sm icon-button" type="submit" {% if not partners %}disabled{% endif %}><i data-lucide="link"></i><span>{{ _('Save DRA link') }}</span></button>
+                    </form>
+                </td>
+                {% endif %}
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endif %}
 
 {% if has_permission('create') or has_permission('manage_reference_data') %}
 <section class="surface mb-4">
     <h2 class="h6 section-title">{{ _('Add Product') }}</h2>
     <form class="row g-3" method="post" action="/products">
-        <div class="col-md-2">
-            <label class="form-label">{{ _('Code') }}</label>
-            <input class="form-control" name="product_code" required>
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Trade name') }}</label>
+            <input class="form-control" name="product_name" placeholder="{{ _('Trade name') }}" required>
+            <div class="form-text">{{ _('Use the full trade name from registration documents.') }}</div>
         </div>
         <div class="col-md-3">
-            <label class="form-label">{{ _('Name') }}</label>
-            <input class="form-control" name="product_name" required>
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">{{ _('Dosage form') }}</label>
-            <input class="form-control" name="dosage_form">
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">{{ _('Strength') }}</label>
-            <input class="form-control" name="strength">
-        </div>
-        <div class="col-md-1">
-            <label class="form-label">{{ _('Route') }}</label>
-            <input class="form-control" name="route">
-        </div>
-        <div class="col-md-3">
-            <label class="form-label">{{ _('MAH partner') }}</label>
-            <select class="form-select" name="mah_partner_id">
+            <label class="form-label">{{ _('Active substance') }}</label>
+            <select class="form-select" name="active_substance_id">
                 <option value="">{{ _('None') }}</option>
-                {% for partner in partners %}
-                <option value="{{ partner.id }}">{{ partner.partner_name }}</option>
+                {% for substance in substances %}
+                <option value="{{ substance.id }}">{{ substance.substance_name }}</option>
                 {% endfor %}
             </select>
         </div>
         <div class="col-md-2">
-            <label class="form-label">{{ _('Authorization no.') }}</label>
-            <input class="form-control" name="authorization_number">
+            <label class="form-label">{{ _('Dosage form') }}</label>
+            <select class="form-select" name="dosage_form_id">
+                <option value="">{{ _('None') }}</option>
+                {% for dosage_form in active_dosage_forms %}
+                <option value="{{ dosage_form.id }}">{{ dosage_form.name_ru }}</option>
+                {% endfor %}
+            </select>
         </div>
         <div class="col-md-2">
-            <label class="form-label">{{ _('Auth country') }}</label>
-            <input class="form-control text-uppercase" name="authorization_country_code" maxlength="2">
+            <label class="form-label">{{ _('Strength') }}</label>
+            <input class="form-control" name="strength" placeholder="500 mg">
         </div>
         <div class="col-md-2">
-            <label class="form-label">{{ _('Status') }}</label>
-            <input class="form-control" name="authorization_status">
+            <label class="form-label">{{ _('DRA') }}</label>
+            <select class="form-select" name="mah_partner_id">
+                <option value="">{{ _('None') }}</option>
+                {% for partner in partners %}
+                <option value="{{ partner.id }}" {% if filters.partner_id == partner.id %}selected{% endif %}>{{ partner.partner_name }}</option>
+                {% endfor %}
+            </select>
         </div>
-        <div class="col-md-1 d-flex align-items-end">
-            <div class="form-check">
-                <input class="form-check-input" type="checkbox" name="is_company_product" value="true" id="companyProduct" checked>
-                <label class="form-check-label" for="companyProduct">{{ _('Company') }}</label>
-            </div>
+        <div class="col-md-4">
+            <label class="form-label">{{ _('Comment') }}</label>
+            <input class="form-control" name="comment" placeholder="{{ _('Short note for colleagues') }}">
         </div>
         <div class="col-md-2 d-flex align-items-end">
-            <button class="btn btn-primary w-100 icon-button" type="submit"><i data-lucide="plus"></i><span>{{ _('Add') }}</span></button>
+            <button class="btn btn-primary w-100 icon-button" type="submit"><i data-lucide="plus"></i><span>{{ _('Add product') }}</span></button>
         </div>
     </form>
 </section>
@@ -115,89 +181,476 @@
         <table class="table table-hover align-middle">
             <thead>
             <tr>
-                <th>{{ _('Code') }}</th>
-                <th>{{ _('Name') }}</th>
+                <th>{{ _('Trade name') }}</th>
+                <th>{{ _('Active substance') }}</th>
+                <th>{{ _('Dosage form') }}</th>
                 <th>{{ _('Strength') }}</th>
-                <th>{{ _('Route') }}</th>
-                <th>{{ _('Substances') }}</th>
-                <th>{{ _('MAH partner') }}</th>
+                <th>{{ _('DRA') }}</th>
+                <th>РУ</th>
                 <th>{{ _('Status') }}</th>
-                <th>{{ _('Auth country') }}</th>
+                <th>{{ _('Contracts') }}</th>
+                <th>{{ _('Comment') }}</th>
                 <th>{{ _('Actions') }}</th>
             </tr>
             </thead>
             <tbody>
             {% for product in products %}
-            <tr>
-                <td class="fw-medium">{{ product.product_code }}</td>
-                <td>{{ product.product_name }}</td>
-                <td>{{ product.strength or "" }}</td>
-                <td>{{ product.route or "" }}</td>
+            {% set registration_rows = product.registration_certificate_rows if product.registration_certificate_rows is defined else [] %}
+            {% set current_registration = product.current_registration if product.current_registration is defined else none %}
+            <tr class="{% if not product.has_partner_links %}product-unlinked-row{% endif %}">
                 <td>
-                    {% for link in product.substance_links %}
-                    <span class="badge text-bg-light">{{ link.substance.substance_name }}</span>
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <button class="btn btn-link p-0 fw-medium text-start product-name-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#product-view-{{ product.id }}" aria-controls="product-view-{{ product.id }}" aria-expanded="false">
+                            {{ product.product_name }}
+                        </button>
+                        {% if not product.has_partner_links %}
+                        <span class="product-unlinked-badge">{{ _('No DRA link') }}</span>
+                        {% endif %}
+                    </div>
+                </td>
+                <td>{{ substance_badges(product) }}</td>
+                <td>{{ dosage_form_label(product) }}</td>
+                <td>{{ product.strength or "" }}</td>
+                <td>{{ product.mah_partner.partner_name if product.mah_partner else "" }}</td>
+                <td>
+                    {% if registration_rows|length == 0 %}
+                    <span class="text-secondary">РУ не добавлено</span>
+                    {% elif registration_rows|length == 1 %}
+                    <span class="status-pill">{{ registration_rows[0].registration_number }}</span>
+                    {% else %}
+                    <div class="d-flex flex-wrap align-items-center gap-1">
+                        <span class="status-pill">{{ current_registration.registration_number if current_registration else registration_rows[0].registration_number }}</span>
+                        <span class="text-secondary small">еще {{ registration_rows|length - 1 }}</span>
+                    </div>
+                    {% endif %}
+                </td>
+                <td><span class="status-pill {{ pv_status_class(current_registration.status if current_registration else product.authorization_status) }}">{{ _(current_registration.status) if current_registration else (_(product.authorization_status) if product.authorization_status else _('None')) }}</span></td>
+                <td>
+                    {% for link in product.contract_links if not link.is_deleted and link.contract and not link.contract.is_deleted %}
+                        <span class="status-pill mb-1">{{ link.contract.contract_number }}</span>
+                    {% else %}
+                    <span class="text-secondary">-</span>
                     {% endfor %}
                 </td>
-                <td>{{ product.mah_partner.partner_name if product.mah_partner else "" }}</td>
-                <td><span class="status-pill">{{ _(product.authorization_status) if product.authorization_status else _('None') }}</span></td>
-                <td>{{ product.authorization_country_code or "" }}</td>
+                <td>{{ product.comment or "" }}</td>
                 <td>
                     <div class="d-flex flex-wrap gap-1">
-                        <button class="btn btn-outline-secondary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#product-view-{{ product.id }}" title="{{ _('View') }}"><i data-lucide="eye"></i></button>
+                        <button class="btn btn-outline-secondary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#product-view-{{ product.id }}" title="{{ _('View') }}" aria-controls="product-view-{{ product.id }}" aria-expanded="false"><i data-lucide="eye"></i></button>
                         {% if has_permission('edit') or has_permission('manage_reference_data') %}
+                        <button class="btn btn-outline-secondary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#product-contracts-{{ product.id }}" title="{{ _('Contracts') }}"><i data-lucide="file-signature"></i></button>
                         <button class="btn btn-outline-primary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#product-edit-{{ product.id }}" title="{{ _('Edit') }}"><i data-lucide="pencil"></i></button>
                         {% endif %}
                         {% if has_permission('soft_delete') or has_permission('manage_reference_data') %}
                         <form method="post" action="/products/{{ product.id }}/delete">
-                            <button class="btn btn-outline-danger btn-sm icon-only" type="submit" title="{{ _('Delete') }}"><i data-lucide="trash-2"></i></button>
+                            <input type="hidden" name="expected_version" value="{{ product.version }}">
+                            <button class="btn btn-outline-danger btn-sm icon-only" type="submit" title="{{ _('Delete') }}" data-confirm-message="{{ _('Delete product confirmation') }}"><i data-lucide="trash-2"></i></button>
                         </form>
                         {% endif %}
                     </div>
                 </td>
             </tr>
-            <tr class="collapse" id="product-view-{{ product.id }}">
-                <td colspan="9">
+            <tr class="collapse product-detail-row" id="product-view-{{ product.id }}">
+                <td colspan="10">
+                    {% set product_warnings = pv_product_attention(product) %}
+                    {% set product_actions = pv_product_next_actions(product) %}
+                    {% set partner_count = 1 if product.mah_partner else 0 %}
+                    {% set contract_count = product.contract_links|rejectattr('is_deleted')|list|length %}
+                    {% set substance_count = product.substance_links|rejectattr('is_deleted')|list|length %}
+                    {% set document_count = documents_by_product.get(product.id, [])|length %}
+                    {% set registration_count = registration_rows|length %}
+                    <div class="product-card-summary product-card-summary-v2">
+                        <div class="product-card-hero">
+                            <div>
+                                <h3 class="h5 mb-1">{{ product.product_name or product.product_code }}</h3>
+                                <div class="text-secondary">{{ dosage_form_label(product) or "Лекарственная форма не указана" }}{% if product.strength %} · {{ product.strength }}{% endif %}</div>
+                            </div>
+                            <span class="status-pill {{ pv_status_class(current_registration.status if current_registration else product.authorization_status) }}">{{ _(current_registration.status) if current_registration else (_(product.authorization_status) if product.authorization_status else _('None')) }}</span>
+                        </div>
+
+                        <div class="product-card-section">
+                            <h4>Основная информация</h4>
+                            <dl class="product-info-list">
+                                <div><dt>Торговое наименование</dt><dd>{{ product.product_name or "Не указано" }}</dd></div>
+                                <div><dt>Лекарственная форма</dt><dd>{{ dosage_form_label(product) or "Не указана" }}</dd></div>
+                                <div><dt>Дозировка</dt><dd>{{ product.strength or "Не указана" }}</dd></div>
+                                <div><dt>Комментарий</dt><dd>{{ product.comment or "Комментарий не добавлен" }}</dd></div>
+                                <div><dt>Последнее обновление</dt><dd>{% if product.updated_at %}Обновлено {{ product.updated_at.strftime('%d.%m.%Y') }}{% else %}Не указано{% endif %}</dd></div>
+                            </dl>
+                        </div>
+
+                        <div class="product-card-section">
+                            <div class="product-section-heading">
+                                <h4>Регистрационные удостоверения</h4>
+                                {% if has_permission('edit') or has_permission('manage_reference_data') %}
+                                <button class="btn btn-outline-primary btn-sm icon-button" type="button" data-bs-toggle="collapse" data-bs-target="#product-registration-add-{{ product.id }}"><i data-lucide="plus"></i><span>Добавить РУ</span></button>
+                                {% endif %}
+                            </div>
+                            {% if registration_count %}
+                            <div class="product-registration-list">
+                                {% for certificate in registration_rows %}
+                                <div class="product-registration-row">
+                                    <div class="product-registration-main">
+                                        <strong>{{ certificate.registration_number }}</strong>
+                                        <div class="product-registration-meta">
+                                            <span>{{ _(certificate.status) }}</span>
+                                            {% if certificate.registration_date %}<span>от {{ certificate.registration_date.strftime('%d.%m.%Y') }}</span>{% endif %}
+                                            {% if certificate.valid_until %}<span>до {{ certificate.valid_until.strftime('%d.%m.%Y') }}</span>{% endif %}
+                                            {% if certificate.holder %}<span>{{ certificate.holder }}</span>{% endif %}
+                                        </div>
+                                        {% if certificate.comment %}
+                                        <div class="text-secondary small">{{ certificate.comment }}</div>
+                                        {% endif %}
+                                    </div>
+                                    {% if has_permission('edit') or has_permission('manage_reference_data') %}
+                                    <div class="product-registration-actions">
+                                        <button class="btn btn-outline-secondary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#registration-edit-{{ certificate.id }}" title="{{ _('Edit') }}"><i data-lucide="pencil"></i></button>
+                                        <form method="post" action="/products/registrations/{{ certificate.id }}/delete">
+                                            <input type="hidden" name="expected_version" value="{{ certificate.version }}">
+                                            <button class="btn btn-outline-danger btn-sm icon-only" type="submit" title="{{ _('Delete') }}" data-confirm-message="Удалить регистрационное удостоверение?"><i data-lucide="trash-2"></i></button>
+                                        </form>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                {% if has_permission('edit') or has_permission('manage_reference_data') %}
+                                <form class="collapse product-registration-form" id="registration-edit-{{ certificate.id }}" method="post" action="/products/registrations/{{ certificate.id }}/edit">
+                                    <input type="hidden" name="expected_version" value="{{ certificate.version }}">
+                                    <input class="form-control form-control-sm" name="registration_number" value="{{ certificate.registration_number }}" placeholder="ЛП-000000" required>
+                                    <select class="form-select form-select-sm" name="status">
+                                        {% for status in registration_status_options %}
+                                        <option value="{{ status }}" {% if certificate.status == status %}selected{% endif %}>{{ _(status) }}</option>
+                                        {% endfor %}
+                                    </select>
+                                    <input class="form-control form-control-sm" type="date" name="registration_date" value="{{ certificate.registration_date.isoformat() if certificate.registration_date else '' }}">
+                                    <input class="form-control form-control-sm" type="date" name="valid_until" value="{{ certificate.valid_until.isoformat() if certificate.valid_until else '' }}">
+                                    <input class="form-control form-control-sm" name="holder" value="{{ certificate.holder or '' }}" placeholder="Держатель РУ">
+                                    <input class="form-control form-control-sm" name="country_code" value="{{ certificate.country_code or '' }}" placeholder="Страна">
+                                    <input class="form-control form-control-sm" name="dosage_form" value="{{ certificate.dosage_form or '' }}" placeholder="Лекарственная форма">
+                                    <input class="form-control form-control-sm" name="strength" value="{{ certificate.strength or '' }}" placeholder="Дозировка">
+                                    <input class="form-control form-control-sm product-registration-form-wide" name="comment" value="{{ certificate.comment or '' }}" placeholder="Комментарий">
+                                    <button class="btn btn-primary btn-sm icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Save') }}</span></button>
+                                </form>
+                                {% endif %}
+                                {% endfor %}
+                            </div>
+                            {% else %}
+                            <div class="product-empty-state">
+                                <span>Регистрационные удостоверения не добавлены.</span>
+                                {% if has_permission('edit') or has_permission('manage_reference_data') %}
+                                <button class="btn btn-outline-primary btn-sm icon-button" type="button" data-bs-toggle="collapse" data-bs-target="#product-registration-add-{{ product.id }}"><i data-lucide="plus"></i><span>Добавить РУ</span></button>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+                            {% if has_permission('edit') or has_permission('manage_reference_data') %}
+                            <form class="collapse product-registration-form" id="product-registration-add-{{ product.id }}" method="post" action="/products/{{ product.id }}/registrations">
+<input type="hidden" name="expected_version" value="{{ product.version }}">
+                                <input class="form-control form-control-sm" name="registration_number" placeholder="ЛП-000000" required>
+                                <select class="form-select form-select-sm" name="status">
+                                    {% for status in registration_status_options %}
+                                    <option value="{{ status }}">{{ _(status) }}</option>
+                                    {% endfor %}
+                                </select>
+                                <input class="form-control form-control-sm" type="date" name="registration_date">
+                                <input class="form-control form-control-sm" type="date" name="valid_until">
+                                <input class="form-control form-control-sm" name="holder" placeholder="Держатель РУ">
+                                <input class="form-control form-control-sm" name="country_code" placeholder="Страна">
+                                <input class="form-control form-control-sm" name="dosage_form" value="{{ dosage_form_label(product) }}" placeholder="Лекарственная форма">
+                                <input class="form-control form-control-sm" name="strength" value="{{ product.strength or '' }}" placeholder="Дозировка">
+                                <input class="form-control form-control-sm product-registration-form-wide" name="comment" placeholder="Комментарий">
+                                <button class="btn btn-primary btn-sm icon-button" type="submit"><i data-lucide="save"></i><span>Сохранить РУ</span></button>
+                            </form>
+                            {% endif %}
+                        </div>
+
+                        <div class="product-card-section">
+                            <h4>Связанные записи</h4>
+                            <div class="product-related-list">
+                                <div><span>Регистрационные удостоверения:</span><strong>{{ registration_count }}</strong></div>
+                                <div><span>Партнеры:</span><strong>{{ partner_count }}</strong></div>
+                                <div>
+                                    <span>Договоры и ДС:</span><strong>{{ contract_count }}</strong>
+                                    {% if contract_count == 0 and (has_permission('edit') or has_permission('manage_reference_data')) %}
+                                    <button class="btn btn-outline-primary btn-sm icon-button" type="button" data-bs-toggle="collapse" data-bs-target="#product-contracts-{{ product.id }}"><i data-lucide="link"></i><span>Привязать договор</span></button>
+                                    {% endif %}
+                                </div>
+                                <div><span>Действующие вещества:</span><strong>{{ substance_count }}</strong></div>
+                                <div>
+                                    <span>Документы:</span><strong>{{ document_count }}</strong>
+                                    {% if document_count == 0 %}
+                                    <a class="btn btn-outline-primary btn-sm icon-button" href="/documents?product_id={{ product.id }}"><i data-lucide="upload"></i><span>Загрузить документ</span></a>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="product-card-grid">
+                            <div class="product-card-section">
+                                <h4>Требуется заполнение</h4>
+                                {% if registration_count == 0 or contract_count == 0 or not product.mah_partner or substance_count == 0 or not (dosage_form_label(product)) %}
+                                <ul class="product-missing-list">
+                                    {% if registration_count == 0 %}<li>регистрационное удостоверение</li>{% endif %}
+                                    {% if contract_count == 0 %}<li>договор или ДС</li>{% endif %}
+                                    {% if not product.mah_partner %}<li>партнер</li>{% endif %}
+                                    {% if substance_count == 0 %}<li>действующее вещество</li>{% endif %}
+                                    {% if not (dosage_form_label(product)) %}<li>лекарственная форма</li>{% endif %}
+                                </ul>
+                                {% else %}
+                                <div class="text-secondary small">Основные сведения заполнены.</div>
+                                {% endif %}
+                            </div>
+
+                            <div class="product-card-section product-card-warning">
+                                <h4>Требует внимания</h4>
+                                {% if product_warnings %}
+                                <ul class="product-missing-list">
+                                    {% for warning in product_warnings %}<li>{{ warning }}</li>{% endfor %}
+                                </ul>
+                                {% else %}
+                                <div class="text-secondary small">Важных подсказок по карточке сейчас нет.</div>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <div class="product-card-section">
+                            <h4>Следующее действие</h4>
+                            <div class="pv-action-list">
+                                {% if registration_count == 0 and (has_permission('edit') or has_permission('manage_reference_data')) %}
+                                <button class="btn btn-primary btn-sm icon-button" type="button" data-bs-toggle="collapse" data-bs-target="#product-registration-add-{{ product.id }}"><i data-lucide="plus"></i><span>Добавить РУ</span></button>
+                                {% elif contract_count == 0 and (has_permission('edit') or has_permission('manage_reference_data')) %}
+                                <button class="btn btn-primary btn-sm icon-button" type="button" data-bs-toggle="collapse" data-bs-target="#product-contracts-{{ product.id }}"><i data-lucide="link"></i><span>Привязать договор</span></button>
+                                {% elif product_actions %}
+                                <a class="btn btn-primary btn-sm icon-button" href="{{ product_actions[0].href }}"><i data-lucide="arrow-right"></i><span>{{ product_actions[0].label }}</span></a>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {{ immutable_documents_block(documents_by_product.get(product.id, []), 'Product', product.id, product.mah_partner_id or '', 'Приложение З-3', 'PARTNER_SPECIFIC', '/products', 'Нередактируемые документы препарата', context_version=product.version) }}
+                    </div>
+                    {% if false %}
+                    <div class="product-card-summary">
+                        <div class="product-card-hero">
+                            <div>
+                                <h3 class="h5 mb-1">{{ product.authorization_number or product.product_name }}</h3>
+                                <div class="text-secondary">{{ dosage_form_label(product) or "Лекарственная форма не указана" }}</div>
+                            </div>
+                            <span class="status-pill {{ pv_status_class(product.authorization_status) }}">{{ _(product.authorization_status) if product.authorization_status else _('None') }}</span>
+                        </div>
+
+                        <div class="product-card-section">
+                            <h4>Основная информация</h4>
+                            <dl class="product-info-list">
+                                <div><dt>Номер РУ</dt><dd>{{ product.authorization_number or "Не указан" }}</dd></div>
+                                <div><dt>Лекарственная форма</dt><dd>{{ dosage_form_label(product) or "Не указана" }}</dd></div>
+                                <div><dt>Комментарий</dt><dd>{{ product.comment or "Комментарий не добавлен" }}</dd></div>
+                                <div><dt>Последнее обновление</dt><dd>{% if product.updated_at %}Обновлено {{ product.updated_at.strftime('%d.%m.%Y') }}{% else %}Не указано{% endif %}</dd></div>
+                            </dl>
+                        </div>
+
+                        <div class="product-card-section">
+                            <h4>Связанные записи</h4>
+                            <div class="product-related-list">
+                                <div><span>Партнеры:</span><strong>{{ partner_count }}</strong></div>
+                                <div>
+                                    <span>Договоры и ДС:</span><strong>{{ contract_count }}</strong>
+                                    {% if contract_count == 0 and (has_permission('edit') or has_permission('manage_reference_data')) %}
+                                    <button class="btn btn-outline-primary btn-sm icon-button" type="button" data-bs-toggle="collapse" data-bs-target="#product-contracts-{{ product.id }}"><i data-lucide="link"></i><span>Привязать договор</span></button>
+                                    {% endif %}
+                                </div>
+                                <div><span>Действующие вещества:</span><strong>{{ substance_count }}</strong></div>
+                                <div>
+                                    <span>Документы:</span><strong>{{ document_count }}</strong>
+                                    {% if document_count == 0 %}
+                                    <a class="btn btn-outline-primary btn-sm icon-button" href="/documents?product_id={{ product.id }}"><i data-lucide="upload"></i><span>Загрузить документ</span></a>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="product-card-grid">
+                            <div class="product-card-section">
+                                <h4>Что еще заполнить</h4>
+                                {% if contract_count == 0 or not product.mah_partner or substance_count == 0 or not (dosage_form_label(product)) %}
+                                <ul class="product-missing-list">
+                                    {% if contract_count == 0 %}<li>договор или ДС</li>{% endif %}
+                                    {% if not product.mah_partner %}<li>партнер</li>{% endif %}
+                                    {% if substance_count == 0 %}<li>действующее вещество</li>{% endif %}
+                                    {% if not (dosage_form_label(product)) %}<li>лекарственная форма</li>{% endif %}
+                                </ul>
+                                {% else %}
+                                <div class="text-secondary small">Основные поля заполнены.</div>
+                                {% endif %}
+                            </div>
+
+                            <div class="product-card-section product-card-warning">
+                                <h4>Требует внимания</h4>
+                                {% if contract_count == 0 %}
+                                <div>Препарат не связан с договором или ДС.</div>
+                                {% elif not product.mah_partner %}
+                                <div>Препарат не связан с партнером.</div>
+                                {% else %}
+                                <div class="text-secondary small">Важных подсказок по карточке сейчас нет.</div>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <div class="product-card-section">
+                            <h4>Следующее действие</h4>
+                            <div class="pv-action-list">
+                                {% if contract_count == 0 and (has_permission('edit') or has_permission('manage_reference_data')) %}
+                                <button class="btn btn-primary btn-sm icon-button" type="button" data-bs-toggle="collapse" data-bs-target="#product-contracts-{{ product.id }}"><i data-lucide="link"></i><span>Привязать договор</span></button>
+                                {% endif %}
+                                <a class="btn btn-outline-primary btn-sm icon-button" href="/safety-reports?product_id={{ product.id }}"><i data-lucide="file-plus-2"></i><span>Создать сообщение</span></a>
+                                <a class="btn btn-outline-primary btn-sm icon-button" href="/documents?product_id={{ product.id }}"><i data-lucide="upload"></i><span>Загрузить документ</span></a>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if false %}
                     <div class="row g-2 small">
-                        <div class="col-md-3"><span class="text-secondary">{{ _('Authorization no.') }}</span><div>{{ product.authorization_number or "" }}</div></div>
-                        <div class="col-md-3"><span class="text-secondary">{{ _('Dosage form') }}</span><div>{{ product.dosage_form or "" }}</div></div>
-                        <div class="col-md-3"><span class="text-secondary">{{ _('Company') }}</span><div>{% if product.is_company_product %}{{ _('Yes') }}{% else %}{{ _('No') }}{% endif %}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('MA number') }}</span><div>{{ product.authorization_number or "" }}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Dosage form') }}</span><div>{{ dosage_form_label(product) }}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Comment') }}</span><div>{{ product.comment or "" }}</div></div>
                         <div class="col-md-3"><span class="text-secondary">{{ _('Updated') }}</span><div>{{ product.updated_at }}</div></div>
                     </div>
+                    <div class="pv-card-grid mt-3">
+                        <div class="pv-related-card">
+                            <div class="pv-card-heading"><span>Связанные записи</span><i data-lucide="network"></i></div>
+                            <div class="pv-related-grid">
+                                <div class="pv-related-item"><strong>{% if product.mah_partner %}1{% else %}0{% endif %}</strong><span>партнер</span></div>
+                                <div class="pv-related-item"><strong>{{ product.contract_links|rejectattr('is_deleted')|list|length }}</strong><span>договоры и ДС</span></div>
+                                <div class="pv-related-item"><strong>{{ product.substance_links|rejectattr('is_deleted')|list|length }}</strong><span>вещества</span></div>
+                                <div class="pv-related-item"><strong>{{ product.documents|rejectattr('is_deleted')|list|length }}</strong><span>документы</span></div>
+                            </div>
+                        </div>
+                        <div class="d-grid gap-2">
+                            <div class="pv-quality-card">
+                                <div class="pv-card-heading"><span>Заполнение карточки</span><strong>{{ product_quality.state }}</strong></div>
+                                {% if product_quality.missing %}
+                                <ul class="pv-compact-list">
+                                    {% for item in product_quality.missing[:4] %}
+                                    <li><i data-lucide="circle-alert"></i><span>{{ item }}</span></li>
+                                    {% endfor %}
+                                </ul>
+                                {% else %}
+                                <div class="text-secondary small">Ключевые поля заполнены.</div>
+                                {% endif %}
+                            </div>
+                            <div class="pv-attention-card">
+                                <div class="pv-card-heading"><span>Требует внимания</span><i data-lucide="triangle-alert"></i></div>
+                                {% if product_warnings %}
+                                <ul class="pv-compact-list">
+                                    {% for warning in product_warnings %}
+                                    <li><i data-lucide="circle-alert"></i><span>{{ warning }}</span></li>
+                                    {% endfor %}
+                                </ul>
+                                {% else %}
+                                <div class="text-secondary small">Критичных пробелов по карточке не найдено.</div>
+                                {% endif %}
+                            </div>
+                            <div class="pv-next-card">
+                                <div class="pv-card-heading"><span>Следующее действие</span><i data-lucide="arrow-right-circle"></i></div>
+                                <div class="pv-action-list">
+                                    {% for action in product_actions %}
+                                    <a class="btn btn-outline-primary btn-sm icon-button" href="{{ action.href }}"><i data-lucide="arrow-right"></i><span>{{ action.label }}</span></a>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
                 </td>
             </tr>
             {% if has_permission('edit') or has_permission('manage_reference_data') %}
+            <tr class="collapse" id="product-contracts-{{ product.id }}">
+                <td colspan="10">
+                    <div class="contract-inline-panel">
+                        <div class="row g-3">
+                            <div class="col-lg-7">
+                                <div class="small text-secondary mb-2">Связанные договоры и ДС</div>
+                                <div class="table-responsive">
+                                    <table class="table table-hover align-middle">
+                                        <thead><tr><th>{{ _('Contract number') }}</th><th>{{ _('Contract type') }}</th><th>{{ _('DRA') }}</th><th>{{ _('Valid until') }}</th><th>{{ _('Actions') }}</th></tr></thead>
+                                        <tbody>
+                                        {% for link in product.contract_links if not link.is_deleted and link.contract and not link.contract.is_deleted %}
+                                        <tr>
+                                            <td class="fw-medium">{{ link.contract.contract_number }}</td>
+                                            <td>{{ _(link.contract.contract_type) }}</td>
+                                            <td>{{ link.contract.partner.partner_name if link.contract.partner else "" }}</td>
+                                            <td>{{ link.contract.valid_until }}</td>
+                                            <td>
+                                                <form method="post" action="/products/{{ product.id }}/contract-links/{{ link.contract.id }}/delete">
+                                                    <input type="hidden" name="expected_version" value="{{ product.version }}">
+                                                    <input type="hidden" name="expected_contract_version" value="{{ link.contract.version }}">
+                                                    <button class="btn btn-outline-danger btn-sm icon-only" type="submit" title="{{ _('Delete') }}" data-confirm-message="{{ _('Unlink contract confirmation') }}"><i data-lucide="unlink"></i></button>
+                                                </form>
+                                            </td>
+                                        </tr>
+                                        {% else %}
+                                        <tr><td colspan="5" class="text-secondary">Связанных договоров или ДС пока нет.</td></tr>
+                                        {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            <div class="col-lg-5">
+                                <form class="row g-2 align-items-end" method="post" action="/products/{{ product.id }}/contract-links">
+                                    <input type="hidden" name="expected_version" value="{{ product.version }}">
+                                    <input type="hidden" name="expected_contract_version" value="">
+                                    <div class="col-12">
+                                        <label class="form-label">Привязать договор или ДС</label>
+                                        <select class="form-select form-select-sm" name="contract_id" required onchange="this.form.elements.expected_contract_version.value = this.selectedOptions[0].dataset.version || ''">
+                                            <option value="">{{ _('Select base contract') }}</option>
+                                            {% for contract in contracts %}
+                                            <option value="{{ contract.id }}" data-version="{{ contract.version }}">{{ contract_label(contract) }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div class="col-12">
+                                        <button class="btn btn-primary btn-sm icon-button" type="submit"><i data-lucide="link"></i><span>{{ _('Link contract') }}</span></button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </td>
+            </tr>
             <tr class="collapse" id="product-edit-{{ product.id }}">
-                <td colspan="9">
+                <td colspan="10">
+                    {% set selected_substance = namespace(id='') %}
+                    {% for link in product.substance_links if not link.is_deleted and link.substance and not link.substance.is_deleted and link.substance_role == 'active' and link.is_primary %}
+                        {% if not selected_substance.id %}
+                            {% set selected_substance.id = link.substance_id %}
+                        {% endif %}
+                    {% endfor %}
+                    {% set normalized_product_status = 'registration_active' if product.authorization_status == 'authorized' else product.authorization_status %}
                     <form class="row g-2 align-items-end" method="post" action="/products/{{ product.id }}/edit">
-                        <div class="col-md-2">
-                            <label class="form-label">{{ _('Code') }}</label>
-                            <input class="form-control form-control-sm" name="product_code" value="{{ product.product_code }}" required>
+                        <input type="hidden" name="expected_version" value="{{ product.version }}">
+                        <div class="col-md-3">
+                            <label class="form-label">{{ _('Trade name') }}</label>
+                            <input class="form-control form-control-sm" name="product_name" value="{{ product.product_name }}" placeholder="{{ _('Trade name') }}" required>
                         </div>
                         <div class="col-md-3">
-                            <label class="form-label">{{ _('Name') }}</label>
-                            <input class="form-control form-control-sm" name="product_name" value="{{ product.product_name }}" required>
+                            <label class="form-label">{{ _('Active substance') }}</label>
+                            <select class="form-select form-select-sm" name="active_substance_id">
+                                <option value="">{{ _('None') }}</option>
+                                {% for substance in substances %}
+                                <option value="{{ substance.id }}" {% if selected_substance.id == substance.id %}selected{% endif %}>{{ substance.substance_name }}</option>
+                                {% endfor %}
+                            </select>
                         </div>
                         <div class="col-md-2">
                             <label class="form-label">{{ _('Dosage form') }}</label>
-                            <input class="form-control form-control-sm" name="dosage_form" value="{{ product.dosage_form or '' }}">
+                            <select class="form-select form-select-sm" name="dosage_form_id">
+                                <option value="">{{ _('None') }}</option>
+                                {% for dosage_form in dosage_forms if dosage_form.is_active or product.dosage_form_id == dosage_form.id %}
+                                <option value="{{ dosage_form.id }}" {% if product.dosage_form_id == dosage_form.id %}selected{% endif %}>{{ dosage_form.name_ru }}{% if not dosage_form.is_active %} ({{ _('Inactive') }}){% endif %}</option>
+                                {% endfor %}
+                            </select>
                         </div>
                         <div class="col-md-2">
                             <label class="form-label">{{ _('Strength') }}</label>
-                            <input class="form-control form-control-sm" name="strength" value="{{ product.strength or '' }}">
-                        </div>
-                        <div class="col-md-1">
-                            <label class="form-label">{{ _('Route') }}</label>
-                            <input class="form-control form-control-sm" name="route" value="{{ product.route or '' }}">
+                            <input class="form-control form-control-sm" name="strength" value="{{ product.strength or '' }}" placeholder="500 mg">
                         </div>
                         <div class="col-md-2">
-                            <label class="form-label">{{ _('Company') }}</label>
-                            <select class="form-select form-select-sm" name="is_company_product">
-                                <option value="true" {% if product.is_company_product %}selected{% endif %}>{{ _('Yes') }}</option>
-                                <option value="false" {% if not product.is_company_product %}selected{% endif %}>{{ _('No') }}</option>
-                            </select>
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label">{{ _('MAH partner') }}</label>
+                            <label class="form-label">{{ _('DRA') }}</label>
                             <select class="form-select form-select-sm" name="mah_partner_id">
                                 <option value="">{{ _('None') }}</option>
                                 {% for partner in partners %}
@@ -205,28 +658,20 @@
                                 {% endfor %}
                             </select>
                         </div>
-                        <div class="col-md-2">
-                            <label class="form-label">{{ _('Authorization no.') }}</label>
-                            <input class="form-control form-control-sm" name="authorization_number" value="{{ product.authorization_number or '' }}">
-                        </div>
-                        <div class="col-md-2">
-                            <label class="form-label">{{ _('Auth country') }}</label>
-                            <input class="form-control form-control-sm text-uppercase" name="authorization_country_code" maxlength="2" value="{{ product.authorization_country_code or '' }}">
-                        </div>
-                        <div class="col-md-2">
-                            <label class="form-label">{{ _('Status') }}</label>
-                            <input class="form-control form-control-sm" name="authorization_status" value="{{ product.authorization_status or '' }}">
+                        <div class="col-md-4">
+                            <label class="form-label">{{ _('Comment') }}</label>
+                            <input class="form-control form-control-sm" name="comment" value="{{ product.comment or '' }}" placeholder="{{ _('Short note for colleagues') }}">
                         </div>
                         <div class="col-md-3 d-flex gap-2">
-                            <button class="btn btn-primary btn-sm icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Save') }}</span></button>
-                            <button class="btn btn-outline-secondary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#product-edit-{{ product.id }}" title="{{ _('Cancel') }}"><i data-lucide="x"></i></button>
+                            <button class="btn btn-primary btn-sm icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Save product') }}</span></button>
+                            <button class="btn btn-outline-secondary btn-sm icon-button" type="button" data-bs-toggle="collapse" data-bs-target="#product-edit-{{ product.id }}"><i data-lucide="x"></i><span>{{ _('Cancel') }}</span></button>
                         </div>
                     </form>
                 </td>
             </tr>
             {% endif %}
             {% else %}
-            <tr><td colspan="9" class="text-secondary">{% if filters.active and total_count %}{{ _('No records match the filters.') }}{% else %}{{ _('No products yet.') }}{% endif %}</td></tr>
+            <tr><td colspan="10" class="empty-state-cell"><div class="empty-state text-secondary"><i data-lucide="search"></i><span>{% if filters.active and total_count %}{{ _('No records match the filters.') }}{% else %}{{ _('No products yet.') }}{% endif %}</span></div></td></tr>
             {% endfor %}
             </tbody>
         </table>

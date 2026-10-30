@@ -9,7 +9,7 @@ Return JSON only and do not save automatically. Human confirmation is required.
 """
 
 
-def analyze_incoming_request_mock(
+def analyze_incoming_request_draft(
     source_text: str,
     *,
     partners: list[Any],
@@ -56,7 +56,7 @@ def analyze_incoming_request_mock(
         "validity_assessment": (
             "Human review required before ICSR creation."
             if possible_icsr
-            else "No valid ICSR conclusion can be made from mock analysis alone."
+            else "No valid ICSR conclusion can be made from automated analysis alone."
         ),
     }
     draft["gpt_json_output"] = json.dumps(draft, ensure_ascii=False, indent=2)

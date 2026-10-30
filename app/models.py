@@ -3,6 +3,7 @@ from datetime import date, datetime, timezone
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Column,
     Date,
     DateTime,
@@ -14,7 +15,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import declared_attr, relationship
 
 from app.database import Base
 
@@ -42,6 +43,12 @@ class CommonMixin:
     deleted_by = Column(String(36), nullable=True)
     delete_reason = Column(Text, nullable=True)
     version = Column(Integer, default=1, nullable=False)
+
+    @declared_attr.directive
+    def __mapper_args__(cls):
+        # All ORM updates participate, including writes that do not manually
+        # increment version. Bulk SQL writes must use an explicit predicate.
+        return {"version_id_col": getattr(cls, "row_version", cls.version)}
 
 
 class Permission(CommonMixin, Base):
@@ -82,6 +89,10 @@ class User(CommonMixin, Base):
     __tablename__ = "tblUsers"
 
     email = Column(String(255), unique=True, index=True, nullable=False)
+    # ``email`` is retained as a legacy storage field for existing databases.
+    # Authentication and all new user-facing flows use ``login`` instead.
+    login = Column(String(100), unique=True, index=True, nullable=True)
+    password_hash = Column(String(255), nullable=True)
     full_name = Column(String(255), nullable=True)
     role = Column(String(50), default="viewer", nullable=False, index=True)
 
@@ -117,6 +128,28 @@ class User(CommonMixin, Base):
         foreign_keys="Task.assigned_to_user_id",
         back_populates="assigned_to",
     )
+
+
+class AuthSession(CommonMixin, Base):
+    __tablename__ = "tblAuthSessions"
+    __table_args__ = (
+        Index("ix_auth_session_user", "user_id"),
+        Index("ix_auth_session_expires", "expires_at"),
+    )
+
+    user_id = Column(String(36), ForeignKey("tblUsers.id"), nullable=False)
+    token_hash = Column(String(64), unique=True, index=True, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+
+
+class OutlookOAuthRequest(Base):
+    __tablename__ = "outlook_oauth_requests"
+    state_hash = Column(String(64), primary_key=True)
+    session_id = Column(String(36), ForeignKey("tblAuthSessions.id"), nullable=False)
+    user_id = Column(String(36), ForeignKey("tblUsers.id"), nullable=False)
+    verifier = Column(String(128), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    reconciliation_id = Column(String(36), nullable=True)
 
 
 class UserRole(CommonMixin, Base):
@@ -167,18 +200,23 @@ class Partner(CommonMixin, Base):
         default="not_conducted",
         nullable=False,
     )
-    country_code = Column(String(2), index=True, nullable=True)
-    region = Column(String(100), nullable=True)
-    email = Column(String(255), nullable=True)
-    phone = Column(String(100), nullable=True)
     address = Column(Text, nullable=True)
-    pv_responsible_person = Column(String(255), nullable=True)
-    sdea_required = Column(Boolean, default=False, nullable=False)
     created_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
     updated_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
 
     safety_reports = relationship("SafetyReport", back_populates="partner")
-    cases = relationship("Case", back_populates="partner")
+    cases = relationship(
+        "Case",
+        foreign_keys="Case.partner_id",
+        back_populates="partner",
+    )
+    numbered_cases = relationship(
+        "Case",
+        foreign_keys="Case.numbering_partner_id",
+        back_populates="numbering_partner",
+    )
+    case_links = relationship("CasePartnerLink", back_populates="partner")
+    case_identifiers = relationship("CaseIdentifier", back_populates="partner")
     products = relationship("Product", back_populates="mah_partner")
     contracts = relationship("Contract", back_populates="partner")
     contract_contacts = relationship("ContractContact", back_populates="partner")
@@ -192,6 +230,23 @@ class Partner(CommonMixin, Base):
         back_populates="partner",
     )
     incoming_requests = relationship("IncomingRequest", back_populates="partner")
+    accounting_periods = relationship("AccountingDataPeriod", back_populates="partner")
+    accounting_info = relationship(
+        "PartnerAccountingInfo",
+        back_populates="partner",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    onboarding_wizards = relationship(
+        "PartnerOnboardingWizard",
+        back_populates="partner",
+        cascade="all, delete-orphan",
+    )
+    product_registration_links = relationship(
+        "PartnerProductRegistrationLink",
+        back_populates="partner",
+        cascade="all, delete-orphan",
+    )
     creator = relationship("User", foreign_keys=[created_by])
     updater = relationship("User", foreign_keys=[updated_by])
 
@@ -216,6 +271,23 @@ class Substance(CommonMixin, Base):
     psur_plans = relationship("PSURPlan", back_populates="active_substance")
 
 
+class DosageForm(Base):
+    __tablename__ = "dosage_forms"
+
+    id = Column(Integer, primary_key=True)
+    name_ru = Column(Text, nullable=False)
+    name_en = Column(Text, nullable=True)
+    group_ru = Column(Text, nullable=True)
+    group_en = Column(Text, nullable=True)
+    is_active = Column(Boolean, default=True, nullable=True)
+    sort_order = Column(Integer, nullable=True)
+    row_version = Column(Integer, default=1, nullable=False)
+
+    __mapper_args__ = {"version_id_col": row_version}
+
+    products = relationship("Product", back_populates="dosage_form_ref")
+
+
 class Product(CommonMixin, Base):
     __tablename__ = "tblProducts"
     __table_args__ = (
@@ -229,18 +301,36 @@ class Product(CommonMixin, Base):
     product_name = Column(String(255), index=True, nullable=False)
     product_name_normalized = Column(String(255), nullable=True)
     dosage_form = Column(String(100), nullable=True)
+    dosage_form_id = Column(Integer, ForeignKey("dosage_forms.id"), nullable=True)
     strength = Column(String(100), nullable=True)
     route = Column(String(100), nullable=True)
     mah_partner_id = Column(String(36), ForeignKey("tblPartners.id"), nullable=True)
     authorization_number = Column(String(100), nullable=True)
     authorization_country_code = Column(String(2), nullable=True)
     authorization_status = Column(String(50), nullable=True)
+    comment = Column(Text, nullable=True)
     is_company_product = Column(Boolean, default=True, nullable=False)
     created_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
     updated_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
 
     mah_partner = relationship("Partner", back_populates="products")
     contracts = relationship("Contract", back_populates="product")
+    registration_certificates = relationship(
+        "ProductRegistrationCertificate",
+        back_populates="product",
+        cascade="all, delete-orphan",
+        order_by="ProductRegistrationCertificate.registration_date.desc(), ProductRegistrationCertificate.created_at.desc()",
+    )
+    partner_registration_links = relationship(
+        "PartnerProductRegistrationLink",
+        back_populates="product",
+        cascade="all, delete-orphan",
+    )
+    contract_links = relationship(
+        "ContractProduct",
+        back_populates="product",
+        cascade="all, delete-orphan",
+    )
     substance_links = relationship(
         "ProductSubstance",
         back_populates="product",
@@ -257,6 +347,58 @@ class Product(CommonMixin, Base):
     incoming_requests = relationship("IncomingRequest", back_populates="product")
     creator = relationship("User", foreign_keys=[created_by])
     updater = relationship("User", foreign_keys=[updated_by])
+    dosage_form_ref = relationship("DosageForm", back_populates="products")
+
+    def dosage_form_name(self, language: str = "ru") -> str:
+        if self.dosage_form_ref:
+            if language == "en":
+                return self.dosage_form_ref.name_en or self.dosage_form_ref.name_ru or ""
+            return self.dosage_form_ref.name_ru or self.dosage_form_ref.name_en or ""
+        return self.dosage_form or ""
+
+    @property
+    def dosage_form_name_ru(self) -> str:
+        return self.dosage_form_name("ru")
+
+    @property
+    def dosage_form_name_en(self) -> str:
+        return self.dosage_form_name("en")
+
+
+class ProductRegistrationCertificate(CommonMixin, Base):
+    __tablename__ = "tblProductRegistrationCertificates"
+    __table_args__ = (
+        UniqueConstraint("product_id", "registration_number", name="uq_product_registration_number"),
+        Index("ix_product_registration_product", "product_id"),
+        Index("ix_product_registration_number", "registration_number"),
+        Index("ix_product_registration_status", "status"),
+    )
+
+    product_id = Column(String(36), ForeignKey("tblProducts.id"), nullable=False)
+    registration_number = Column(String(100), nullable=False)
+    registration_date = Column(Date, nullable=True)
+    valid_until = Column(Date, nullable=True)
+    status = Column(String(50), default="active", nullable=False)
+    holder = Column(String(255), nullable=True)
+    country_code = Column(String(2), nullable=True)
+    dosage_form = Column(String(100), nullable=True)
+    strength = Column(String(100), nullable=True)
+    comment = Column(Text, nullable=True)
+    created_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+    updated_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+
+    product = relationship("Product", back_populates="registration_certificates")
+    partner_links = relationship(
+        "PartnerProductRegistrationLink",
+        back_populates="registration_certificate",
+    )
+    documents = relationship(
+        "Attachment",
+        foreign_keys="Attachment.registration_certificate_id",
+        back_populates="registration_certificate",
+    )
+    creator = relationship("User", foreign_keys=[created_by])
+    updater = relationship("User", foreign_keys=[updated_by])
 
 
 class Contract(CommonMixin, Base):
@@ -268,7 +410,7 @@ class Contract(CommonMixin, Base):
     )
 
     partner_id = Column(String(36), ForeignKey("tblPartners.id"), nullable=False, index=True)
-    product_id = Column(String(36), ForeignKey("tblProducts.id"), nullable=False, index=True)
+    product_id = Column(String(36), ForeignKey("tblProducts.id"), nullable=True, index=True)
     parent_contract_id = Column(String(36), ForeignKey("tblContracts.id"), nullable=True)
     contract_type = Column(String(100), nullable=False, index=True)
     contract_number = Column(String(100), nullable=False, index=True)
@@ -279,6 +421,11 @@ class Contract(CommonMixin, Base):
 
     partner = relationship("Partner", back_populates="contracts")
     product = relationship("Product", back_populates="contracts")
+    product_links = relationship(
+        "ContractProduct",
+        back_populates="contract",
+        cascade="all, delete-orphan",
+    )
     parent_contract = relationship(
         "Contract",
         remote_side="Contract.id",
@@ -292,11 +439,117 @@ class Contract(CommonMixin, Base):
     )
     creator = relationship("User", foreign_keys=[created_by])
     updater = relationship("User", foreign_keys=[updated_by])
+    accounting_periods = relationship("AccountingDataPeriod", back_populates="contract")
+    accounting_tariffs = relationship(
+        "ContractAccountingTariff",
+        back_populates="contract",
+        cascade="all, delete-orphan",
+    )
+    partner_product_registration_links = relationship(
+        "PartnerProductRegistrationLink",
+        back_populates="contract",
+    )
 
     @property
     def is_current(self) -> bool:
         today = date.today()
-        return self.contract_date <= today <= self.valid_until
+        return self.is_active and self.contract_date <= today <= self.valid_until
+
+    @property
+    def linked_products(self) -> list["Product"]:
+        products = [
+            link.product
+            for link in self.product_links
+            if not link.is_deleted and link.product
+        ]
+        if not products and self.product:
+            return [self.product]
+        return products
+
+    @property
+    def product_ids(self) -> list[str]:
+        product_ids = [self.product_id] if self.product_id else []
+        for link in self.product_links:
+            if not link.is_deleted and link.product_id and link.product_id not in product_ids:
+                product_ids.append(link.product_id)
+        return product_ids
+
+
+class ContractProduct(CommonMixin, Base):
+    __tablename__ = "tblContractProducts"
+    __table_args__ = (
+        UniqueConstraint("contract_id", "product_id", name="uq_contract_product"),
+        Index("ix_contract_product_contract", "contract_id"),
+        Index("ix_contract_product_product", "product_id"),
+    )
+
+    contract_id = Column(String(36), ForeignKey("tblContracts.id"), nullable=False)
+    product_id = Column(String(36), ForeignKey("tblProducts.id"), nullable=False)
+
+    contract = relationship("Contract", back_populates="product_links")
+    product = relationship("Product", back_populates="contract_links")
+
+
+class PartnerProductRegistrationLink(CommonMixin, Base):
+    __tablename__ = "tblPartnerProductRegistrationLinks"
+    __table_args__ = (
+        UniqueConstraint(
+            "partner_id",
+            "product_id",
+            "registration_certificate_id",
+            "contract_id",
+            "partner_role",
+            name="uq_partner_product_registration_role",
+        ),
+        Index("ix_partner_product_registration_partner", "partner_id"),
+        Index("ix_partner_product_registration_product", "product_id"),
+        Index("ix_partner_product_registration_certificate", "registration_certificate_id"),
+        Index("ix_partner_product_registration_contract", "contract_id"),
+    )
+
+    partner_id = Column(String(36), ForeignKey("tblPartners.id"), nullable=False)
+    product_id = Column(String(36), ForeignKey("tblProducts.id"), nullable=False)
+    registration_certificate_id = Column(
+        String(36),
+        ForeignKey("tblProductRegistrationCertificates.id"),
+        nullable=True,
+    )
+    contract_id = Column(String(36), ForeignKey("tblContracts.id"), nullable=True)
+    partner_role = Column(String(100), default="mah", nullable=False)
+    comment = Column(Text, nullable=True)
+    created_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+    updated_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+
+    partner = relationship("Partner", back_populates="product_registration_links")
+    product = relationship("Product", back_populates="partner_registration_links")
+    registration_certificate = relationship(
+        "ProductRegistrationCertificate",
+        back_populates="partner_links",
+    )
+    contract = relationship(
+        "Contract",
+        back_populates="partner_product_registration_links",
+    )
+    creator = relationship("User", foreign_keys=[created_by])
+    updater = relationship("User", foreign_keys=[updated_by])
+
+
+class PartnerOnboardingWizard(CommonMixin, Base):
+    __tablename__ = "tblPartnerOnboardingWizards"
+    __table_args__ = (
+        Index("ix_partner_onboarding_partner", "partner_id"),
+        Index("ix_partner_onboarding_status", "status"),
+        Index("ix_partner_onboarding_user", "user_id"),
+    )
+
+    partner_id = Column(String(36), ForeignKey("tblPartners.id"), nullable=True)
+    current_step = Column(Integer, default=1, nullable=False)
+    completed_steps = Column(Text, default="", nullable=False)
+    status = Column(String(50), default="draft", nullable=False)
+    user_id = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+
+    partner = relationship("Partner", back_populates="onboarding_wizards")
+    user = relationship("User")
 
 
 class ContractContact(CommonMixin, Base):
@@ -313,16 +566,139 @@ class ContractContact(CommonMixin, Base):
     patronymic = Column(String(100), nullable=True)
     email = Column(String(255), nullable=True)
     position = Column(String(255), nullable=False)
+    mobile_phone = Column(String(100), nullable=True)
+    work_phone = Column(String(100), nullable=True)
+    extension_phone = Column(String(50), nullable=True)
+    company_website = Column(String(255), nullable=True)
+    address = Column(Text, nullable=True)
     is_current = Column(Boolean, default=True, nullable=False)
     is_pv_contact = Column(Boolean, default=True, nullable=False)
     is_reconciliation_recipient = Column(Boolean, default=True, nullable=False)
     cc_reconciliation = Column(Boolean, default=False, nullable=False)
     is_primary = Column(Boolean, default=False, nullable=False)
+    is_billing_contact = Column(Boolean, default=False, nullable=False)
     contact_type = Column(String(100), default="pv", nullable=True)
     comments = Column(Text, nullable=True)
 
     partner = relationship("Partner", back_populates="contract_contacts")
     psur_partner_requests = relationship("PSURPartnerRequest", back_populates="contact_person")
+
+
+class AccountingService(Base):
+    __tablename__ = "tblAccountingServices"
+
+    id = Column(String(36), primary_key=True, default=new_uuid)
+    name = Column(String(500), nullable=False, unique=True, index=True)
+    default_unit = Column(String(100), nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    sort_order = Column(Integer, default=0, nullable=False)
+
+    lines = relationship("AccountingDataLine", back_populates="service")
+    tariffs = relationship("ContractAccountingTariff", back_populates="service")
+
+
+class AccountingDataPeriod(CommonMixin, Base):
+    __tablename__ = "tblAccountingDataPeriods"
+    __table_args__ = (
+        UniqueConstraint("partner_id", "contract_id", "year", "quarter", name="uq_accounting_period_contract_quarter"),
+        Index("ix_accounting_period_partner", "partner_id"),
+        Index("ix_accounting_period_contract", "contract_id"),
+        Index("ix_accounting_period_status", "status"),
+        Index("ix_accounting_period_year_quarter", "year", "quarter"),
+    )
+
+    partner_id = Column(String(36), ForeignKey("tblPartners.id"), nullable=False)
+    contract_id = Column(String(36), ForeignKey("tblContracts.id"), nullable=False)
+    year = Column(Integer, nullable=False)
+    quarter = Column(Integer, nullable=False)
+    period_start = Column(Date, nullable=False)
+    period_end = Column(Date, nullable=False)
+    status = Column(String(50), default="draft", nullable=False, index=True)
+    responsible_user_id = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+    prepared_at = Column(DateTime(timezone=True), nullable=True)
+    sent_to_accounting_at = Column(DateTime(timezone=True), nullable=True)
+    total_contract_amount = Column(Float, default=0, nullable=False)
+    comment = Column(Text, nullable=True)
+    created_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+    updated_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+
+    partner = relationship("Partner", back_populates="accounting_periods")
+    contract = relationship("Contract", back_populates="accounting_periods")
+    responsible_user = relationship("User", foreign_keys=[responsible_user_id])
+    creator = relationship("User", foreign_keys=[created_by])
+    updater = relationship("User", foreign_keys=[updated_by])
+    lines = relationship(
+        "AccountingDataLine",
+        back_populates="accounting_period",
+        cascade="all, delete-orphan",
+    )
+
+
+class AccountingDataLine(CommonMixin, Base):
+    __tablename__ = "tblAccountingDataLines"
+    __table_args__ = (
+        Index("ix_accounting_line_period", "accounting_period_id"),
+        Index("ix_accounting_line_service", "service_id"),
+        Index("ix_accounting_line_object", "object_type", "object_id"),
+    )
+
+    accounting_period_id = Column(String(36), ForeignKey("tblAccountingDataPeriods.id"), nullable=False)
+    service_id = Column(String(36), ForeignKey("tblAccountingServices.id"), nullable=False)
+    object_type = Column(String(100), nullable=True)
+    object_id = Column(String(36), nullable=True)
+    product_id = Column(String(36), ForeignKey("tblProducts.id"), nullable=True)
+    active_substance_id = Column(String(36), ForeignKey("tblSubstances.id"), nullable=True)
+    product_or_inn = Column(String(500), nullable=True)
+    quantity = Column(Float, nullable=False)
+    unit = Column(String(100), nullable=False)
+    contract_price = Column(Float, nullable=False)
+    contract_amount = Column(Float, nullable=False)
+    source = Column(Text, nullable=True)
+    comment = Column(Text, nullable=True)
+
+    accounting_period = relationship("AccountingDataPeriod", back_populates="lines")
+    service = relationship("AccountingService", back_populates="lines")
+    product = relationship("Product")
+    active_substance = relationship("Substance")
+
+
+class ContractAccountingTariff(CommonMixin, Base):
+    __tablename__ = "tblContractAccountingTariffs"
+    __table_args__ = (
+        UniqueConstraint("contract_id", "service_id", name="uq_contract_accounting_tariff_service"),
+        Index("ix_accounting_tariff_partner", "partner_id"),
+        Index("ix_accounting_tariff_contract", "contract_id"),
+        Index("ix_accounting_tariff_service", "service_id"),
+    )
+
+    partner_id = Column(String(36), ForeignKey("tblPartners.id"), nullable=False)
+    contract_id = Column(String(36), ForeignKey("tblContracts.id"), nullable=False)
+    service_id = Column(String(36), ForeignKey("tblAccountingServices.id"), nullable=False)
+    unit = Column(String(100), nullable=False)
+    price = Column(Float, nullable=False)
+    comment = Column(Text, nullable=True)
+
+    partner = relationship("Partner")
+    contract = relationship("Contract", back_populates="accounting_tariffs")
+    service = relationship("AccountingService", back_populates="tariffs")
+
+
+class PartnerAccountingInfo(CommonMixin, Base):
+    __tablename__ = "tblPartnerAccountingInfo"
+    __table_args__ = (
+        UniqueConstraint("partner_id", name="uq_partner_accounting_info_partner"),
+        Index("ix_partner_accounting_info_partner", "partner_id"),
+    )
+
+    partner_id = Column(String(36), ForeignKey("tblPartners.id"), nullable=False)
+    legal_entity_name = Column(String(500), nullable=True)
+    inn = Column(String(20), nullable=True)
+    kpp = Column(String(20), nullable=True)
+    billing_contact_name = Column(String(255), nullable=True)
+    billing_email = Column(String(255), nullable=True)
+    comment = Column(Text, nullable=True)
+
+    partner = relationship("Partner", back_populates="accounting_info")
 
 
 class PartnerReconciliation(CommonMixin, Base):
@@ -459,6 +835,12 @@ class SafetyReport(CommonMixin, Base):
     received_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     received_date = Column(Date, index=True, nullable=True)
     source_type = Column(String(50), index=True, nullable=True)
+    message_direction = Column(
+        String(50),
+        default="needs_review",
+        nullable=False,
+        index=True,
+    )
     partner_id = Column(String(36), ForeignKey("tblPartners.id"), index=True, nullable=True)
     reporter_name = Column(String(255), nullable=True)
     reporter_email = Column(String(255), nullable=True)
@@ -475,6 +857,12 @@ class SafetyReport(CommonMixin, Base):
     minimum_criteria_reporter = Column(Boolean, default=False, nullable=False)
     minimum_criteria_product = Column(Boolean, default=False, nullable=False)
     minimum_criteria_event = Column(Boolean, default=False, nullable=False)
+    import_batch_id = Column(String(36), ForeignKey("tblE2BImportBatches.id"), nullable=True, index=True)
+    import_item_id = Column(String(36), ForeignKey("tblE2BImportItems.id"), nullable=True, index=True)
+    e2b_message_identifier = Column(String(255), nullable=True, index=True)
+    e2b_message_version = Column(String(50), nullable=True)
+    e2b_followup_type = Column(String(100), nullable=True)
+    source_checksum_sha256 = Column(String(64), nullable=True, index=True)
 
     partner = relationship("Partner", back_populates="safety_reports")
     triaged_by = relationship("User", foreign_keys=[triaged_by_user_id])
@@ -485,17 +873,108 @@ class SafetyReport(CommonMixin, Base):
         uselist=False,
     )
     attachments = relationship("Attachment", back_populates="safety_report")
+    product_links = relationship(
+        "SafetyReportProduct",
+        back_populates="safety_report",
+        cascade="all, delete-orphan",
+        order_by="SafetyReportProduct.created_at, SafetyReportProduct.id",
+    )
+    e2b_import_batch = relationship(
+        "E2BImportBatch",
+        foreign_keys=[import_batch_id],
+        back_populates="safety_reports",
+    )
+    e2b_import_item = relationship("E2BImportItem", foreign_keys=[import_item_id])
+
+    @property
+    def product_ids(self) -> list[str]:
+        product_ids: list[str] = []
+        for link in self.product_links:
+            if not link.is_deleted and link.product_id and link.product_id not in product_ids:
+                product_ids.append(link.product_id)
+        return product_ids
+
+    @property
+    def linked_products(self) -> list["Product"]:
+        return [
+            link.product
+            for link in self.product_links
+            if not link.is_deleted and link.product
+        ]
+
+    @property
+    def product_names(self) -> list[str]:
+        names: list[str] = []
+        for link in self.product_links:
+            if link.is_deleted:
+                continue
+            name = link.reported_product_name or (
+                link.product.product_name if link.product else None
+            )
+            if name and name not in names:
+                names.append(name)
+        return names
+
+
+class SafetyReportProduct(CommonMixin, Base):
+    __tablename__ = "tblSafetyReportProducts"
+    __table_args__ = (
+        CheckConstraint(
+            "product_id IS NOT NULL OR reported_product_name IS NOT NULL",
+            name="ck_safety_report_product_reference",
+        ),
+        UniqueConstraint(
+            "safety_report_id",
+            "product_id",
+            name="uq_safety_report_product",
+        ),
+        Index("ix_safety_report_product_report", "safety_report_id"),
+        Index("ix_safety_report_product_product", "product_id"),
+    )
+
+    safety_report_id = Column(
+        String(36),
+        ForeignKey("tblSafetyReports.id"),
+        nullable=False,
+    )
+    product_id = Column(String(36), ForeignKey("tblProducts.id"), nullable=True)
+    reported_product_name = Column(String(255), nullable=True)
+    drug_role = Column(String(50), default="suspect", nullable=False)
+
+    safety_report = relationship("SafetyReport", back_populates="product_links")
+    product = relationship("Product")
+
+
+class CaseNumberCounter(CommonMixin, Base):
+    __tablename__ = "tblCaseNumberCounters"
+    __table_args__ = (
+        UniqueConstraint(
+            "scope_key",
+            "numbering_year",
+            name="uq_case_number_counter_scope_year",
+        ),
+    )
+
+    scope_key = Column(String(64), nullable=False, index=True)
+    numbering_year = Column(Integer, nullable=False, index=True)
+    last_value = Column(Integer, nullable=False, default=0)
 
 
 class Case(CommonMixin, Base):
     __tablename__ = "tblCases"
     __table_args__ = (
+        UniqueConstraint(
+            "numbering_scope",
+            "numbering_year",
+            "numbering_sequence",
+            name="uq_case_number_scope_year_sequence",
+        ),
         Index("ix_case_status_due", "workflow_status", "due_date"),
         Index("ix_case_seriousness_received", "seriousness", "initial_received_date"),
     )
 
-    case_number = Column(String(50), unique=True, index=True, nullable=False)
-    worldwide_case_id = Column(String(100), index=True, nullable=True)
+    case_number = Column(String(50), index=True, nullable=False)
+    worldwide_case_id = Column(String(100), unique=True, index=True, nullable=True)
     safety_report_id = Column(
         String(36),
         ForeignKey("tblSafetyReports.id"),
@@ -503,6 +982,16 @@ class Case(CommonMixin, Base):
         nullable=True,
     )
     partner_id = Column(String(36), ForeignKey("tblPartners.id"), index=True, nullable=True)
+    numbering_partner_id = Column(
+        String(36),
+        ForeignKey("tblPartners.id"),
+        index=True,
+        nullable=True,
+    )
+    numbering_scope = Column(String(64), index=True, nullable=True)
+    numbering_year = Column(Integer, index=True, nullable=True)
+    numbering_sequence = Column(Integer, nullable=True)
+    number_is_provisional = Column(Boolean, default=False, nullable=False, index=True)
     case_version = Column(Integer, default=1, nullable=False)
     case_type = Column(String(50), nullable=True)
     report_type = Column(String(50), nullable=True)
@@ -516,6 +1005,10 @@ class Case(CommonMixin, Base):
     narrative = Column(Text, nullable=True)
     company_comment = Column(Text, nullable=True)
     medical_review_comment = Column(Text, nullable=True)
+    local_sender_case_id = Column(String(255), unique=True, nullable=True, index=True)
+    source_country_code = Column(String(2), nullable=True)
+    data_review_status = Column(String(100), nullable=True)
+    e2b_import_batch_id = Column(String(36), ForeignKey("tblE2BImportBatches.id"), nullable=True, index=True)
     workflow_status = Column(String(50), default="new", index=True, nullable=False)
     assigned_to_user_id = Column(String(36), ForeignKey("tblUsers.id"), index=True, nullable=True)
     due_date = Column(Date, nullable=True)
@@ -530,7 +1023,12 @@ class Case(CommonMixin, Base):
         back_populates="case",
         foreign_keys=[safety_report_id],
     )
-    partner = relationship("Partner", back_populates="cases")
+    partner = relationship("Partner", foreign_keys=[partner_id], back_populates="cases")
+    numbering_partner = relationship(
+        "Partner",
+        foreign_keys=[numbering_partner_id],
+        back_populates="numbered_cases",
+    )
     assigned_to = relationship(
         "User",
         foreign_keys=[assigned_to_user_id],
@@ -552,6 +1050,133 @@ class Case(CommonMixin, Base):
     audit_entries = relationship("AuditTrail", back_populates="case")
     psur_cases = relationship("PSURCase", back_populates="case")
     incoming_requests = relationship("IncomingRequest", back_populates="case")
+    incoming_request_links = relationship(
+        "IncomingRequestCaseLink",
+        back_populates="case",
+    )
+    e2b_import_batch = relationship(
+        "E2BImportBatch",
+        foreign_keys=[e2b_import_batch_id],
+        back_populates="cases",
+    )
+    e2b_transmissions = relationship("E2BTransmission", back_populates="case")
+    literature_references = relationship(
+        "CaseLiteratureReference",
+        back_populates="case",
+        cascade="all, delete-orphan",
+    )
+    narratives = relationship(
+        "CaseNarrative",
+        back_populates="case",
+        cascade="all, delete-orphan",
+    )
+    partner_links = relationship(
+        "CasePartnerLink",
+        back_populates="case",
+        cascade="all, delete-orphan",
+    )
+    identifiers = relationship(
+        "CaseIdentifier",
+        back_populates="case",
+        cascade="all, delete-orphan",
+        order_by="CaseIdentifier.received_date, CaseIdentifier.created_at",
+    )
+
+    @property
+    def numbering_partner_code(self) -> str:
+        if self.number_is_provisional or not self.numbering_partner_id:
+            return "UNASSIGNED"
+        code = (self.numbering_partner.partner_code if self.numbering_partner else "") or ""
+        return code.strip() or f"PARTNER{self.numbering_partner_id}"
+
+    @property
+    def full_case_code(self) -> str:
+        number = (self.case_number or "").strip()
+        if self.number_is_provisional or not self.numbering_partner_id:
+            return number if number.startswith("UNASSIGNED-") else f"UNASSIGNED-{number}"
+        return f"{self.numbering_partner_code}-{number}"
+
+    @property
+    def numbering_warning(self) -> str | None:
+        if self.number_is_provisional or not self.numbering_partner_id:
+            return "Партнёр не выбран"
+        if not self.numbering_partner or not (self.numbering_partner.partner_code or "").strip():
+            return "Код партнёра не заполнен"
+        return None
+
+    @property
+    def primary_external_identifier(self) -> str | None:
+        primary = next(
+            (
+                row.identifier_value
+                for row in self.identifiers
+                if not row.is_deleted
+                and row.is_primary
+                and row.identifier_type != "previous_internal_number"
+            ),
+            None,
+        )
+        if primary:
+            return primary
+        return next(
+            (
+                row.identifier_value
+                for row in self.identifiers
+                if not row.is_deleted and row.identifier_type != "previous_internal_number"
+            ),
+            None,
+        )
+
+    @property
+    def additional_case_numbers(self) -> str:
+        return "; ".join(
+            row.identifier_value
+            for row in self.identifiers
+            if not row.is_deleted and row.identifier_type != "previous_internal_number"
+        )
+
+    @property
+    def version_label(self) -> str:
+        return "Initial" if self.case_version <= 1 else f"F{self.case_version - 1:02d}"
+
+
+class CasePartnerLink(CommonMixin, Base):
+    __tablename__ = "tblCasePartnerLinks"
+    __table_args__ = (
+        UniqueConstraint("case_id", "partner_id", name="uq_case_partner_link"),
+        Index("ix_case_partner_link_case", "case_id"),
+        Index("ix_case_partner_link_partner", "partner_id"),
+    )
+
+    case_id = Column(String(36), ForeignKey("tblCases.id"), nullable=False)
+    partner_id = Column(String(36), ForeignKey("tblPartners.id"), nullable=False)
+    relationship_type = Column(String(50), default="related", nullable=False)
+
+    case = relationship("Case", back_populates="partner_links")
+    partner = relationship("Partner", back_populates="case_links")
+
+
+class CaseIdentifier(CommonMixin, Base):
+    __tablename__ = "tblCaseIdentifiers"
+    __table_args__ = (
+        Index("ix_case_identifier_case", "case_id"),
+        Index(
+            "ix_case_identifier_partner_value",
+            "partner_id",
+            "identifier_value",
+        ),
+    )
+
+    case_id = Column(String(36), ForeignKey("tblCases.id"), nullable=False)
+    identifier_value = Column(String(255), nullable=False, index=True)
+    partner_id = Column(String(36), ForeignKey("tblPartners.id"), nullable=True)
+    organization_name = Column(String(255), nullable=True)
+    identifier_type = Column(String(100), default="partner_case_number", nullable=False)
+    received_date = Column(Date, nullable=True)
+    is_primary = Column(Boolean, default=False, nullable=False)
+
+    case = relationship("Case", back_populates="identifiers")
+    partner = relationship("Partner", back_populates="case_identifiers")
 
 
 class PSURPlan(CommonMixin, Base):
@@ -837,10 +1462,19 @@ class Patient(CommonMixin, Base):
     age_unit = Column(String(50), nullable=True)
     weight_kg = Column(Float, nullable=True)
     height_cm = Column(Float, nullable=True)
+    country_code = Column(String(2), nullable=True)
+    age_group = Column(String(100), nullable=True)
+    date_of_birth_precision = Column(String(20), nullable=True)
+    death_date = Column(Date, nullable=True)
+    death_date_raw = Column(String(100), nullable=True)
+    death_date_precision = Column(String(20), nullable=True)
+    death_cause = Column(Text, nullable=True)
+    import_batch_id = Column(String(36), ForeignKey("tblE2BImportBatches.id"), nullable=True, index=True)
     pregnancy_status = Column(String(50), nullable=True)
     medical_history_text = Column(Text, nullable=True)
 
     case = relationship("Case", back_populates="patients")
+    import_batch = relationship("E2BImportBatch")
 
 
 class CaseProduct(CommonMixin, Base):
@@ -849,30 +1483,73 @@ class CaseProduct(CommonMixin, Base):
     case_id = Column(String(36), ForeignKey("tblCases.id"), nullable=False, index=True)
     product_id = Column(String(36), ForeignKey("tblProducts.id"), nullable=True)
     reported_product_name = Column(String(255), nullable=True)
+    normalized_product_name = Column(String(255), nullable=True)
     active_substance_text = Column(String(255), nullable=True)
     drug_role = Column(String(50), default="suspect", nullable=False)
+    product_match_status = Column(String(50), nullable=True)
+    substance_match_status = Column(String(50), nullable=True)
     indication_text = Column(Text, nullable=True)
     indication_meddra_pt_code = Column(String(50), nullable=True)
     dose_value = Column(String(50), nullable=True)
     dose_unit = Column(String(50), nullable=True)
     route = Column(String(100), nullable=True)
     frequency = Column(String(100), nullable=True)
+    dosage_form = Column(String(100), nullable=True)
     therapy_start_date = Column(Date, nullable=True)
     therapy_start_date_raw = Column(String(100), nullable=True)
+    therapy_start_date_precision = Column(String(20), nullable=True)
     therapy_end_date = Column(Date, nullable=True)
     therapy_end_date_raw = Column(String(100), nullable=True)
+    therapy_end_date_precision = Column(String(20), nullable=True)
+    duration_text = Column(String(255), nullable=True)
+    expiry_date = Column(Date, nullable=True)
+    expiry_date_raw = Column(String(100), nullable=True)
+    authorization_number = Column(String(100), nullable=True)
+    authorization_country_code = Column(String(2), nullable=True)
+    authorization_holder = Column(String(255), nullable=True)
     action_taken = Column(String(100), nullable=True)
     dechallenge_result = Column(String(100), nullable=True)
     rechallenge_result = Column(String(100), nullable=True)
+    causality_text = Column(Text, nullable=True)
+    null_flavor = Column(String(50), nullable=True)
     batch_lot_number = Column(String(100), nullable=True)
+    import_batch_id = Column(String(36), ForeignKey("tblE2BImportBatches.id"), nullable=True, index=True)
 
     case = relationship("Case", back_populates="case_products")
     product = relationship("Product", back_populates="case_products")
+    import_batch = relationship("E2BImportBatch")
+    drug_substances = relationship(
+        "CaseDrugSubstance",
+        back_populates="case_product",
+        cascade="all, delete-orphan",
+    )
     assessments = relationship(
         "CaseProductReactionAssessment",
         back_populates="case_product",
         cascade="all, delete-orphan",
     )
+
+
+class CaseDrugSubstance(CommonMixin, Base):
+    __tablename__ = "tblCaseDrugSubstances"
+    __table_args__ = (
+        Index("ix_case_drug_substance_case_product", "case_product_id"),
+        Index("ix_case_drug_substance_substance", "substance_id"),
+    )
+
+    case_product_id = Column(String(36), ForeignKey("tblCaseProducts.id"), nullable=False)
+    substance_id = Column(String(36), ForeignKey("tblSubstances.id"), nullable=True)
+    reported_substance_name = Column(String(255), nullable=True)
+    normalized_substance_name = Column(String(255), nullable=True)
+    substance_role = Column(String(50), default="active", nullable=False)
+    match_status = Column(String(50), nullable=True)
+    strength_value = Column(String(100), nullable=True)
+    strength_unit = Column(String(100), nullable=True)
+    import_batch_id = Column(String(36), ForeignKey("tblE2BImportBatches.id"), nullable=True, index=True)
+
+    case_product = relationship("CaseProduct", back_populates="drug_substances")
+    substance = relationship("Substance")
+    import_batch = relationship("E2BImportBatch")
 
 
 class Reaction(CommonMixin, Base):
@@ -891,10 +1568,16 @@ class Reaction(CommonMixin, Base):
     meddra_pt_name = Column(String(255), nullable=True)
     meddra_soc_code = Column(String(50), index=True, nullable=True)
     meddra_soc_name = Column(String(255), nullable=True)
+    meddra_version = Column(String(50), nullable=True)
+    term_language = Column(String(20), nullable=True)
+    term_country_code = Column(String(2), nullable=True)
     onset_date = Column(Date, nullable=True)
     onset_date_raw = Column(String(100), nullable=True)
+    onset_date_precision = Column(String(20), nullable=True)
     end_date = Column(Date, nullable=True)
     end_date_raw = Column(String(100), nullable=True)
+    end_date_precision = Column(String(20), nullable=True)
+    duration_text = Column(String(255), nullable=True)
     outcome = Column(String(100), nullable=True)
     is_serious = Column(Boolean, default=False, index=True, nullable=False)
     seriousness_death = Column(Boolean, default=False, nullable=False)
@@ -903,8 +1586,13 @@ class Reaction(CommonMixin, Base):
     seriousness_disability = Column(Boolean, default=False, nullable=False)
     seriousness_congenital_anomaly = Column(Boolean, default=False, nullable=False)
     seriousness_other_medically_important = Column(Boolean, default=False, nullable=False)
+    medically_confirmed = Column(Boolean, nullable=True)
+    reporter_comment = Column(Text, nullable=True)
+    null_flavor = Column(String(50), nullable=True)
+    import_batch_id = Column(String(36), ForeignKey("tblE2BImportBatches.id"), nullable=True, index=True)
 
     case = relationship("Case", back_populates="reactions")
+    import_batch = relationship("E2BImportBatch")
     assessments = relationship(
         "CaseProductReactionAssessment",
         back_populates="reaction",
@@ -914,6 +1602,10 @@ class Reaction(CommonMixin, Base):
 
 class CaseProductReactionAssessment(CommonMixin, Base):
     __tablename__ = "tblCaseProductReactionAssessments"
+    __table_args__ = (
+        Index("ix_case_assessment_method_result", "causality_method", "relatedness"),
+        Index("ix_case_assessment_role_date", "assessor_role", "assessment_date"),
+    )
 
     case_product_id = Column(String(36), ForeignKey("tblCaseProducts.id"), nullable=False)
     reaction_id = Column(String(36), ForeignKey("tblReactions.id"), nullable=False)
@@ -924,9 +1616,17 @@ class CaseProductReactionAssessment(CommonMixin, Base):
     expectedness = Column(String(100), nullable=True)
     listedness = Column(String(100), nullable=True)
     assessment_comment = Column(Text, nullable=True)
+    naranjo_score = Column(Integer, nullable=True)
+    naranjo_answers_json = Column(Text, nullable=True)
+    assessor_role = Column(String(50), nullable=True)
+    assessor_name = Column(String(255), nullable=True)
+    assessor_organization = Column(String(255), nullable=True)
+    assessment_date = Column(Date, nullable=True)
+    created_by_user_id = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
 
     case_product = relationship("CaseProduct", back_populates="assessments")
     reaction = relationship("Reaction", back_populates="assessments")
+    creator = relationship("User", foreign_keys=[created_by_user_id])
 
 
 class FollowUp(CommonMixin, Base):
@@ -936,6 +1636,12 @@ class FollowUp(CommonMixin, Base):
     follow_up_number = Column(Integer, nullable=False)
     received_date = Column(Date, nullable=True)
     source_type = Column(String(50), nullable=True)
+    message_direction = Column(
+        String(50),
+        default="needs_review",
+        nullable=False,
+        index=True,
+    )
     description = Column(Text, nullable=True)
     significant_new_information = Column(Boolean, default=False, nullable=False)
     processed_by_user_id = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
@@ -964,15 +1670,31 @@ class Attachment(CommonMixin, Base):
     related_object_id = Column(String(36), nullable=True)
     partner_id = Column(String(36), ForeignKey("tblPartners.id"), nullable=True, index=True)
     product_id = Column(String(36), ForeignKey("tblProducts.id"), nullable=True, index=True)
+    registration_certificate_id = Column(
+        String(36),
+        ForeignKey("tblProductRegistrationCertificates.id"),
+        nullable=True,
+        index=True,
+    )
     mime_type = Column(String(100), nullable=True)
     file_size_bytes = Column(Integer, nullable=True)
     storage_path = Column(String(500), nullable=True)
     file_url = Column(String(500), nullable=True)
     document_version = Column(String(50), nullable=True)
     document_date = Column(Date, nullable=True)
+    valid_until = Column(Date, nullable=True, index=True)
     status = Column(String(50), default="draft", nullable=True)
+    is_signed = Column(Boolean, default=False, nullable=False)
+    page_count = Column(Integer, nullable=True)
+    scope = Column(String(50), default="GLOBAL", nullable=False, index=True)
+    psmf_annex_code = Column(String(50), nullable=True, index=True)
+    include_in_psmf = Column(Boolean, default=False, nullable=False, index=True)
+    inclusion_order = Column(Integer, default=0, nullable=False)
     comment = Column(Text, nullable=True)
     checksum_sha256 = Column(String(64), nullable=True)
+    import_batch_id = Column(String(36), ForeignKey("tblE2BImportBatches.id"), nullable=True, index=True)
+    e2b_source = Column(String(50), nullable=True)
+    duplicate_of_attachment_id = Column(String(36), ForeignKey("tblAttachments.id"), nullable=True)
     uploaded_by_user_id = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
     uploaded_at = Column(DateTime(timezone=True), nullable=True)
     created_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
@@ -982,6 +1704,11 @@ class Attachment(CommonMixin, Base):
     safety_report = relationship("SafetyReport", back_populates="attachments")
     partner = relationship("Partner", foreign_keys=[partner_id], back_populates="documents")
     product = relationship("Product", foreign_keys=[product_id], back_populates="documents")
+    registration_certificate = relationship(
+        "ProductRegistrationCertificate",
+        foreign_keys=[registration_certificate_id],
+        back_populates="documents",
+    )
     uploaded_by = relationship("User", foreign_keys=[uploaded_by_user_id])
     creator = relationship("User", foreign_keys=[created_by])
     updater = relationship("User", foreign_keys=[updated_by])
@@ -991,6 +1718,19 @@ class Attachment(CommonMixin, Base):
         cascade="all, delete-orphan",
         order_by="DocumentVersion.created_at.desc()",
     )
+    psmf_links = relationship(
+        "PSMFDocumentLink",
+        back_populates="attachment",
+        cascade="all, delete-orphan",
+        order_by="PSMFDocumentLink.inclusion_order.asc()",
+    )
+    build_inclusions = relationship(
+        "PSMFBuildDocument",
+        back_populates="attachment",
+        order_by="PSMFBuildDocument.created_at.desc()",
+    )
+    import_batch = relationship("E2BImportBatch", back_populates="attachments")
+    duplicate_of_attachment = relationship("Attachment", remote_side="Attachment.id")
 
 
 class DocumentVersion(CommonMixin, Base):
@@ -1011,14 +1751,45 @@ class DocumentVersion(CommonMixin, Base):
     checksum_sha256 = Column(String(64), nullable=True)
     file_size_bytes = Column(Integer, nullable=True)
     document_date = Column(Date, nullable=True)
+    valid_until = Column(Date, nullable=True)
+    is_signed = Column(Boolean, default=False, nullable=False)
+    page_count = Column(Integer, nullable=True)
     change_reason = Column(Text, nullable=True)
     created_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
 
     attachment = relationship("Attachment", back_populates="versions")
     creator = relationship("User", foreign_keys=[created_by])
+    psmf_links = relationship("PSMFDocumentLink", back_populates="document_version")
+    build_inclusions = relationship("PSMFBuildDocument", back_populates="document_version")
+
+
+class PSMFDocumentLink(CommonMixin, Base):
+    """One registry record linked to one PSMF annex and a selected immutable version."""
+
+    __tablename__ = "psmf_document_links"
+    __table_args__ = (
+        UniqueConstraint("attachment_id", "annex_code", "partner_id", name="uq_psmf_document_link"),
+        Index("ix_psmf_document_link_attachment", "attachment_id"),
+        Index("ix_psmf_document_link_version", "document_version_id"),
+        Index("ix_psmf_document_link_annex", "annex_code"),
+        Index("ix_psmf_document_link_partner", "partner_id"),
+    )
+
+    attachment_id = Column(String(36), ForeignKey("tblAttachments.id"), nullable=False)
+    document_version_id = Column(String(36), ForeignKey("tblDocumentVersions.id"), nullable=True)
+    annex_code = Column(String(50), nullable=False)
+    partner_id = Column(String(36), ForeignKey("tblPartners.id"), nullable=True)
+    scope = Column(String(50), default="GLOBAL", nullable=False)
+    is_included = Column(Boolean, default=True, nullable=False)
+    inclusion_order = Column(Integer, default=0, nullable=False)
+
+    attachment = relationship("Attachment", back_populates="psmf_links")
+    document_version = relationship("DocumentVersion", back_populates="psmf_links")
+    partner = relationship("Partner")
 
 
 class SOP(CommonMixin, Base):
+    row_version = Column(Integer, default=1, nullable=False)
     __tablename__ = "tblSOPs"
     __table_args__ = (
         UniqueConstraint("sop_code", name="uq_sop_code"),
@@ -1085,13 +1856,25 @@ class IncomingRequest(CommonMixin, Base):
         Index("ix_incoming_request_status", "status"),
         Index("ix_incoming_request_partner", "partner_id"),
         Index("ix_incoming_request_product", "product_id"),
+        Index("ix_incoming_request_message_number", "message_number"),
+        Index("ix_incoming_request_triage", "triage_status", "validity_status"),
     )
 
+    message_number = Column(String(50), unique=True, index=True, nullable=True)
+    received_date = Column(Date, nullable=True, index=True)
+    received_time = Column(String(20), nullable=True)
     source_text = Column(Text, nullable=False)
+    source_type = Column(String(100), nullable=True)
+    source_name = Column(String(255), nullable=True)
+    channel = Column(String(100), nullable=True)
     request_type = Column(String(100), nullable=True)
     partner_id = Column(String(36), ForeignKey("tblPartners.id"), nullable=True, index=True)
     product_id = Column(String(36), ForeignKey("tblProducts.id"), nullable=True, index=True)
+    active_substance_id = Column(String(36), ForeignKey("tblSubstances.id"), nullable=True, index=True)
     active_substance = Column(String(255), nullable=True)
+    reporter_name = Column(String(255), nullable=True)
+    reporter_contact = Column(String(255), nullable=True)
+    message_category = Column(String(100), nullable=True)
     possible_icsr = Column(String(10), default="no", nullable=False)
     patient_information = Column(Text, nullable=True)
     adverse_event = Column(Text, nullable=True)
@@ -1104,14 +1887,332 @@ class IncomingRequest(CommonMixin, Base):
     human_confirmed = Column(Boolean, default=False, nullable=False)
     status = Column(String(50), default="new", nullable=False, index=True)
     case_id = Column(String(36), ForeignKey("tblCases.id"), nullable=True, index=True)
+    triage_status = Column(String(50), default="not_started", nullable=False, index=True)
+    safety_relevance = Column(String(50), nullable=True, index=True)
+    potential_icsr = Column(String(50), nullable=True, index=True)
+    validity_status = Column(String(50), nullable=True, index=True)
+    has_identifiable_patient = Column(Boolean, default=False, nullable=False)
+    has_identifiable_reporter = Column(Boolean, default=False, nullable=False)
+    has_suspect_product = Column(Boolean, default=False, nullable=False)
+    has_adverse_event = Column(Boolean, default=False, nullable=False)
+    missing_criteria = Column(Text, nullable=True)
+    triage_result = Column(String(100), nullable=True, index=True)
+    triage_comment = Column(Text, nullable=True)
+    triaged_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+    triaged_at = Column(DateTime(timezone=True), nullable=True)
     created_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
     updated_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
 
     partner = relationship("Partner", back_populates="incoming_requests")
     product = relationship("Product", back_populates="incoming_requests")
+    active_substance_ref = relationship("Substance", foreign_keys=[active_substance_id])
     case = relationship("Case", back_populates="incoming_requests")
     creator = relationship("User", foreign_keys=[created_by])
     updater = relationship("User", foreign_keys=[updated_by])
+    triage_user = relationship("User", foreign_keys=[triaged_by])
+    case_links = relationship(
+        "IncomingRequestCaseLink",
+        back_populates="incoming_request",
+    )
+    product_links = relationship(
+        "IncomingRequestProduct",
+        back_populates="incoming_request",
+        cascade="all, delete-orphan",
+        order_by="IncomingRequestProduct.created_at, IncomingRequestProduct.id",
+    )
+
+    @property
+    def product_ids(self) -> list[str]:
+        product_ids = [self.product_id] if self.product_id else []
+        for link in self.product_links:
+            if not link.is_deleted and link.product_id and link.product_id not in product_ids:
+                product_ids.append(link.product_id)
+        return product_ids
+
+    @property
+    def linked_products(self) -> list["Product"]:
+        products: list["Product"] = []
+        if self.product:
+            products.append(self.product)
+        for link in self.product_links:
+            if not link.is_deleted and link.product and link.product not in products:
+                products.append(link.product)
+        return products
+
+    @property
+    def product_names(self) -> list[str]:
+        names: list[str] = []
+        for link in self.product_links:
+            if link.is_deleted:
+                continue
+            name = link.reported_product_name or (
+                link.product.product_name if link.product else None
+            )
+            if name and name not in names:
+                names.append(name)
+        if self.product:
+            if self.product.product_name in names:
+                names.remove(self.product.product_name)
+            names.insert(0, self.product.product_name)
+        return names
+
+
+class IncomingRequestProduct(CommonMixin, Base):
+    __tablename__ = "tblIncomingRequestProducts"
+    __table_args__ = (
+        CheckConstraint(
+            "product_id IS NOT NULL OR reported_product_name IS NOT NULL",
+            name="ck_incoming_request_product_reference",
+        ),
+        UniqueConstraint(
+            "incoming_request_id",
+            "product_id",
+            name="uq_incoming_request_product",
+        ),
+        Index("ix_incoming_request_product_request", "incoming_request_id"),
+        Index("ix_incoming_request_product_product", "product_id"),
+    )
+
+    incoming_request_id = Column(
+        String(36),
+        ForeignKey("tblIncomingRequests.id"),
+        nullable=False,
+    )
+    product_id = Column(String(36), ForeignKey("tblProducts.id"), nullable=True)
+    reported_product_name = Column(String(255), nullable=True)
+    drug_role = Column(String(50), default="suspect", nullable=False)
+
+    incoming_request = relationship("IncomingRequest", back_populates="product_links")
+    product = relationship("Product")
+
+
+class IncomingRequestCaseLink(CommonMixin, Base):
+    __tablename__ = "tblIncomingRequestCaseLinks"
+    __table_args__ = (
+        UniqueConstraint(
+            "incoming_request_id",
+            "case_id",
+            "link_type",
+            name="uq_incoming_request_case_link_type",
+        ),
+        Index("ix_incoming_request_case_link_request", "incoming_request_id"),
+        Index("ix_incoming_request_case_link_case", "case_id"),
+        Index("ix_incoming_request_case_link_type", "link_type"),
+    )
+
+    incoming_request_id = Column(
+        String(36),
+        ForeignKey("tblIncomingRequests.id"),
+        nullable=False,
+        index=True,
+    )
+    case_id = Column(String(36), ForeignKey("tblCases.id"), nullable=False, index=True)
+    link_type = Column(String(50), default="created_from_message", nullable=False)
+    comment = Column(Text, nullable=True)
+    created_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+
+    incoming_request = relationship("IncomingRequest", back_populates="case_links")
+    case = relationship("Case", back_populates="incoming_request_links")
+    creator = relationship("User", foreign_keys=[created_by])
+
+
+class E2BImportBatch(CommonMixin, Base):
+    __tablename__ = "tblE2BImportBatches"
+    __table_args__ = (
+        Index("ix_e2b_batch_status_uploaded", "status", "uploaded_at"),
+        Index("ix_e2b_batch_checksum", "zip_checksum_sha256"),
+    )
+
+    source_filename = Column(String(255), nullable=False)
+    source_size_bytes = Column(Integer, nullable=False, default=0)
+    zip_checksum_sha256 = Column(String(64), nullable=False, index=True)
+    uploaded_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    uploaded_by_user_id = Column(String(36), ForeignKey("tblUsers.id"), nullable=True, index=True)
+    status = Column(String(50), default="uploaded", nullable=False, index=True)
+    importer_version = Column(String(50), default="e2b-importer-1", nullable=False)
+    storage_dir = Column(String(500), nullable=True)
+    source_zip_path = Column(String(500), nullable=True)
+    file_manifest_json = Column(Text, nullable=True)
+    normalized_json = Column(Text, nullable=True)
+    detected_xml_count = Column(Integer, default=0, nullable=False)
+    detected_pdf_count = Column(Integer, default=0, nullable=False)
+    detected_other_count = Column(Integer, default=0, nullable=False)
+    detected_case_count = Column(Integer, default=0, nullable=False)
+    detected_message_count = Column(Integer, default=0, nullable=False)
+    error_count = Column(Integer, default=0, nullable=False)
+    warning_count = Column(Integer, default=0, nullable=False)
+    duplicate_batch_id = Column(String(36), ForeignKey("tblE2BImportBatches.id"), nullable=True)
+    confirmed_at = Column(DateTime(timezone=True), nullable=True)
+    confirmed_by_user_id = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+    imported_at = Column(DateTime(timezone=True), nullable=True)
+    import_summary_json = Column(Text, nullable=True)
+    created_safety_report_id = Column(String(36), ForeignKey("tblSafetyReports.id"), nullable=True)
+    created_incoming_request_id = Column(String(36), ForeignKey("tblIncomingRequests.id"), nullable=True)
+    created_case_id = Column(String(36), ForeignKey("tblCases.id"), nullable=True)
+
+    uploaded_by = relationship("User", foreign_keys=[uploaded_by_user_id])
+    confirmed_by = relationship("User", foreign_keys=[confirmed_by_user_id])
+    duplicate_batch = relationship("E2BImportBatch", remote_side="E2BImportBatch.id")
+    items = relationship(
+        "E2BImportItem",
+        back_populates="batch",
+        cascade="all, delete-orphan",
+        order_by="E2BImportItem.created_at.asc()",
+    )
+    issues = relationship(
+        "E2BImportIssue",
+        back_populates="batch",
+        cascade="all, delete-orphan",
+    )
+    transmissions = relationship(
+        "E2BTransmission",
+        back_populates="batch",
+        cascade="all, delete-orphan",
+    )
+    safety_reports = relationship(
+        "SafetyReport",
+        foreign_keys="SafetyReport.import_batch_id",
+        back_populates="e2b_import_batch",
+    )
+    cases = relationship(
+        "Case",
+        foreign_keys="Case.e2b_import_batch_id",
+        back_populates="e2b_import_batch",
+    )
+    attachments = relationship("Attachment", back_populates="import_batch")
+    created_safety_report = relationship("SafetyReport", foreign_keys=[created_safety_report_id])
+    created_incoming_request = relationship("IncomingRequest", foreign_keys=[created_incoming_request_id])
+    created_case = relationship("Case", foreign_keys=[created_case_id])
+
+
+class E2BImportItem(CommonMixin, Base):
+    __tablename__ = "tblE2BImportItems"
+    __table_args__ = (
+        Index("ix_e2b_item_batch_role", "batch_id", "file_role"),
+        Index("ix_e2b_item_checksum", "checksum_sha256"),
+    )
+
+    batch_id = Column(String(36), ForeignKey("tblE2BImportBatches.id"), nullable=False, index=True)
+    original_path = Column(String(1000), nullable=False)
+    stored_path = Column(String(1000), nullable=True)
+    file_name = Column(String(255), nullable=False)
+    file_role = Column(String(50), nullable=False)
+    mime_type = Column(String(100), nullable=True)
+    size_bytes = Column(Integer, default=0, nullable=False)
+    checksum_sha256 = Column(String(64), nullable=True)
+    status = Column(String(50), default="detected", nullable=False)
+    e2b_version = Column(String(50), nullable=True)
+    message_identifier = Column(String(255), nullable=True, index=True)
+    case_identifier = Column(String(255), nullable=True, index=True)
+    recipient = Column(String(255), nullable=True)
+    validation_json = Column(Text, nullable=True)
+    normalized_json = Column(Text, nullable=True)
+    duplicate_of_item_id = Column(String(36), ForeignKey("tblE2BImportItems.id"), nullable=True)
+
+    batch = relationship("E2BImportBatch", back_populates="items")
+    duplicate_of_item = relationship("E2BImportItem", remote_side="E2BImportItem.id")
+    issues = relationship(
+        "E2BImportIssue",
+        back_populates="item",
+        cascade="all, delete-orphan",
+    )
+    transmissions = relationship("E2BTransmission", back_populates="item")
+
+
+class E2BImportIssue(CommonMixin, Base):
+    __tablename__ = "tblE2BImportIssues"
+    __table_args__ = (
+        Index("ix_e2b_issue_batch_severity", "batch_id", "severity"),
+        Index("ix_e2b_issue_item", "item_id"),
+    )
+
+    batch_id = Column(String(36), ForeignKey("tblE2BImportBatches.id"), nullable=False, index=True)
+    item_id = Column(String(36), ForeignKey("tblE2BImportItems.id"), nullable=True, index=True)
+    severity = Column(String(20), default="warning", nullable=False)
+    issue_type = Column(String(100), nullable=False)
+    message = Column(Text, nullable=False)
+    technical_path = Column(String(1000), nullable=True)
+    is_blocking = Column(Boolean, default=False, nullable=False)
+
+    batch = relationship("E2BImportBatch", back_populates="issues")
+    item = relationship("E2BImportItem", back_populates="issues")
+
+
+class E2BTransmission(CommonMixin, Base):
+    __tablename__ = "tblE2BTransmissions"
+    __table_args__ = (
+        Index("ix_e2b_transmission_case", "case_id"),
+        Index("ix_e2b_transmission_message", "message_identifier", "message_version"),
+        UniqueConstraint("import_item_id", name="uq_e2b_transmission_import_item"),
+    )
+
+    batch_id = Column(String(36), ForeignKey("tblE2BImportBatches.id"), nullable=False, index=True)
+    import_item_id = Column(String(36), ForeignKey("tblE2BImportItems.id"), nullable=False, index=True)
+    case_id = Column(String(36), ForeignKey("tblCases.id"), nullable=True, index=True)
+    safety_report_id = Column(String(36), ForeignKey("tblSafetyReports.id"), nullable=True, index=True)
+    incoming_request_id = Column(String(36), ForeignKey("tblIncomingRequests.id"), nullable=True, index=True)
+    message_identifier = Column(String(255), nullable=True, index=True)
+    message_version = Column(String(50), nullable=True)
+    worldwide_case_id = Column(String(255), nullable=True, index=True)
+    local_sender_case_id = Column(String(255), nullable=True, index=True)
+    receiver = Column(String(255), nullable=True)
+    sender = Column(String(255), nullable=True)
+    message_type = Column(String(100), nullable=True)
+    followup_type = Column(String(100), nullable=True)
+    xml_checksum_sha256 = Column(String(64), nullable=True, index=True)
+    normalized_json = Column(Text, nullable=True)
+
+    batch = relationship("E2BImportBatch", back_populates="transmissions")
+    item = relationship("E2BImportItem", back_populates="transmissions")
+    case = relationship("Case", back_populates="e2b_transmissions")
+    safety_report = relationship("SafetyReport")
+    incoming_request = relationship("IncomingRequest")
+
+
+class CaseLiteratureReference(CommonMixin, Base):
+    __tablename__ = "tblCaseLiteratureReferences"
+    __table_args__ = (
+        Index("ix_case_literature_case", "case_id"),
+        Index("ix_case_literature_pmid", "pmid"),
+        Index("ix_case_literature_doi", "doi"),
+    )
+
+    case_id = Column(String(36), ForeignKey("tblCases.id"), nullable=False, index=True)
+    title = Column(String(500), nullable=True)
+    authors = Column(Text, nullable=True)
+    journal = Column(String(255), nullable=True)
+    publication_year = Column(Integer, nullable=True)
+    volume = Column(String(100), nullable=True)
+    issue = Column(String(100), nullable=True)
+    pages = Column(String(100), nullable=True)
+    doi = Column(String(255), nullable=True, index=True)
+    pmid = Column(String(100), nullable=True, index=True)
+    citation = Column(Text, nullable=True)
+    linked_attachment_id = Column(String(36), ForeignKey("tblAttachments.id"), nullable=True)
+    additional_source_text = Column(Text, nullable=True)
+    import_batch_id = Column(String(36), ForeignKey("tblE2BImportBatches.id"), nullable=True, index=True)
+
+    case = relationship("Case", back_populates="literature_references")
+    linked_attachment = relationship("Attachment")
+    import_batch = relationship("E2BImportBatch")
+
+
+class CaseNarrative(CommonMixin, Base):
+    __tablename__ = "tblCaseNarratives"
+    __table_args__ = (
+        Index("ix_case_narrative_case", "case_id"),
+        Index("ix_case_narrative_type", "narrative_type"),
+    )
+
+    case_id = Column(String(36), ForeignKey("tblCases.id"), nullable=False, index=True)
+    narrative_type = Column(String(100), default="medical_narrative", nullable=False)
+    narrative_text = Column(Text, nullable=True)
+    language = Column(String(20), nullable=True)
+    source = Column(String(100), nullable=True)
+    import_batch_id = Column(String(36), ForeignKey("tblE2BImportBatches.id"), nullable=True, index=True)
+
+    case = relationship("Case", back_populates="narratives")
+    import_batch = relationship("E2BImportBatch")
 
 
 class Submission(CommonMixin, Base):
@@ -1337,18 +2438,41 @@ class PSMFComponent(CommonMixin, Base):
         Index("ix_psmf_component_type_scope", "component_type", "scope"),
         Index("ix_psmf_component_status", "status"),
         Index("ix_psmf_component_partner", "partner_id"),
+        Index("ix_psmf_component_parent", "parent_component_id"),
     )
 
+    original_code = Column(String(100), nullable=True)
+    original_title = Column(String(255), nullable=True)
     code = Column(String(100), nullable=False)
     title = Column(String(255), nullable=False)
+    title_ru = Column(String(255), nullable=True)
+    title_en = Column(String(255), nullable=True)
     component_type = Column(String(50), default="MAIN_SECTION", nullable=False)
+    parent_component_id = Column(String(36), ForeignKey("psmf_components.id"), nullable=True)
+    component_order = Column(Integer, default=0, nullable=False)
     scope = Column(String(50), default="GLOBAL", nullable=False)
     partner_id = Column(String(36), ForeignKey("tblPartners.id"), nullable=True)
     description = Column(Text, nullable=True)
+    is_required = Column(Boolean, default=True, nullable=False)
+    is_optional = Column(Boolean, default=False, nullable=False)
+    include_if_has_content = Column(Boolean, default=False, nullable=False)
     status = Column(String(50), default="draft", nullable=False, index=True)
     current_version = Column(String(50), default="0.1", nullable=False)
+    current_version_id = Column(String(36), nullable=True)
 
     partner = relationship("Partner", back_populates="psmf_components")
+    parent = relationship(
+        "PSMFComponent",
+        remote_side="PSMFComponent.id",
+        back_populates="children",
+    )
+    children = relationship("PSMFComponent", back_populates="parent")
+    blocks = relationship(
+        "PSMFBlock",
+        back_populates="component",
+        cascade="all, delete-orphan",
+        order_by="PSMFBlock.block_order.asc()",
+    )
     versions = relationship(
         "PSMFComponentVersion",
         back_populates="component",
@@ -1373,10 +2497,14 @@ class PSMFComponentVersion(Base):
         index=True,
     )
     version = Column(String(50), nullable=False)
+    row_version = Column(Integer, default=1, nullable=False)
+    __mapper_args__ = {"version_id_col": row_version}
     content = Column(Text, nullable=False)
     status = Column(String(50), default="draft", nullable=False)
     change_summary = Column(Text, nullable=True)
+    change_reason = Column(Text, nullable=True)
     created_by = Column(String(255), nullable=True)
+    created_by_text = Column(String(255), nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at = Column(
         DateTime(timezone=True),
@@ -1385,7 +2513,9 @@ class PSMFComponentVersion(Base):
         nullable=False,
     )
     approved_by = Column(String(255), nullable=True)
+    approved_by_text = Column(String(255), nullable=True)
     approved_at = Column(DateTime(timezone=True), nullable=True)
+    approval_comment = Column(Text, nullable=True)
     is_locked = Column(Boolean, default=False, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     is_deleted = Column(Boolean, default=False, nullable=False)
@@ -1394,6 +2524,206 @@ class PSMFComponentVersion(Base):
     delete_reason = Column(Text, nullable=True)
 
     component = relationship("PSMFComponent", back_populates="versions")
+
+
+class PSMFBlock(CommonMixin, Base):
+    __tablename__ = "psmf_blocks"
+    __table_args__ = (
+        UniqueConstraint("component_id", "code", "block_type", name="uq_psmf_block_code_type"),
+        Index("ix_psmf_block_component", "component_id"),
+        Index("ix_psmf_block_type", "block_type"),
+        Index("ix_psmf_block_status", "status"),
+        Index("ix_psmf_block_partner", "partner_id"),
+        Index("ix_psmf_block_source", "source_module"),
+    )
+
+    component_id = Column(String(36), ForeignKey("psmf_components.id"), nullable=False)
+    original_code = Column(String(100), nullable=True)
+    original_title = Column(String(255), nullable=True)
+    code = Column(String(100), nullable=False)
+    title_ru = Column(String(255), nullable=False)
+    title_en = Column(String(255), nullable=True)
+    block_type = Column(String(50), nullable=False)
+    block_order = Column(Integer, default=0, nullable=False)
+    scope = Column(String(50), default="GLOBAL", nullable=False)
+    partner_id = Column(String(36), ForeignKey("tblPartners.id"), nullable=True)
+    source_module = Column(String(100), nullable=True)
+    source_filter_json = Column(Text, nullable=True)
+    is_required = Column(Boolean, default=True, nullable=False)
+    include_if_has_content = Column(Boolean, default=False, nullable=False)
+    status = Column(String(50), default="draft", nullable=False, index=True)
+    current_version_id = Column(String(36), nullable=True)
+
+    component = relationship("PSMFComponent", back_populates="blocks")
+    partner = relationship("Partner")
+    versions = relationship(
+        "PSMFBlockVersion",
+        back_populates="block",
+        cascade="all, delete-orphan",
+        order_by="PSMFBlockVersion.created_at.desc()",
+    )
+
+
+class PSMFBlockVersion(CommonMixin, Base):
+    row_version = Column(Integer, default=1, nullable=False)
+    __tablename__ = "psmf_block_versions"
+    __table_args__ = (
+        UniqueConstraint("block_id", "version", name="uq_psmf_block_version"),
+        Index("ix_psmf_block_version_block", "block_id"),
+        Index("ix_psmf_block_version_status", "status"),
+        Index("ix_psmf_block_partner_review", "partner_review_status"),
+    )
+
+    block_id = Column(String(36), ForeignKey("psmf_blocks.id"), nullable=False)
+    version = Column(String(50), nullable=False)
+    content = Column(Text, nullable=False)
+    status = Column(String(50), default="draft", nullable=False)
+    source_data_snapshot_json = Column(Text, nullable=True)
+    change_summary = Column(Text, nullable=True)
+    change_reason = Column(Text, nullable=True)
+    created_by_text = Column(String(255), nullable=True)
+    approved_by_text = Column(String(255), nullable=True)
+    approved_at = Column(DateTime(timezone=True), nullable=True)
+    approval_comment = Column(Text, nullable=True)
+    partner_review_status = Column(String(50), nullable=True)
+    partner_reviewed_by_text = Column(String(255), nullable=True)
+    partner_reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    partner_review_comment = Column(Text, nullable=True)
+    is_locked = Column(Boolean, default=False, nullable=False)
+
+    block = relationship("PSMFBlock", back_populates="versions")
+
+
+class PSMFComment(CommonMixin, Base):
+    __tablename__ = "psmf_comments"
+    __table_args__ = (
+        Index("ix_psmf_comment_object", "object_type", "object_id"),
+        Index("ix_psmf_comment_status", "comment_status"),
+    )
+
+    object_type = Column(String(50), nullable=False)
+    object_id = Column(String(36), nullable=False)
+    comment_text = Column(Text, nullable=False)
+    comment_status = Column(String(50), default="open", nullable=False)
+    created_by_text = Column(String(255), nullable=True)
+    resolved_by_text = Column(String(255), nullable=True)
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class PSMFPartnerBuild(CommonMixin, Base):
+    row_version = Column(Integer, default=1, nullable=False)
+    __tablename__ = "psmf_partner_builds"
+    __table_args__ = (
+        Index("ix_psmf_build_partner", "partner_id"),
+        Index("ix_psmf_build_type_status", "build_type", "build_status"),
+    )
+
+    partner_id = Column(String(36), ForeignKey("tblPartners.id"), nullable=False)
+    build_type = Column(String(50), default="DRAFT", nullable=False)
+    build_status = Column(String(50), default="generated", nullable=False)
+    version = Column(String(50), default="1.0", nullable=False)
+    generated_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    generated_by_text = Column(String(255), nullable=True)
+    approved_by_text = Column(String(255), nullable=True)
+    approved_at = Column(DateTime(timezone=True), nullable=True)
+    approval_comment = Column(Text, nullable=True)
+    partner_review_status = Column(String(50), nullable=True)
+    partner_reviewed_by_text = Column(String(255), nullable=True)
+    partner_reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    partner_review_comment = Column(Text, nullable=True)
+    warnings_json = Column(Text, nullable=True)
+    docx_file_path = Column(String(500), nullable=True)
+    pdf_file_path = Column(String(500), nullable=True)
+    package_file_path = Column(String(500), nullable=True)
+
+    partner = relationship("Partner")
+    items = relationship(
+        "PSMFPartnerBuildItem",
+        back_populates="build",
+        cascade="all, delete-orphan",
+        order_by="PSMFPartnerBuildItem.created_at.asc()",
+    )
+    documents = relationship(
+        "PSMFBuildDocument",
+        back_populates="build",
+        cascade="all, delete-orphan",
+        order_by="PSMFBuildDocument.annex_code.asc(), PSMFBuildDocument.inclusion_order.asc()",
+    )
+
+
+class PSMFPartnerBuildItem(CommonMixin, Base):
+    __tablename__ = "psmf_partner_build_items"
+    __table_args__ = (
+        Index("ix_psmf_build_item_build", "build_id"),
+        Index("ix_psmf_build_item_component", "component_id"),
+        Index("ix_psmf_build_item_block", "block_id"),
+    )
+
+    build_id = Column(String(36), ForeignKey("psmf_partner_builds.id"), nullable=False)
+    component_id = Column(String(36), ForeignKey("psmf_components.id"), nullable=False)
+    component_version_id = Column(String(36), ForeignKey("psmf_component_versions.id"), nullable=True)
+    block_id = Column(String(36), ForeignKey("psmf_blocks.id"), nullable=True)
+    block_version_id = Column(String(36), ForeignKey("psmf_block_versions.id"), nullable=True)
+    code = Column(String(100), nullable=False)
+    title_ru = Column(String(255), nullable=False)
+    block_type = Column(String(50), nullable=True)
+    status = Column(String(50), nullable=True)
+    included_content_snapshot = Column(Text, nullable=True)
+    source_data_snapshot_json = Column(Text, nullable=True)
+
+    build = relationship("PSMFPartnerBuild", back_populates="items")
+    component = relationship("PSMFComponent")
+    component_version = relationship("PSMFComponentVersion")
+    block = relationship("PSMFBlock")
+    block_version = relationship("PSMFBlockVersion")
+
+
+class PSMFBuildDocument(CommonMixin, Base):
+    """Immutable document-version snapshot included in a concrete PSMF build."""
+
+    __tablename__ = "psmf_build_documents"
+    __table_args__ = (
+        UniqueConstraint("build_id", "attachment_id", "document_version_id", "annex_code", name="uq_psmf_build_document"),
+        Index("ix_psmf_build_document_build", "build_id"),
+        Index("ix_psmf_build_document_attachment", "attachment_id"),
+        Index("ix_psmf_build_document_version", "document_version_id"),
+        Index("ix_psmf_build_document_annex", "annex_code"),
+    )
+
+    build_id = Column(String(36), ForeignKey("psmf_partner_builds.id"), nullable=False)
+    attachment_id = Column(String(36), ForeignKey("tblAttachments.id"), nullable=False)
+    document_version_id = Column(String(36), ForeignKey("tblDocumentVersions.id"), nullable=False)
+    annex_code = Column(String(50), nullable=False)
+    inclusion_order = Column(Integer, default=0, nullable=False)
+    document_title_snapshot = Column(String(255), nullable=False)
+    version_label_snapshot = Column(String(50), nullable=False)
+    file_name_snapshot = Column(String(255), nullable=False)
+    checksum_sha256_snapshot = Column(String(64), nullable=True)
+    page_count_snapshot = Column(Integer, nullable=True)
+
+    build = relationship("PSMFPartnerBuild", back_populates="documents")
+    attachment = relationship("Attachment", back_populates="build_inclusions")
+    document_version = relationship("DocumentVersion", back_populates="build_inclusions")
+
+
+class PSMFSettings(CommonMixin, Base):
+    __tablename__ = "psmf_settings"
+
+    company_name = Column(String(255), default="ООО «АРС»", nullable=False)
+    default_language = Column(String(10), default="ru", nullable=False)
+    psmf_template_version = Column(String(50), default="RU-PSMF-2026.1", nullable=False)
+    title_en_enabled = Column(Boolean, default=False, nullable=False)
+    enable_docx_export = Column(Boolean, default=True, nullable=False)
+    enable_pdf_export = Column(Boolean, default=True, nullable=False)
+    default_empty_state_text = Column(
+        Text,
+        default="На дату формирования МФСФ сведения отсутствуют / не применимо.",
+        nullable=False,
+    )
+    include_optional_annex_k_if_has_content = Column(Boolean, default=True, nullable=False)
+    skip_empty_partner_specific_blocks = Column(Boolean, default=False, nullable=False)
+    final_build_requires_all_required_components_approved = Column(Boolean, default=True, nullable=False)
+    allow_final_build_with_warnings_after_confirmation = Column(Boolean, default=True, nullable=False)
 
 
 class AuditTrail(CommonMixin, Base):

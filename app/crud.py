@@ -1,25 +1,61 @@
 import csv
 import io
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
+from uuid import uuid4
 
-from sqlalchemy import func
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import case, func, or_
+from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy.orm.exc import StaleDataError
+from app.concurrency import require_version
 
 from app import schemas
 from app.audit import log_audit
-from app.auth import get_request_user_id
+from app.auth import get_request_user_id, hash_password, normalize_login
+from app.causality import (
+    ASSESSOR_ROLE_VALUES,
+    NARANJO_ANSWER_VALUES,
+    WHO_UMC_VALUES,
+    calculate_naranjo_score,
+    classify_naranjo_score,
+)
+from app.case_numbering import (
+    add_case_identifier as add_numbering_identifier,
+    add_case_partner_link as add_numbering_partner_link,
+    assign_case_number,
+    normalize_partner_code,
+    validate_partner_code,
+)
 from app.models import (
+    AccountingDataLine,
+    AccountingDataPeriod,
+    AccountingService,
+    AuthSession,
     AuditTrail,
     Attachment,
     Case,
+    CaseIdentifier,
+    CasePartnerLink,
+    CaseDrugSubstance,
+    CaseLiteratureReference,
+    CaseNarrative,
     CaseProduct,
+    CaseProductReactionAssessment,
     Contract,
+    ContractAccountingTariff,
     ContractContact,
+    ContractProduct,
+    DosageForm,
     DocumentVersion,
+    E2BImportBatch,
+    E2BImportIssue,
+    E2BImportItem,
+    E2BTransmission,
     FollowUp,
     IncomingRequest,
+    IncomingRequestCaseLink,
+    IncomingRequestProduct,
     LiteratureMonitoringPlan,
     LiteratureMonitoringPlanProduct,
     LiteratureResult,
@@ -27,13 +63,19 @@ from app.models import (
     LiteratureSearchLog,
     LiteratureSearchLogProduct,
     Partner,
+    PartnerAccountingInfo,
+    PartnerOnboardingWizard,
+    PartnerProductRegistrationLink,
     PartnerReconciliation,
     PartnerReconciliationItem,
     Patient,
     Permission,
     Product,
+    ProductRegistrationCertificate,
     ProductSubstance,
+    PSMFBuildDocument,
     PSMFComponent,
+    PSMFDocumentLink,
     PSURCase,
     PSURDocument,
     PSURPartnerRequest,
@@ -44,6 +86,7 @@ from app.models import (
     Role,
     RolePermission,
     SafetyReport,
+    SafetyReportProduct,
     SOP,
     SOPVersion,
     Submission,
@@ -54,6 +97,7 @@ from app.models import (
     utcnow,
 )
 from app.rbac import LEGACY_ROLE_MAP
+from app.reconciliation_excel import build_xlsx
 from app.workflow import validate_case_status, validate_icsr_transition
 
 
@@ -98,6 +142,8 @@ def assert_case_editable(case: Case) -> None:
         raise ValueError(
             "Case is submitted, closed, or locked. Reopen it with a change reason before editing."
         )
+    # Child changes must also conflict with a concurrent closure of the parent.
+    case.version += 1
 
 
 def apply_case_lock_state(case: Case, next_status: str, actor_id: str | None) -> None:
@@ -260,6 +306,9 @@ def create_document_version_snapshot(
         checksum_sha256=attachment.checksum_sha256,
         file_size_bytes=attachment.file_size_bytes,
         document_date=attachment.document_date,
+        valid_until=attachment.valid_until,
+        is_signed=attachment.is_signed,
+        page_count=attachment.page_count,
         change_reason=change_reason or attachment.comment,
         created_by=actor_id or audit_user_id(db),
     )
@@ -364,8 +413,13 @@ def generate_number(db: Session, model: type, field_name: str, prefix: str) -> s
         candidate_number += 1
 
 
-def create_user(db: Session, email: str, full_name: str, role: str = "viewer") -> User:
-    existing = db.query(User).filter(User.email == email).first()
+def create_user(db: Session, login: str, full_name: str, role: str = "viewer") -> User:
+    normalized_login = normalize_login(login)
+    existing = (
+        db.query(User)
+        .filter(or_(User.login == normalized_login, User.email == login))
+        .first()
+    )
     if existing:
         if not existing.user_roles:
             role_code = LEGACY_ROLE_MAP.get(role, "readonly_auditor")
@@ -375,7 +429,12 @@ def create_user(db: Session, email: str, full_name: str, role: str = "viewer") -
                 db.commit()
                 db.refresh(existing)
         return existing
-    user = User(email=email, full_name=full_name, role=role)
+    user = User(
+        email=normalized_login,
+        login=normalized_login,
+        full_name=full_name,
+        role=role,
+    )
     db.add(user)
     db.flush()
     role_code = LEGACY_ROLE_MAP.get(role, "readonly_auditor")
@@ -389,17 +448,17 @@ def create_user(db: Session, email: str, full_name: str, role: str = "viewer") -
 
 def list_users(db: Session, include_deleted: bool = False) -> list[User]:
     query = db.query(User).options(
-        joinedload(User.user_roles).joinedload(UserRole.role)
+        selectinload(User.user_roles).joinedload(UserRole.role)
     )
     if not include_deleted:
         query = query.filter(User.is_deleted.is_(False))
-    return query.order_by(User.full_name, User.email).all()
+    return query.order_by(User.full_name, User.login).all()
 
 
 def get_user(db: Session, user_id: str) -> User | None:
     return (
         db.query(User)
-        .options(joinedload(User.user_roles).joinedload(UserRole.role))
+        .options(selectinload(User.user_roles).joinedload(UserRole.role))
         .filter(User.id == user_id, User.is_deleted.is_(False))
         .first()
     )
@@ -408,12 +467,20 @@ def get_user(db: Session, user_id: str) -> User | None:
 def create_app_user(
     db: Session,
     *,
-    email: str,
+    login: str,
+    password: str,
     full_name: str | None,
     role_ids: list[str],
     created_by_user_id: str | None = None,
 ) -> User:
-    user = User(email=email, full_name=full_name, role="viewer")
+    normalized_login = normalize_login(login)
+    user = User(
+        email=normalized_login,
+        login=normalized_login,
+        password_hash=hash_password(password),
+        full_name=full_name,
+        role="viewer",
+    )
     db.add(user)
     db.flush()
     for role_id in role_ids:
@@ -429,7 +496,7 @@ def create_app_user(
         db,
         entity_type="User",
         entity_id=user.id,
-        data={"email": email, "full_name": full_name, "roles": ", ".join(role_ids)},
+        data={"login": normalized_login, "full_name": full_name, "roles": ", ".join(role_ids)},
         user_id=created_by_user_id,
     )
     db.commit()
@@ -441,12 +508,13 @@ def update_app_user(
     db: Session,
     user: User,
     *,
-    email: str,
+    login: str,
     full_name: str | None,
     changed_by_user_id: str | None = None,
 ) -> User:
-    old_values = {"email": user.email, "full_name": user.full_name}
-    user.email = email
+    old_values = {"login": user.login, "full_name": user.full_name}
+    user.login = normalize_login(login)
+    user.email = user.login
     user.full_name = full_name
     user.version += 1
     log_field_changes(
@@ -454,7 +522,46 @@ def update_app_user(
         entity_type="User",
         entity_id=user.id,
         old_values=old_values,
-        new_values={"email": user.email, "full_name": user.full_name},
+        new_values={"login": user.login, "full_name": user.full_name},
+        user_id=changed_by_user_id,
+    )
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def set_user_password(
+    db: Session,
+    user: User,
+    *,
+    password: str,
+    changed_by_user_id: str | None = None,
+) -> User:
+    user.password_hash = hash_password(password)
+    user.version += 1
+    now = utcnow()
+    (
+        db.query(AuthSession)
+        .filter(
+            AuthSession.user_id == user.id,
+            AuthSession.is_deleted.is_(False),
+        )
+        .update(
+            {
+                AuthSession.is_active: False,
+                AuthSession.is_deleted: True,
+                AuthSession.deleted_at: now,
+                AuthSession.version: AuthSession.version + 1,
+            },
+            synchronize_session=False,
+        )
+    )
+    log_audit(
+        db,
+        entity_type="User",
+        entity_id=user.id,
+        action="password_reset",
+        field_name="password",
         user_id=changed_by_user_id,
     )
     db.commit()
@@ -491,8 +598,8 @@ def list_roles(db: Session) -> list[Role]:
     return (
         db.query(Role)
         .options(
-            joinedload(Role.role_permissions).joinedload(RolePermission.permission),
-            joinedload(Role.user_roles),
+            selectinload(Role.role_permissions).joinedload(RolePermission.permission),
+            selectinload(Role.user_roles),
         )
         .filter(Role.is_deleted.is_(False))
         .order_by(Role.role_name)
@@ -677,7 +784,18 @@ def update_role_permissions(
 
 
 def list_partners(db: Session) -> list[Partner]:
-    return db.query(Partner).filter(Partner.is_deleted.is_(False)).order_by(Partner.partner_name).all()
+    status_order = case(
+        (Partner.partner_type == "fn", 0),
+        (Partner.partner_type == "registration_in_progress", 1),
+        (Partner.partner_type == "archive", 2),
+        else_=1,
+    )
+    return (
+        db.query(Partner)
+        .filter(Partner.is_deleted.is_(False))
+        .order_by(status_order, Partner.partner_name)
+        .all()
+    )
 
 
 def get_partner(db: Session, partner_id: str) -> Partner | None:
@@ -686,6 +804,7 @@ def get_partner(db: Session, partner_id: str) -> Partner | None:
 
 def create_partner(db: Session, payload: schemas.PartnerCreate) -> Partner:
     data = clean_form_data(model_data(payload))
+    data["partner_code"] = validate_partner_code(data.get("partner_code") or "")
     actor_id = audit_user_id(db)
     partner = Partner(**data, created_by=actor_id, updated_by=actor_id)
     db.add(partner)
@@ -703,6 +822,14 @@ def create_partner(db: Session, payload: schemas.PartnerCreate) -> Partner:
 
 def update_partner(db: Session, partner: Partner, payload: schemas.PartnerCreate) -> Partner:
     data = clean_form_data(model_data(payload))
+    requested_code = normalize_partner_code(data.get("partner_code") or "")
+    if requested_code == normalize_partner_code(partner.partner_code):
+        # Historical partner codes may contain Cyrillic or other legacy
+        # characters. Editing unrelated partner fields must not rewrite them.
+        requested_code = partner.partner_code
+    else:
+        requested_code = validate_partner_code(requested_code)
+    data["partner_code"] = requested_code
     old_values = {field: getattr(partner, field, None) for field in data}
     for field, value in data.items():
         setattr(partner, field, value)
@@ -718,6 +845,155 @@ def update_partner(db: Session, partner: Partner, payload: schemas.PartnerCreate
     db.commit()
     db.refresh(partner)
     return partner
+
+
+def create_partner_onboarding_wizard(
+    db: Session,
+    *,
+    partner_id: str | None = None,
+    user_id: str | None = None,
+) -> PartnerOnboardingWizard:
+    wizard = PartnerOnboardingWizard(
+        partner_id=partner_id,
+        current_step=1,
+        completed_steps="",
+        status="draft",
+        user_id=user_id,
+    )
+    db.add(wizard)
+    db.commit()
+    db.refresh(wizard)
+    return wizard
+
+
+def get_partner_onboarding_wizard(
+    db: Session,
+    wizard_id: str,
+) -> PartnerOnboardingWizard | None:
+    return (
+        db.query(PartnerOnboardingWizard)
+        .options(joinedload(PartnerOnboardingWizard.partner))
+        .filter(
+            PartnerOnboardingWizard.id == wizard_id,
+            PartnerOnboardingWizard.is_deleted.is_(False),
+        )
+        .first()
+    )
+
+
+def get_latest_partner_onboarding_wizard(
+    db: Session,
+    partner_id: str,
+) -> PartnerOnboardingWizard | None:
+    return (
+        db.query(PartnerOnboardingWizard)
+        .filter(
+            PartnerOnboardingWizard.partner_id == partner_id,
+            PartnerOnboardingWizard.is_deleted.is_(False),
+        )
+        .order_by(PartnerOnboardingWizard.created_at.desc())
+        .first()
+    )
+
+
+def list_partner_onboarding_wizards(
+    db: Session,
+    *,
+    status: str | None = None,
+) -> list[PartnerOnboardingWizard]:
+    query = (
+        db.query(PartnerOnboardingWizard)
+        .options(joinedload(PartnerOnboardingWizard.partner))
+        .filter(PartnerOnboardingWizard.is_deleted.is_(False))
+    )
+    if status:
+        query = query.filter(PartnerOnboardingWizard.status == status)
+    return query.order_by(PartnerOnboardingWizard.updated_at.desc()).all()
+
+
+def wizard_completed_steps(wizard: PartnerOnboardingWizard) -> set[int]:
+    completed: set[int] = set()
+    for raw_value in (wizard.completed_steps or "").split(","):
+        raw_value = raw_value.strip()
+        if raw_value.isdigit():
+            completed.add(int(raw_value))
+    return completed
+
+
+def update_partner_onboarding_wizard(
+    db: Session,
+    wizard: PartnerOnboardingWizard,
+    *,
+    partner_id: str | None = None,
+    current_step: int | None = None,
+    completed_step: int | None = None,
+    status: str | None = None,
+) -> PartnerOnboardingWizard:
+    if partner_id is not None:
+        wizard.partner_id = partner_id
+    if current_step is not None:
+        wizard.current_step = max(1, min(7, current_step))
+    if completed_step is not None:
+        completed = wizard_completed_steps(wizard)
+        completed.add(completed_step)
+        wizard.completed_steps = ",".join(str(step) for step in sorted(completed))
+    if status is not None:
+        wizard.status = status
+    wizard.version += 1
+    db.commit()
+    db.refresh(wizard)
+    return wizard
+
+
+def get_partner_accounting_info(
+    db: Session,
+    partner_id: str,
+) -> PartnerAccountingInfo | None:
+    return (
+        db.query(PartnerAccountingInfo)
+        .filter(
+            PartnerAccountingInfo.partner_id == partner_id,
+            PartnerAccountingInfo.is_deleted.is_(False),
+        )
+        .first()
+    )
+
+
+def upsert_partner_accounting_info(
+    db: Session,
+    partner_id: str,
+    data: dict[str, Any],
+    *,
+    commit: bool = True,
+) -> PartnerAccountingInfo:
+    info = get_partner_accounting_info(db, partner_id)
+    clean_data = clean_form_data(data)
+    if info:
+        old_values = {field: getattr(info, field, None) for field in clean_data}
+        for field, value in clean_data.items():
+            setattr(info, field, value)
+        info.version += 1
+        log_field_changes(
+            db,
+            entity_type="PartnerAccountingInfo",
+            entity_id=info.id,
+            old_values=old_values,
+            new_values=clean_data,
+        )
+    else:
+        info = PartnerAccountingInfo(partner_id=partner_id, **clean_data)
+        db.add(info)
+        db.flush()
+        log_create_event(
+            db,
+            entity_type="PartnerAccountingInfo",
+            entity_id=info.id,
+            data={"partner_id": partner_id, **clean_data},
+        )
+    if commit:
+        db.commit()
+        db.refresh(info)
+    return info
 
 
 def delete_partner(
@@ -893,8 +1169,16 @@ def list_products(db: Session) -> list[Product]:
     return (
         db.query(Product)
         .options(
+            joinedload(Product.dosage_form_ref),
             joinedload(Product.mah_partner),
-            joinedload(Product.substance_links).joinedload(ProductSubstance.substance),
+            selectinload(Product.contracts).joinedload(Contract.partner),
+            selectinload(Product.registration_certificates),
+            selectinload(Product.partner_registration_links)
+            .joinedload(PartnerProductRegistrationLink.partner),
+            selectinload(Product.substance_links).joinedload(ProductSubstance.substance),
+            selectinload(Product.contract_links)
+            .joinedload(ContractProduct.contract)
+            .joinedload(Contract.partner),
         )
         .filter(Product.is_deleted.is_(False))
         .order_by(Product.product_name)
@@ -902,13 +1186,710 @@ def list_products(db: Session) -> list[Product]:
     )
 
 
+def product_partner_ids(product: Product) -> set[str]:
+    partner_ids: set[str] = set()
+    if product.mah_partner_id and product.mah_partner and not product.mah_partner.is_deleted:
+        partner_ids.add(product.mah_partner_id)
+    for contract in product.contracts:
+        if (
+            contract.is_deleted
+            or not contract.partner_id
+            or not contract.partner
+            or contract.partner.is_deleted
+        ):
+            continue
+        partner_ids.add(contract.partner_id)
+    for link in product.contract_links:
+        contract = link.contract
+        if (
+            link.is_deleted
+            or not contract
+            or contract.is_deleted
+            or not contract.partner_id
+            or not contract.partner
+            or contract.partner.is_deleted
+        ):
+            continue
+        partner_ids.add(contract.partner_id)
+    for link in product.partner_registration_links:
+        if (
+            link.is_deleted
+            or not link.partner_id
+            or not link.partner
+            or link.partner.is_deleted
+        ):
+            continue
+        partner_ids.add(link.partner_id)
+    return partner_ids
+
+
+def list_products_for_partner(db: Session, partner_id: str) -> list[Product]:
+    return [
+        product
+        for product in list_products(db)
+        if partner_id in product_partner_ids(product)
+    ]
+
+
 def get_product(db: Session, product_id: str) -> Product | None:
-    return db.query(Product).filter(Product.id == product_id).first()
+    return (
+        db.query(Product)
+        .options(
+            joinedload(Product.dosage_form_ref),
+            selectinload(Product.registration_certificates),
+            selectinload(Product.partner_registration_links)
+            .joinedload(PartnerProductRegistrationLink.partner),
+            selectinload(Product.contract_links)
+            .joinedload(ContractProduct.contract)
+            .joinedload(Contract.partner),
+        )
+        .filter(Product.id == product_id)
+        .first()
+    )
+
+
+def product_contract_links(product: Product) -> list[ContractProduct]:
+    return sorted(
+        [
+            link
+            for link in product.contract_links
+            if not link.is_deleted and link.contract and not link.contract.is_deleted
+        ],
+        key=lambda link: contract_sort_key(link.contract),
+    )
+
+
+def product_registration_certificates(product: Product) -> list[ProductRegistrationCertificate]:
+    return sorted(
+        [
+            certificate
+            for certificate in product.registration_certificates
+            if not certificate.is_deleted
+        ],
+        key=lambda certificate: (
+            certificate.status not in {"active", "registration_active", "authorized"},
+            certificate.registration_date or date.min,
+            certificate.created_at or datetime.min,
+        ),
+        reverse=True,
+    )
+
+
+def current_product_registration(product: Product) -> ProductRegistrationCertificate | None:
+    certificates = product_registration_certificates(product)
+    for certificate in certificates:
+        if certificate.status in {"active", "registration_active", "authorized"}:
+            return certificate
+    return certificates[0] if certificates else None
+
+
+PARTNER_PRODUCT_EXPORT_HEADERS = [
+    "Код препарата",
+    "Торговое наименование",
+    "МНН / действующее вещество",
+    "Лекарственная форма",
+    "Дозировка",
+    "ДРУ",
+    "Основание связи с ДРУ",
+    "Номер РУ",
+    "Дата РУ",
+    "Действует до",
+    "Владелец РУ",
+    "Страна РУ",
+    "Статус РУ",
+    "Договоры",
+    "Комментарий",
+]
+
+
+def partner_product_export_rows(
+    products: list[Product],
+    partner: Partner,
+) -> list[list[Any]]:
+    rows: list[list[Any]] = []
+    for product in products:
+        registration = current_product_registration(product)
+        substances = sorted(
+            {
+                link.substance.inn_name or link.substance.substance_name
+                for link in product.substance_links
+                if not link.is_deleted and link.substance and not link.substance.is_deleted
+            }
+        )
+        contracts_by_id = {
+            contract.id: contract
+            for contract in product.contracts
+            if not contract.is_deleted and contract.partner_id == partner.id
+        }
+        for link in product.contract_links:
+            contract = link.contract
+            if (
+                not link.is_deleted
+                and contract
+                and not contract.is_deleted
+                and contract.partner_id == partner.id
+            ):
+                contracts_by_id[contract.id] = contract
+        contracts = sorted(
+            contracts_by_id.values(),
+            key=contract_sort_key,
+        )
+
+        relationship_reasons = []
+        if product.mah_partner_id == partner.id:
+            relationship_reasons.append("ДРУ препарата")
+        if any(
+            not link.is_deleted and link.partner_id == partner.id
+            for link in product.partner_registration_links
+        ):
+            relationship_reasons.append("Регистрационная связь")
+        if contracts:
+            relationship_reasons.append("Договор")
+
+        rows.append(
+            [
+                product.product_code,
+                product.product_name,
+                "; ".join(substances),
+                product_dosage_form_name(product, "ru"),
+                product.strength or (registration.strength if registration else "") or "",
+                partner.partner_name,
+                "; ".join(relationship_reasons),
+                (registration.registration_number if registration else product.authorization_number) or "",
+                registration.registration_date if registration else "",
+                registration.valid_until if registration else "",
+                registration.holder if registration else "",
+                (
+                    registration.country_code
+                    if registration and registration.country_code
+                    else product.authorization_country_code
+                )
+                or "",
+                (registration.status if registration else product.authorization_status) or "",
+                "; ".join(contract.contract_number for contract in contracts),
+                product.comment or "",
+            ]
+        )
+    return rows
+
+
+def export_partner_products_xlsx(db: Session, partner: Partner) -> bytes:
+    products = list_products_for_partner(db, partner.id)
+    return build_xlsx(
+        [
+            (
+                "Препараты ДРУ",
+                [
+                    PARTNER_PRODUCT_EXPORT_HEADERS,
+                    *partner_product_export_rows(products, partner),
+                ],
+            )
+        ]
+    )
+
+
+def _sync_product_registration_legacy_fields(product: Product) -> None:
+    current = current_product_registration(product)
+    if current:
+        product.authorization_number = current.registration_number
+        product.authorization_status = current.status
+
+
+def list_product_registration_certificates(
+    db: Session,
+    *,
+    product_id: str | None = None,
+) -> list[ProductRegistrationCertificate]:
+    query = (
+        db.query(ProductRegistrationCertificate)
+        .options(joinedload(ProductRegistrationCertificate.product))
+        .filter(ProductRegistrationCertificate.is_deleted.is_(False))
+    )
+    if product_id:
+        query = query.filter(ProductRegistrationCertificate.product_id == product_id)
+    return (
+        query.order_by(
+            ProductRegistrationCertificate.registration_date.desc().nullslast(),
+            ProductRegistrationCertificate.created_at.desc(),
+        )
+        .all()
+    )
+
+
+def get_product_registration_certificate(
+    db: Session,
+    certificate_id: str,
+) -> ProductRegistrationCertificate | None:
+    return (
+        db.query(ProductRegistrationCertificate)
+        .options(joinedload(ProductRegistrationCertificate.product))
+        .filter(
+            ProductRegistrationCertificate.id == certificate_id,
+            ProductRegistrationCertificate.is_deleted.is_(False),
+        )
+        .first()
+    )
+
+
+def list_partner_product_registration_links(
+    db: Session,
+    *,
+    partner_id: str | None = None,
+    product_id: str | None = None,
+) -> list[PartnerProductRegistrationLink]:
+    query = (
+        db.query(PartnerProductRegistrationLink)
+        .options(
+            joinedload(PartnerProductRegistrationLink.partner),
+            joinedload(PartnerProductRegistrationLink.product),
+            joinedload(PartnerProductRegistrationLink.registration_certificate),
+            joinedload(PartnerProductRegistrationLink.contract),
+        )
+        .filter(PartnerProductRegistrationLink.is_deleted.is_(False))
+    )
+    if partner_id:
+        query = query.filter(PartnerProductRegistrationLink.partner_id == partner_id)
+    if product_id:
+        query = query.filter(PartnerProductRegistrationLink.product_id == product_id)
+    return query.order_by(PartnerProductRegistrationLink.created_at.desc()).all()
+
+
+def upsert_partner_product_registration_link(
+    db: Session,
+    payload: schemas.PartnerProductRegistrationLinkCreate,
+) -> PartnerProductRegistrationLink:
+    data = clean_form_data(model_data(payload))
+    partner = get_partner(db, data.get("partner_id"))
+    product = get_product(db, data.get("product_id"))
+    if not partner:
+        raise ValueError("Partner not found.")
+    if not product or product.is_deleted:
+        raise ValueError("Product not found.")
+
+    certificate_id = data.get("registration_certificate_id")
+    if certificate_id:
+        certificate = get_product_registration_certificate(db, certificate_id)
+        if not certificate or certificate.product_id != product.id:
+            raise ValueError("Registration certificate not found for selected product.")
+
+    contract_id = data.get("contract_id")
+    if contract_id:
+        contract = get_contract(db, contract_id)
+        if not contract or contract.partner_id != partner.id:
+            raise ValueError("Contract not found for selected partner.")
+        if product.id not in contract.product_ids:
+            link_product_to_contract(db, product, contract)
+
+    data["partner_role"] = (data.get("partner_role") or "mah").strip() or "mah"
+    actor_id = audit_user_id(db)
+    existing = (
+        db.query(PartnerProductRegistrationLink)
+        .filter(
+            PartnerProductRegistrationLink.partner_id == partner.id,
+            PartnerProductRegistrationLink.product_id == product.id,
+            PartnerProductRegistrationLink.registration_certificate_id == certificate_id,
+            PartnerProductRegistrationLink.contract_id == contract_id,
+            PartnerProductRegistrationLink.partner_role == data["partner_role"],
+        )
+        .first()
+    )
+    if existing and existing.is_deleted:
+        existing.is_deleted = False
+        existing.is_active = True
+        existing.deleted_at = None
+        existing.deleted_by = None
+        existing.delete_reason = None
+    if existing:
+        old_values = {
+            field: getattr(existing, field, None)
+            for field in ["comment", "is_active", "is_deleted"]
+        }
+        existing.comment = data.get("comment")
+        existing.updated_by = actor_id
+        existing.version += 1
+        log_field_changes(
+            db,
+            entity_type="PartnerProductRegistrationLink",
+            entity_id=existing.id,
+            old_values=old_values,
+            new_values={"comment": existing.comment, "is_active": True, "is_deleted": False},
+        )
+        db.commit()
+        db.refresh(existing)
+        return existing
+
+    link = PartnerProductRegistrationLink(**data, created_by=actor_id, updated_by=actor_id)
+    db.add(link)
+    db.flush()
+    log_create_event(
+        db,
+        entity_type="PartnerProductRegistrationLink",
+        entity_id=link.id,
+        data=data,
+    )
+    db.commit()
+    db.refresh(link)
+    return link
+
+
+def _clean_registration_certificate_payload(
+    db: Session,
+    payload: schemas.ProductRegistrationCertificateCreate,
+    *,
+    current_id: str | None = None,
+) -> dict[str, Any]:
+    data = clean_form_data(model_data(payload))
+    registration_number = (data.get("registration_number") or "").strip()
+    if not registration_number:
+        raise ValueError("Registration certificate number is required.")
+    product_id = data.get("product_id")
+    product = get_product(db, product_id)
+    if not product or product.is_deleted:
+        raise ValueError("Product not found.")
+    duplicate = (
+        db.query(ProductRegistrationCertificate)
+        .filter(
+            ProductRegistrationCertificate.product_id == product_id,
+            func.lower(ProductRegistrationCertificate.registration_number) == registration_number.lower(),
+            ProductRegistrationCertificate.is_deleted.is_(False),
+        )
+        .first()
+    )
+    if duplicate and duplicate.id != current_id:
+        raise ValueError("Registration certificate already exists for this product.")
+    data["registration_number"] = registration_number
+    data["status"] = (data.get("status") or "active").strip()
+    data["country_code"] = (data.get("country_code") or "").strip().upper() or None
+    return data
+
+
+def create_product_registration_certificate(
+    db: Session,
+    payload: schemas.ProductRegistrationCertificateCreate,
+) -> ProductRegistrationCertificate:
+    data = _clean_registration_certificate_payload(db, payload)
+    certificate = ProductRegistrationCertificate(**data)
+    db.add(certificate)
+    db.flush()
+    product = get_product(db, certificate.product_id)
+    if product and not product.authorization_number:
+        _sync_product_registration_legacy_fields(product)
+    log_create_event(
+        db,
+        entity_type="ProductRegistrationCertificate",
+        entity_id=certificate.id,
+        data=data,
+    )
+    db.commit()
+    db.refresh(certificate)
+    return certificate
+
+
+def update_product_registration_certificate(
+    db: Session,
+    certificate: ProductRegistrationCertificate,
+    payload: schemas.ProductRegistrationCertificateCreate,
+) -> ProductRegistrationCertificate:
+    data = _clean_registration_certificate_payload(db, payload, current_id=certificate.id)
+    old_values = {field: getattr(certificate, field, None) for field in data}
+    for field, value in data.items():
+        setattr(certificate, field, value)
+    product = get_product(db, certificate.product_id)
+    if product and product.authorization_number == old_values.get("registration_number"):
+        _sync_product_registration_legacy_fields(product)
+    log_field_changes(
+        db,
+        entity_type="ProductRegistrationCertificate",
+        entity_id=certificate.id,
+        old_values=old_values,
+        new_values=data,
+    )
+    db.commit()
+    db.refresh(certificate)
+    return certificate
+
+
+def delete_product_registration_certificate(
+    db: Session,
+    certificate: ProductRegistrationCertificate,
+    *,
+    deleted_by_user_id: str | None = None,
+    delete_reason: str | None = None,
+) -> ProductRegistrationCertificate:
+    product = get_product(db, certificate.product_id)
+    soft_delete_object(
+        certificate,
+        deleted_by_user_id=deleted_by_user_id,
+        delete_reason=delete_reason,
+    )
+    if product and product.authorization_number == certificate.registration_number:
+        product.authorization_number = None
+        product.authorization_status = None
+        _sync_product_registration_legacy_fields(product)
+    log_soft_delete_event(
+        db,
+        entity_type="ProductRegistrationCertificate",
+        entity_id=certificate.id,
+        user_id=deleted_by_user_id,
+        delete_reason=delete_reason,
+    )
+    db.commit()
+    db.refresh(certificate)
+    return certificate
+
+
+def generate_product_code(db: Session) -> str:
+    for _ in range(20):
+        code = f"PRD-{uuid4().hex[:10].upper()}"
+        exists = db.query(Product.id).filter(Product.product_code == code).first()
+        if not exists:
+            return code
+    return f"PRD-{uuid4().hex.upper()}"
+
+
+def _payload_active_substance(
+    db: Session,
+    active_substance_id: str | None,
+    active_substance: str | None,
+) -> Substance | None:
+    if active_substance_id:
+        substance = get_substance(db, active_substance_id)
+        if not substance or substance.is_deleted:
+            raise ValueError("Substance not found.")
+        return substance
+    if active_substance:
+        return get_or_create_substance(db, active_substance)
+    return None
+
+
+def _new_product_substance_link(product: Product, substance: Substance) -> ProductSubstance:
+    return ProductSubstance(
+        product_id=product.id,
+        substance_id=substance.id,
+        substance_role="active",
+        is_primary=True,
+    )
+
+
+def list_dosage_forms(db: Session, *, include_inactive: bool = True) -> list[DosageForm]:
+    query = db.query(DosageForm)
+    if not include_inactive:
+        query = query.filter(DosageForm.is_active.is_(True))
+    return (
+        query.order_by(
+            DosageForm.name_ru,
+            DosageForm.name_en,
+        )
+        .all()
+    )
+
+
+def list_active_dosage_forms(db: Session) -> list[DosageForm]:
+    return list_dosage_forms(db, include_inactive=False)
+
+
+def get_dosage_form(db: Session, dosage_form_id: int | str | None) -> DosageForm | None:
+    if dosage_form_id in (None, ""):
+        return None
+    try:
+        form_id = int(dosage_form_id)
+    except (TypeError, ValueError):
+        return None
+    return db.query(DosageForm).filter(DosageForm.id == form_id).first()
+
+
+def _clean_dosage_form_payload(data: dict[str, Any]) -> dict[str, Any]:
+    name_ru = (data.get("name_ru") or "").strip()
+    if not name_ru:
+        raise ValueError("Dosage form name is required.")
+    cleaned = clean_form_data(data)
+    cleaned["name_ru"] = name_ru
+    cleaned["is_active"] = bool(cleaned.get("is_active", True))
+    return cleaned
+
+
+def create_dosage_form(db: Session, payload: schemas.DosageFormCreate) -> DosageForm:
+    data = _clean_dosage_form_payload(model_data(payload))
+    dosage_form = DosageForm(**data)
+    db.add(dosage_form)
+    db.flush()
+    log_create_event(
+        db,
+        entity_type="DosageForm",
+        entity_id=str(dosage_form.id),
+        data=data,
+    )
+    db.commit()
+    db.refresh(dosage_form)
+    return dosage_form
+
+
+def update_dosage_form(
+    db: Session,
+    dosage_form: DosageForm,
+    payload: schemas.DosageFormCreate,
+) -> DosageForm:
+    data = _clean_dosage_form_payload(model_data(payload))
+    old_values = {field: getattr(dosage_form, field, None) for field in data}
+    for field, value in data.items():
+        setattr(dosage_form, field, value)
+    log_field_changes(
+        db,
+        entity_type="DosageForm",
+        entity_id=str(dosage_form.id),
+        old_values=old_values,
+        new_values=data,
+    )
+    db.commit()
+    db.refresh(dosage_form)
+    return dosage_form
+
+
+def deactivate_dosage_form(db: Session, dosage_form: DosageForm) -> DosageForm:
+    old_values = {"is_active": dosage_form.is_active}
+    dosage_form.is_active = False
+    log_field_changes(
+        db,
+        entity_type="DosageForm",
+        entity_id=str(dosage_form.id),
+        old_values=old_values,
+        new_values={"is_active": False},
+        action="deactivate",
+    )
+    db.commit()
+    db.refresh(dosage_form)
+    return dosage_form
+
+
+def product_dosage_form_name(product: Product | None, language: str = "ru") -> str:
+    if not product:
+        return ""
+    normalized_language = "en" if language == "en" else "ru"
+    return product.dosage_form_name(normalized_language)
+
+
+def _sync_product_dosage_form(db: Session, data: dict[str, Any]) -> None:
+    if "dosage_form_id" not in data:
+        return
+    dosage_form_id = data.get("dosage_form_id")
+    if dosage_form_id in (None, ""):
+        data["dosage_form_id"] = None
+        data["dosage_form"] = None
+        return
+    dosage_form = get_dosage_form(db, dosage_form_id)
+    if not dosage_form:
+        raise ValueError("Dosage form not found.")
+    data["dosage_form_id"] = dosage_form.id
+    data["dosage_form"] = dosage_form.name_ru
+
+
+def link_product_to_contract(
+    db: Session,
+    product: Product,
+    contract: Contract,
+) -> ContractProduct:
+    if contract.is_deleted:
+        raise ValueError("Contract not found.")
+    if product.is_deleted:
+        raise ValueError("Product not found.")
+
+    existing = (
+        db.query(ContractProduct)
+        .filter(
+            ContractProduct.product_id == product.id,
+            ContractProduct.contract_id == contract.id,
+        )
+        .first()
+    )
+    if existing and not existing.is_deleted:
+        raise ValueError("Product is already linked to this contract.")
+    if existing:
+        existing.is_deleted = False
+        existing.is_active = True
+        existing.deleted_at = None
+        existing.deleted_by = None
+        existing.delete_reason = None
+        existing.version += 1
+        link = existing
+    else:
+        link = ContractProduct(product_id=product.id, contract_id=contract.id)
+        db.add(link)
+
+    if not contract.product_id:
+        contract.product_id = product.id
+    product.version += 1
+    contract.updated_by = audit_user_id(db)
+    contract.version += 1
+    db.flush()
+    log_create_event(
+        db,
+        entity_type="ContractProduct",
+        entity_id=link.id,
+        data={"product_id": product.id, "contract_id": contract.id},
+    )
+    db.commit()
+    db.refresh(link)
+    return link
+
+
+def unlink_product_from_contract(
+    db: Session,
+    product: Product,
+    contract: Contract,
+    *,
+    deleted_by_user_id: str | None = None,
+) -> ContractProduct:
+    link = (
+        db.query(ContractProduct)
+        .filter(
+            ContractProduct.product_id == product.id,
+            ContractProduct.contract_id == contract.id,
+            ContractProduct.is_deleted.is_(False),
+        )
+        .first()
+    )
+    if not link:
+        raise ValueError("Product is not linked to this contract.")
+
+    remaining_product_ids = [
+        row[0]
+        for row in db.query(ContractProduct.product_id)
+        .filter(
+            ContractProduct.contract_id == contract.id,
+            ContractProduct.product_id != product.id,
+            ContractProduct.is_deleted.is_(False),
+        )
+        .all()
+    ]
+    if contract.product_id == product.id:
+        contract.product_id = remaining_product_ids[0] if remaining_product_ids else None
+    product.version += 1
+
+    link.is_deleted = True
+    link.is_active = False
+    link.deleted_at = utcnow()
+    link.deleted_by = deleted_by_user_id
+    link.version += 1
+    contract.updated_by = audit_user_id(db)
+    contract.version += 1
+    log_delete_event(
+        db,
+        entity_type="ContractProduct",
+        entity_id=link.id,
+        user_id=deleted_by_user_id,
+    )
+    db.commit()
+    db.refresh(link)
+    return link
 
 
 def create_product(db: Session, payload: schemas.ProductCreate) -> Product:
     data = clean_form_data(model_data(payload))
     active_substance = data.pop("active_substance", None)
+    active_substance_id = data.pop("active_substance_id", None)
+    _sync_product_dosage_form(db, data)
+    if not data.get("product_code"):
+        data["product_code"] = generate_product_code(db)
     data["product_name_normalized"] = data.get("product_name_normalized") or normalize_text(
         data.get("product_name")
     )
@@ -917,14 +1898,9 @@ def create_product(db: Session, payload: schemas.ProductCreate) -> Product:
     db.add(product)
     db.flush()
 
-    if active_substance:
-        substance = get_or_create_substance(db, active_substance)
-        link = ProductSubstance(
-            product_id=product.id,
-            substance_id=substance.id,
-            substance_role="active",
-            is_primary=True,
-        )
+    substance = _payload_active_substance(db, active_substance_id, active_substance)
+    if substance:
+        link = _new_product_substance_link(product, substance)
         db.add(link)
         db.flush()
         log_create_event(
@@ -940,8 +1916,8 @@ def create_product(db: Session, payload: schemas.ProductCreate) -> Product:
         )
 
     audit_data = dict(data)
-    if active_substance:
-        audit_data["active_substance"] = active_substance
+    if substance:
+        audit_data["active_substance_id"] = substance.id
     log_create_event(
         db,
         entity_type="Product",
@@ -953,12 +1929,18 @@ def create_product(db: Session, payload: schemas.ProductCreate) -> Product:
     return product
 
 
-def update_product(db: Session, product: Product, payload: schemas.ProductCreate) -> Product:
+def update_product(
+    db: Session, product: Product, payload: schemas.ProductCreate, *, commit: bool = True
+) -> Product:
     data = clean_form_data(model_data(payload))
     data.pop("active_substance", None)
+    data.pop("active_substance_id", None)
+    _sync_product_dosage_form(db, data)
     data["product_name_normalized"] = data.get("product_name_normalized") or normalize_text(
         data.get("product_name")
     )
+    if not data.get("product_code"):
+        data["product_code"] = product.product_code or generate_product_code(db)
     old_values = {field: getattr(product, field, None) for field in data}
     for field, value in data.items():
         setattr(product, field, value)
@@ -971,8 +1953,122 @@ def update_product(db: Session, product: Product, payload: schemas.ProductCreate
         old_values=old_values,
         new_values=data,
     )
-    db.commit()
-    db.refresh(product)
+    if commit:
+        db.commit()
+        db.refresh(product)
+    else:
+        db.flush()
+    return product
+
+
+def set_product_active_substance(
+    db: Session,
+    product: Product,
+    substance_id: str | None,
+    *,
+    commit: bool = True,
+) -> Product:
+    substance = None
+    if substance_id:
+        substance = get_substance(db, substance_id)
+        if not substance or substance.is_deleted:
+            raise ValueError("Substance not found.")
+
+    current_primary_links = (
+        db.query(ProductSubstance)
+        .filter(
+            ProductSubstance.product_id == product.id,
+            ProductSubstance.substance_role == "active",
+            ProductSubstance.is_primary.is_(True),
+            ProductSubstance.is_deleted.is_(False),
+        )
+        .all()
+    )
+    target_link = None
+    if substance:
+        target_link = (
+            db.query(ProductSubstance)
+            .filter(
+                ProductSubstance.product_id == product.id,
+                ProductSubstance.substance_id == substance.id,
+            )
+            .first()
+        )
+
+    actor_id = audit_user_id(db)
+    changed = False
+    for link in current_primary_links:
+        if target_link and link.id == target_link.id:
+            continue
+        link.is_deleted = True
+        link.is_active = False
+        link.deleted_at = utcnow()
+        link.deleted_by = actor_id
+        link.version += 1
+        log_delete_event(
+            db,
+            entity_type="ProductSubstance",
+            entity_id=link.id,
+            user_id=actor_id,
+        )
+        changed = True
+
+    if substance:
+        if target_link:
+            old_values = {
+                "substance_role": target_link.substance_role,
+                "is_primary": target_link.is_primary,
+                "is_deleted": target_link.is_deleted,
+                "is_active": target_link.is_active,
+            }
+            new_values = {
+                "substance_role": "active",
+                "is_primary": True,
+                "is_deleted": False,
+                "is_active": True,
+            }
+            if old_values != new_values:
+                target_link.substance_role = "active"
+                target_link.is_primary = True
+                target_link.is_deleted = False
+                target_link.is_active = True
+                target_link.deleted_at = None
+                target_link.deleted_by = None
+                target_link.delete_reason = None
+                target_link.version += 1
+                log_field_changes(
+                    db,
+                    entity_type="ProductSubstance",
+                    entity_id=target_link.id,
+                    old_values=old_values,
+                    new_values=new_values,
+                )
+                changed = True
+        else:
+            target_link = _new_product_substance_link(product, substance)
+            db.add(target_link)
+            db.flush()
+            log_create_event(
+                db,
+                entity_type="ProductSubstance",
+                entity_id=target_link.id,
+                data={
+                    "product_id": product.id,
+                    "substance_id": substance.id,
+                    "substance_role": target_link.substance_role,
+                    "is_primary": target_link.is_primary,
+                },
+            )
+            changed = True
+
+    if changed:
+        product.updated_by = actor_id
+        product.version += 1
+        if commit:
+            db.commit()
+            db.refresh(product)
+        else:
+            db.flush()
     return product
 
 
@@ -1001,18 +2097,67 @@ def delete_product(
     return product
 
 
-def list_contracts(db: Session) -> list[Contract]:
+def contract_sort_key(contract: Contract) -> tuple[bool, int, int, str]:
     return (
+        not contract.is_current,
+        -(contract.valid_until.toordinal() if contract.valid_until else 0),
+        -(contract.contract_date.toordinal() if contract.contract_date else 0),
+        contract.contract_number or "",
+    )
+
+
+def contract_product_ids(contract: Contract) -> list[str]:
+    product_ids = [contract.product_id] if contract.product_id else []
+    for link in contract.product_links:
+        if not link.is_deleted and link.product_id and link.product_id not in product_ids:
+            product_ids.append(link.product_id)
+    return product_ids
+
+
+def contract_search_text(contract: Contract) -> str:
+    products = " ".join(
+        product.product_name
+        for product in contract.linked_products
+        if product and product.product_name
+    )
+    return " ".join(
+        [
+            contract.contract_number or "",
+            contract.contract_type or "",
+            contract.partner.partner_name if contract.partner else "",
+            products,
+            contract.parent_contract.contract_number if contract.parent_contract else "",
+        ]
+    ).lower()
+
+
+def list_contracts(
+    db: Session,
+    *,
+    partner_id: str | None = None,
+    search: str | None = None,
+) -> list[Contract]:
+    query = (
         db.query(Contract)
         .options(
             joinedload(Contract.partner),
             joinedload(Contract.product),
+            selectinload(Contract.product_links).joinedload(ContractProduct.product),
             joinedload(Contract.parent_contract),
         )
         .filter(Contract.is_deleted.is_(False))
-        .order_by(Contract.valid_until.desc(), Contract.contract_date.desc())
-        .all()
     )
+    if partner_id:
+        query = query.filter(Contract.partner_id == partner_id)
+    contracts = query.all()
+    search = (search or "").strip().lower()
+    if search:
+        contracts = [
+            contract
+            for contract in contracts
+            if search in contract_search_text(contract)
+        ]
+    return sorted(contracts, key=contract_sort_key)
 
 
 def list_base_contracts(
@@ -1022,7 +2167,11 @@ def list_base_contracts(
 ) -> list[Contract]:
     query = (
         db.query(Contract)
-        .options(joinedload(Contract.partner), joinedload(Contract.product))
+        .options(
+            joinedload(Contract.partner),
+            joinedload(Contract.product),
+            selectinload(Contract.product_links).joinedload(ContractProduct.product),
+        )
         .filter(
             Contract.is_deleted.is_(False),
             Contract.contract_type == "pharmacovigilance_agreement",
@@ -1030,7 +2179,7 @@ def list_base_contracts(
     )
     if exclude_contract_id:
         query = query.filter(Contract.id != exclude_contract_id)
-    return query.order_by(Contract.contract_date.desc(), Contract.contract_number).all()
+    return sorted(query.all(), key=contract_sort_key)
 
 
 def get_contract(db: Session, contract_id: str) -> Contract | None:
@@ -1039,6 +2188,7 @@ def get_contract(db: Session, contract_id: str) -> Contract | None:
         .options(
             joinedload(Contract.partner),
             joinedload(Contract.product),
+            selectinload(Contract.product_links).joinedload(ContractProduct.product),
             joinedload(Contract.parent_contract),
         )
         .filter(Contract.id == contract_id, Contract.is_deleted.is_(False))
@@ -1062,6 +2212,54 @@ def contract_payload_data(payload: schemas.ContractCreate | schemas.ContractUpda
     if hasattr(payload, "model_dump"):
         return clean_form_data(payload.model_dump())
     return clean_form_data(model_data(payload))
+
+
+def normalize_contract_product_ids(data: dict[str, Any]) -> list[str]:
+    raw_product_ids = data.get("product_ids") or []
+    if isinstance(raw_product_ids, str):
+        raw_product_ids = [raw_product_ids]
+    product_ids: list[str] = []
+    for product_id in raw_product_ids:
+        product_id = (product_id or "").strip()
+        if product_id and product_id not in product_ids:
+            product_ids.append(product_id)
+    legacy_product_id = data.get("product_id")
+    if legacy_product_id and legacy_product_id not in product_ids:
+        product_ids.insert(0, legacy_product_id)
+    return product_ids
+
+
+def validate_contract_product_ids(db: Session, product_ids: list[str]) -> None:
+    if not product_ids:
+        return
+    existing_ids = {
+        row[0]
+        for row in db.query(Product.id)
+        .filter(Product.id.in_(product_ids), Product.is_deleted.is_(False))
+        .all()
+    }
+    missing_ids = [product_id for product_id in product_ids if product_id not in existing_ids]
+    if missing_ids:
+        raise ValueError("Product not found.")
+
+
+def sync_contract_products(
+    db: Session,
+    contract: Contract,
+    product_ids: list[str],
+) -> None:
+    current_links = {
+        link.product_id: link
+        for link in contract.product_links
+        if not link.is_deleted and link.product_id
+    }
+    for link in list(contract.product_links):
+        if link.product_id not in product_ids:
+            contract.product_links.remove(link)
+    for product_id in product_ids:
+        if product_id not in current_links:
+            contract.product_links.append(ContractProduct(product_id=product_id))
+    db.flush()
 
 
 def prepare_contract_data(
@@ -1111,38 +2309,59 @@ def prepare_contract_data(
         if duplicate.first():
             raise ValueError("Additional agreement already exists for this contract number.")
 
+        current_contract = get_contract(db, current_contract_id) if current_contract_id else None
+        parent_product_ids = (
+            contract_product_ids(current_contract)
+            if current_contract
+            else contract_product_ids(parent_contract)
+        )
         data["partner_id"] = parent_contract.partner_id
-        data["product_id"] = parent_contract.product_id
+        data["product_ids"] = parent_product_ids
+        data["product_id"] = parent_product_ids[0] if parent_product_ids else parent_contract.product_id
         return data
 
     data["parent_contract_id"] = None
-    existing = (
-        db.query(Contract)
-        .filter(
-            Contract.partner_id == data.get("partner_id"),
-            Contract.product_id == data.get("product_id"),
-            Contract.contract_type == "pharmacovigilance_agreement",
-            Contract.is_deleted.is_(False),
+    product_ids = normalize_contract_product_ids(data)
+    validate_contract_product_ids(db, product_ids)
+    data["product_ids"] = product_ids
+    data["product_id"] = product_ids[0] if product_ids else None
+    if product_ids:
+        existing = (
+            db.query(Contract)
+            .outerjoin(
+                ContractProduct,
+                ContractProduct.contract_id == Contract.id,
+            )
+            .filter(
+                Contract.partner_id == data.get("partner_id"),
+                Contract.contract_type == "pharmacovigilance_agreement",
+                Contract.is_deleted.is_(False),
+                or_(
+                    Contract.product_id.in_(product_ids),
+                    ContractProduct.product_id.in_(product_ids),
+                ),
+            )
         )
-    )
-    if current_contract_id:
-        existing = existing.filter(Contract.id != current_contract_id)
-    if existing.first():
-        raise ValueError("Contract already exists for this partner and product.")
+        if current_contract_id:
+            existing = existing.filter(Contract.id != current_contract_id)
+        if existing.first():
+            raise ValueError("Contract already exists for this partner and product.")
     return data
 
 
 def create_contract(db: Session, payload: schemas.ContractCreate) -> Contract:
     data = prepare_contract_data(db, contract_payload_data(payload))
+    product_ids = data.pop("product_ids")
     actor_id = audit_user_id(db)
     contract = Contract(**data, created_by=actor_id, updated_by=actor_id)
     db.add(contract)
     db.flush()
+    sync_contract_products(db, contract, product_ids)
     log_create_event(
         db,
         entity_type="Contract",
         entity_id=contract.id,
-        data=data,
+        data={**data, "product_ids": ", ".join(product_ids)},
     )
     db.commit()
     db.refresh(contract)
@@ -1153,16 +2372,22 @@ def update_contract(
     db: Session,
     contract: Contract,
     payload: schemas.ContractUpdate,
+    *,
+    is_active: bool | None = None,
 ) -> Contract:
     data = prepare_contract_data(
         db,
         contract_payload_data(payload),
         current_contract_id=contract.id,
     )
+    if is_active is not None:
+        data["is_active"] = is_active
+    product_ids = data.pop("product_ids")
+    old_product_ids = contract_product_ids(contract)
     if contract_has_additional_agreements(db, contract.id) and (
         data.get("contract_type") != contract.contract_type
         or data.get("partner_id") != contract.partner_id
-        or data.get("product_id") != contract.product_id
+        or sorted(product_ids) != sorted(old_product_ids)
     ):
         raise ValueError(
             "Contract has attached additional agreements. Delete or move them first."
@@ -1171,8 +2396,11 @@ def update_contract(
     old_values = {field: getattr(contract, field, None) for field in data}
     for field, value in data.items():
         setattr(contract, field, value)
+    sync_contract_products(db, contract, product_ids)
     contract.updated_by = audit_user_id(db)
     contract.version += 1
+    old_values["product_ids"] = ", ".join(old_product_ids)
+    data["product_ids"] = ", ".join(product_ids)
     log_field_changes(
         db,
         entity_type="Contract",
@@ -1183,6 +2411,456 @@ def update_contract(
     db.commit()
     db.refresh(contract)
     return contract
+
+
+ACCOUNTING_STATUSES = {
+    "draft": "Черновик",
+    "needs_review": "Требует проверки",
+    "ready_for_accounting": "Готово для бухгалтерии",
+    "sent_to_accounting": "Передано в бухгалтерию",
+}
+
+
+def accounting_quarter_dates(year: int, quarter: int) -> tuple[date, date]:
+    ranges = {
+        1: (date(year, 1, 1), date(year, 3, 31)),
+        2: (date(year, 4, 1), date(year, 6, 30)),
+        3: (date(year, 7, 1), date(year, 9, 30)),
+        4: (date(year, 10, 1), date(year, 12, 31)),
+    }
+    if quarter not in ranges:
+        raise ValueError("Quarter must be between 1 and 4.")
+    return ranges[quarter]
+
+
+def list_accounting_services(db: Session, *, active_only: bool = True) -> list[AccountingService]:
+    query = db.query(AccountingService)
+    if active_only:
+        query = query.filter(AccountingService.is_active.is_(True))
+    return query.order_by(AccountingService.sort_order, AccountingService.name).all()
+
+
+def get_accounting_service(db: Session, service_id: str) -> AccountingService | None:
+    return db.query(AccountingService).filter(AccountingService.id == service_id).first()
+
+
+def list_accounting_periods(
+    db: Session,
+    *,
+    partner_id: str | None = None,
+    contract_id: str | None = None,
+    year: int | None = None,
+    quarter: int | None = None,
+    status: str | None = None,
+    responsible_user_id: str | None = None,
+) -> list[AccountingDataPeriod]:
+    query = (
+        db.query(AccountingDataPeriod)
+        .options(
+            joinedload(AccountingDataPeriod.partner),
+            joinedload(AccountingDataPeriod.contract),
+            joinedload(AccountingDataPeriod.responsible_user),
+            selectinload(AccountingDataPeriod.lines),
+        )
+        .filter(AccountingDataPeriod.is_deleted.is_(False))
+    )
+    if partner_id:
+        query = query.filter(AccountingDataPeriod.partner_id == partner_id)
+    if contract_id:
+        query = query.filter(AccountingDataPeriod.contract_id == contract_id)
+    if year:
+        query = query.filter(AccountingDataPeriod.year == year)
+    if quarter:
+        query = query.filter(AccountingDataPeriod.quarter == quarter)
+    if status:
+        query = query.filter(AccountingDataPeriod.status == status)
+    if responsible_user_id:
+        query = query.filter(AccountingDataPeriod.responsible_user_id == responsible_user_id)
+    return (
+        query.order_by(
+            AccountingDataPeriod.year.desc(),
+            AccountingDataPeriod.quarter.desc(),
+            AccountingDataPeriod.created_at.desc(),
+        )
+        .all()
+    )
+
+
+def get_accounting_period(db: Session, period_id: str) -> AccountingDataPeriod | None:
+    return (
+        db.query(AccountingDataPeriod)
+        .options(
+            joinedload(AccountingDataPeriod.partner).joinedload(Partner.accounting_info),
+            joinedload(AccountingDataPeriod.contract),
+            joinedload(AccountingDataPeriod.responsible_user),
+            selectinload(AccountingDataPeriod.lines).joinedload(AccountingDataLine.service),
+        )
+        .filter(
+            AccountingDataPeriod.id == period_id,
+            AccountingDataPeriod.is_deleted.is_(False),
+        )
+        .first()
+    )
+
+
+def create_accounting_period(
+    db: Session,
+    *,
+    partner_id: str,
+    contract_id: str,
+    year: int,
+    quarter: int,
+    responsible_user_id: str | None = None,
+    comment: str | None = None,
+) -> AccountingDataPeriod:
+    partner = get_partner(db, partner_id)
+    contract = get_contract(db, contract_id)
+    if not partner:
+        raise ValueError("Partner not found.")
+    if not contract or contract.partner_id != partner_id:
+        raise ValueError("Contract not found for selected partner.")
+    period_start, period_end = accounting_quarter_dates(year, quarter)
+    actor_id = audit_user_id(db)
+    period = AccountingDataPeriod(
+        partner_id=partner_id,
+        contract_id=contract_id,
+        year=year,
+        quarter=quarter,
+        period_start=period_start,
+        period_end=period_end,
+        responsible_user_id=responsible_user_id or None,
+        prepared_at=utcnow(),
+        comment=(comment or "").strip() or None,
+        total_contract_amount=0,
+        created_by=actor_id,
+        updated_by=actor_id,
+    )
+    db.add(period)
+    db.flush()
+    log_create_event(
+        db,
+        entity_type="AccountingDataPeriod",
+        entity_id=period.id,
+        data={
+            "partner_id": partner_id,
+            "contract_id": contract_id,
+            "year": year,
+            "quarter": quarter,
+        },
+    )
+    db.commit()
+    db.refresh(period)
+    return period
+
+
+def recalculate_accounting_period(
+    db: Session,
+    period: AccountingDataPeriod,
+    *,
+    commit: bool = True,
+) -> AccountingDataPeriod:
+    total = sum(line.contract_amount or 0 for line in period.lines if not line.is_deleted)
+    has_missing_price = any(
+        (line.contract_price is None or line.contract_price <= 0)
+        for line in period.lines
+        if not line.is_deleted
+    )
+    period.total_contract_amount = round(total, 2)
+    if has_missing_price and period.status == "draft":
+        period.status = "needs_review"
+    period.version += 1
+    if commit:
+        db.commit()
+        db.refresh(period)
+    return period
+
+
+def get_contract_accounting_tariff(
+    db: Session,
+    contract_id: str,
+    service_id: str,
+) -> ContractAccountingTariff | None:
+    return (
+        db.query(ContractAccountingTariff)
+        .filter(
+            ContractAccountingTariff.contract_id == contract_id,
+            ContractAccountingTariff.service_id == service_id,
+            ContractAccountingTariff.is_deleted.is_(False),
+            ContractAccountingTariff.is_active.is_(True),
+        )
+        .first()
+    )
+
+
+def list_contract_accounting_tariffs(
+    db: Session,
+    contract_id: str,
+) -> list[ContractAccountingTariff]:
+    return (
+        db.query(ContractAccountingTariff)
+        .options(joinedload(ContractAccountingTariff.service))
+        .filter(
+            ContractAccountingTariff.contract_id == contract_id,
+            ContractAccountingTariff.is_deleted.is_(False),
+        )
+        .order_by(ContractAccountingTariff.created_at.desc())
+        .all()
+    )
+
+
+def upsert_contract_accounting_tariff(
+    db: Session,
+    *,
+    partner_id: str,
+    contract_id: str,
+    service_id: str,
+    unit: str,
+    price: float,
+    comment: str | None = None,
+    tariff_id: str | None = None,
+    is_active: bool = True,
+) -> ContractAccountingTariff:
+    contract = get_contract(db, contract_id)
+    if not contract or contract.partner_id != partner_id:
+        raise ValueError("Contract not found for selected partner.")
+    contract.version += 1
+    if not get_accounting_service(db, service_id):
+        raise ValueError("Service not found.")
+    tariff = None
+    if tariff_id:
+        tariff = (
+            db.query(ContractAccountingTariff)
+            .filter(ContractAccountingTariff.id == tariff_id, ContractAccountingTariff.is_deleted.is_(False))
+            .first()
+        )
+    if not tariff:
+        tariff = get_contract_accounting_tariff(db, contract_id, service_id)
+    data = {
+        "partner_id": partner_id,
+        "contract_id": contract_id,
+        "service_id": service_id,
+        "unit": unit,
+        "price": price,
+        "comment": (comment or "").strip() or None,
+        "is_active": is_active,
+    }
+    if tariff:
+        old_values = {field: getattr(tariff, field, None) for field in data}
+        for field, value in data.items():
+            setattr(tariff, field, value)
+        tariff.version += 1
+        log_field_changes(
+            db,
+            entity_type="ContractAccountingTariff",
+            entity_id=tariff.id,
+            old_values=old_values,
+            new_values=data,
+        )
+    else:
+        tariff = ContractAccountingTariff(**data)
+        db.add(tariff)
+        db.flush()
+        log_create_event(
+            db,
+            entity_type="ContractAccountingTariff",
+            entity_id=tariff.id,
+            data=data,
+        )
+    db.commit()
+    db.refresh(tariff)
+    return tariff
+
+
+def delete_contract_accounting_tariff(
+    db: Session,
+    tariff_id: str,
+) -> ContractAccountingTariff | None:
+    tariff = (
+        db.query(ContractAccountingTariff)
+        .filter(ContractAccountingTariff.id == tariff_id, ContractAccountingTariff.is_deleted.is_(False))
+        .first()
+    )
+    if not tariff:
+        return None
+    contract = get_contract(db, tariff.contract_id)
+    if contract:
+        contract.version += 1
+    tariff.is_deleted = True
+    tariff.is_active = False
+    tariff.deleted_at = utcnow()
+    tariff.version += 1
+    log_delete_event(db, entity_type="ContractAccountingTariff", entity_id=tariff.id)
+    db.commit()
+    db.refresh(tariff)
+    return tariff
+
+
+def add_accounting_line(
+    db: Session,
+    period: AccountingDataPeriod,
+    *,
+    service_id: str,
+    object_type: str | None = None,
+    product_or_inn: str | None = None,
+    quantity: float,
+    unit: str | None = None,
+    contract_price: float | None = None,
+    contract_amount: float | None = None,
+    source: str | None = None,
+    comment: str | None = None,
+) -> AccountingDataLine:
+    service = get_accounting_service(db, service_id)
+    if not service:
+        raise ValueError("Service not found.")
+    tariff = get_contract_accounting_tariff(db, period.contract_id, service_id)
+    resolved_unit = (unit or "").strip() or (tariff.unit if tariff else None) or service.default_unit or "услуга"
+    resolved_price = contract_price if contract_price is not None else (tariff.price if tariff else None)
+    if resolved_price is None:
+        resolved_price = 0
+    resolved_amount = (
+        contract_amount
+        if contract_amount is not None
+        else round(float(quantity or 0) * float(resolved_price or 0), 2)
+    )
+    line = AccountingDataLine(
+        accounting_period_id=period.id,
+        service_id=service_id,
+        object_type=(object_type or "").strip() or None,
+        product_or_inn=(product_or_inn or "").strip() or None,
+        quantity=quantity,
+        unit=resolved_unit,
+        contract_price=resolved_price,
+        contract_amount=resolved_amount,
+        source=(source or "").strip() or None,
+        comment=(comment or "").strip() or None,
+    )
+    # The detail handler has already loaded lines. Keep that collection current
+    # so the same transaction calculates the total including the new row.
+    period.lines.append(line)
+    db.flush()
+    log_create_event(
+        db,
+        entity_type="AccountingDataLine",
+        entity_id=line.id,
+        data={
+            "accounting_period_id": period.id,
+            "service_id": service_id,
+            "quantity": quantity,
+            "contract_amount": resolved_amount,
+        },
+    )
+    recalculate_accounting_period(db, period, commit=False)
+    db.commit()
+    db.refresh(line)
+    return line
+
+
+def delete_accounting_line(
+    db: Session, line_id: str, *, accounting_period_id: str | None = None,
+) -> AccountingDataLine | None:
+    line = (
+        db.query(AccountingDataLine)
+        .options(joinedload(AccountingDataLine.accounting_period))
+        .filter(AccountingDataLine.id == line_id, AccountingDataLine.is_deleted.is_(False))
+        .first()
+    )
+    if not line:
+        return None
+    if accounting_period_id is not None and line.accounting_period_id != accounting_period_id:
+        raise ValueError("Line does not belong to the selected accounting period.")
+    line.is_deleted = True
+    line.is_active = False
+    line.deleted_at = utcnow()
+    line.version += 1
+    log_delete_event(db, entity_type="AccountingDataLine", entity_id=line.id)
+    recalculate_accounting_period(db, line.accounting_period, commit=False)
+    db.commit()
+    db.refresh(line)
+    return line
+
+
+def update_accounting_period_status(
+    db: Session,
+    period: AccountingDataPeriod,
+    status: str,
+) -> AccountingDataPeriod:
+    if status not in ACCOUNTING_STATUSES:
+        raise ValueError("Unsupported accounting status.")
+    old_status = period.status
+    period.status = status
+    if status == "sent_to_accounting" and not period.sent_to_accounting_at:
+        period.sent_to_accounting_at = utcnow()
+    period.version += 1
+    log_field_changes(
+        db,
+        entity_type="AccountingDataPeriod",
+        entity_id=period.id,
+        old_values={"status": old_status},
+        new_values={"status": status},
+        action="status_change",
+    )
+    db.commit()
+    db.refresh(period)
+    return period
+
+
+def accounting_period_export_rows(period: AccountingDataPeriod) -> list[list[Any]]:
+    info = period.partner.accounting_info if period.partner else None
+    headers = [
+        "Партнер",
+        "ИНН",
+        "КПП",
+        "Договор",
+        "Год",
+        "Квартал",
+        "Период",
+        "Услуга",
+        "Объект",
+        "Препарат / МНН",
+        "Количество",
+        "Единица",
+        "Цена по договору",
+        "Сумма по договору",
+        "Основание",
+        "Комментарий",
+    ]
+    rows = [headers]
+    for line in period.lines:
+        if line.is_deleted:
+            continue
+        rows.append(
+            [
+                period.partner.partner_name if period.partner else "",
+                info.inn if info else "",
+                info.kpp if info else "",
+                period.contract.contract_number if period.contract else "",
+                period.year,
+                period.quarter,
+                f"{period.period_start} - {period.period_end}",
+                line.service.name if line.service else "",
+                line.object_type or "",
+                line.product_or_inn or "",
+                line.quantity,
+                line.unit,
+                line.contract_price,
+                line.contract_amount,
+                line.source or "",
+                line.comment or "",
+            ]
+        )
+    rows.append(["Итого сумма по договору", "", "", "", "", "", "", "", "", "", "", "", "", period.total_contract_amount, "", ""])
+    return rows
+
+
+def export_accounting_period_xlsx(period: AccountingDataPeriod) -> bytes:
+    return build_xlsx(
+        [
+            (
+                "Данные для бухгалтерии",
+                accounting_period_export_rows(period),
+            )
+        ]
+    )
 
 
 def delete_contract(
@@ -1350,7 +3028,7 @@ def get_partner_reconciliation(
         .options(
             joinedload(PartnerReconciliation.partner),
             joinedload(PartnerReconciliation.contact),
-            joinedload(PartnerReconciliation.items).joinedload(PartnerReconciliationItem.internal_case),
+            selectinload(PartnerReconciliation.items).joinedload(PartnerReconciliationItem.internal_case),
         )
         .filter(
             PartnerReconciliation.id == reconciliation_id,
@@ -1373,8 +3051,20 @@ def create_partner_reconciliation(
     db: Session,
     payload: schemas.PartnerReconciliationCreate,
     items: list[dict[str, Any]],
+    *,
+    commit: bool = True,
 ) -> PartnerReconciliation:
     data = clean_form_data(model_data(payload))
+    from app.concurrency import lock_snapshot_inputs
+    lock_snapshot_inputs(db, ('PartnerReconciliation',))
+    existing = db.query(PartnerReconciliation).filter(
+        PartnerReconciliation.partner_id == data['partner_id'],
+        PartnerReconciliation.period_start == data['period_start'],
+        PartnerReconciliation.period_end == data['period_end'],
+        PartnerReconciliation.is_deleted.is_(False),
+    ).first()
+    if existing:
+        raise StaleDataError('A reconciliation already exists for this period. Reload before saving.')
     reconciliation_date = data.pop("reconciliation_date", None) or date.today()
     contact = None
     if data.get("contact_id"):
@@ -1437,8 +3127,11 @@ def create_partner_reconciliation(
             "reconciliation_status": reconciliation.reconciliation_status,
         },
     )
-    db.commit()
-    db.refresh(reconciliation)
+    if commit:
+        db.commit()
+        db.refresh(reconciliation)
+    else:
+        db.flush()
     return reconciliation
 
 
@@ -1475,6 +3168,9 @@ def update_partner_reconciliation_item(
         comment=item.reviewer_comment,
     )
     refresh_partner_reconciliation_counts(item.reconciliation)
+    # Always update the aggregate, even when counts stay the same. Otherwise
+    # a late parent change could evade the mapper's version predicate.
+    item.reconciliation.version += 1
     db.commit()
     db.refresh(item)
     return item
@@ -1507,7 +3203,7 @@ def confirm_partner_reconciliation(
     reconciliation.updated_by = audit_user_id(db)
     reconciliation.version += 1
     for item in reconciliation.items:
-        if item.reconciliation_status == "matched":
+        if not item.is_deleted and item.reconciliation_status == "matched":
             item.reconciliation_status = "confirmed"
             item.confirmed_by_user = confirmed_by_user
     refresh_partner_reconciliation_counts(reconciliation)
@@ -1539,6 +3235,7 @@ def update_partner_reconciliation_status(
     products: str | None = None,
     comments: str | None = None,
     changed_by_user_id: str | None = None,
+    commit: bool = True,
 ) -> PartnerReconciliation:
     old_values = {
         "reconciliation_status": reconciliation.reconciliation_status,
@@ -1586,8 +3283,11 @@ def update_partner_reconciliation_status(
         user_id=reconciliation.updated_by,
         comment=reconciliation.discrepancy_description,
     )
-    db.commit()
-    db.refresh(reconciliation)
+    if commit:
+        db.commit()
+        db.refresh(reconciliation)
+    else:
+        db.flush()
     return reconciliation
 
 
@@ -1597,6 +3297,7 @@ def save_partner_reconciliation_document(
     document_info: dict[str, Any],
     *,
     changed_by_user_id: str | None = None,
+    commit: bool = True,
 ) -> PartnerReconciliation:
     old_values = {
         "reconciliation_status": reconciliation.reconciliation_status,
@@ -1629,8 +3330,11 @@ def save_partner_reconciliation_document(
         user_id=reconciliation.updated_by,
         comment=reconciliation.document_filename,
     )
-    db.commit()
-    db.refresh(reconciliation)
+    if commit:
+        db.commit()
+        db.refresh(reconciliation)
+    else:
+        db.flush()
     return reconciliation
 
 
@@ -1859,14 +3563,40 @@ def create_product_substance(
     return link
 
 
-def list_safety_reports(db: Session) -> list[SafetyReport]:
+def safety_reports_query(db: Session, *, search=None, status_filter=None, partner_id=None,
+                         date_from=None, date_to=None):
+    query = db.query(SafetyReport).filter(SafetyReport.is_deleted.is_(False))
+    if status_filter:
+        query = query.filter(SafetyReport.triage_status == status_filter)
+    if partner_id:
+        query = query.filter(SafetyReport.partner_id == partner_id)
+    if date_from:
+        query = query.filter(SafetyReport.received_date >= date_from)
+    if date_to:
+        query = query.filter(SafetyReport.received_date <= date_to)
+    if search and search.strip():
+        def matches(column):
+            return func.lower(column).contains(search.strip().lower(), autoescape=True)
+        query = query.filter(or_(
+            *(matches(column) for column in (SafetyReport.safety_report_number, SafetyReport.raw_subject,
+                SafetyReport.raw_text, SafetyReport.reporter_name, SafetyReport.reporter_email)),
+            SafetyReport.partner.has(matches(Partner.partner_name)),
+            SafetyReport.product_links.any(or_(matches(SafetyReportProduct.reported_product_name),
+                SafetyReportProduct.product.has(matches(Product.product_name)))),
+        ))
     return (
-        db.query(SafetyReport)
-        .options(joinedload(SafetyReport.partner))
+        query
+        .options(
+            joinedload(SafetyReport.partner),
+            selectinload(SafetyReport.product_links).joinedload(SafetyReportProduct.product),
+        )
         .filter(SafetyReport.is_deleted.is_(False))
-        .order_by(SafetyReport.received_at.desc())
-        .all()
+        .order_by(SafetyReport.received_at.desc(), SafetyReport.id)
     )
+
+
+def list_safety_reports(db: Session) -> list[SafetyReport]:
+    return safety_reports_query(db).all()
 
 
 def get_safety_report(db: Session, report_id: str) -> SafetyReport | None:
@@ -1875,14 +3605,16 @@ def get_safety_report(db: Session, report_id: str) -> SafetyReport | None:
         .options(
             joinedload(SafetyReport.partner),
             joinedload(SafetyReport.case),
+            selectinload(SafetyReport.product_links).joinedload(SafetyReportProduct.product),
         )
-        .filter(SafetyReport.id == report_id)
+        .filter(SafetyReport.id == report_id, SafetyReport.is_deleted.is_(False))
         .first()
     )
 
 
 def create_safety_report(db: Session, payload: schemas.SafetyReportCreate) -> SafetyReport:
     data = clean_form_data(model_data(payload))
+    product_ids = validate_message_product_ids(db, data.pop("product_ids", []))
     data["safety_report_number"] = data.get("safety_report_number") or generate_number(
         db,
         SafetyReport,
@@ -1891,14 +3623,93 @@ def create_safety_report(db: Session, payload: schemas.SafetyReportCreate) -> Sa
     )
     data["received_at"] = data.get("received_at") or utcnow()
     data["received_date"] = data.get("received_date") or date.today()
+    if product_ids:
+        data["minimum_criteria_product"] = True
     report = SafetyReport(**data)
     db.add(report)
     db.flush()
+    sync_message_product_links(db, report, SafetyReportProduct, product_ids)
     log_create_event(
         db,
         entity_type="SafetyReport",
         entity_id=report.id,
-        data=data,
+        data={**data, "product_ids": ", ".join(product_ids)},
+    )
+    db.commit()
+    db.refresh(report)
+    return report
+
+
+def validate_message_product_ids(db: Session, product_ids: list[str] | None) -> list[str]:
+    normalized: list[str] = []
+    for product_id in product_ids or []:
+        product_id = (product_id or "").strip()
+        if product_id and product_id not in normalized:
+            normalized.append(product_id)
+    for product_id in normalized:
+        if not get_product(db, product_id):
+            raise ValueError("Selected product was not found.")
+    return normalized
+
+
+def sync_message_product_links(
+    db: Session,
+    message: SafetyReport | IncomingRequest,
+    link_model: type[SafetyReportProduct] | type[IncomingRequestProduct],
+    product_ids: list[str] | None,
+) -> list[str]:
+    product_ids = validate_message_product_ids(db, product_ids)
+    selected = set(product_ids)
+    existing_by_product_id = {
+        link.product_id: link
+        for link in message.product_links
+        if link.product_id
+    }
+    for link in list(message.product_links):
+        if link.product_id and link.product_id not in selected:
+            message.product_links.remove(link)
+    for product_id in product_ids:
+        product = get_product(db, product_id)
+        link = existing_by_product_id.get(product_id)
+        if link:
+            link.is_deleted = False
+            link.is_active = True
+            link.reported_product_name = product.product_name if product else link.reported_product_name
+            continue
+        message.product_links.append(
+            link_model(
+                product_id=product_id,
+                reported_product_name=product.product_name if product else None,
+                drug_role="suspect",
+            )
+        )
+    db.flush()
+    return product_ids
+
+
+def update_safety_report_products(
+    db: Session,
+    report: SafetyReport,
+    product_ids: list[str] | None,
+) -> SafetyReport:
+    old_product_ids = report.product_ids
+    new_product_ids = sync_message_product_links(
+        db,
+        report,
+        SafetyReportProduct,
+        product_ids,
+    )
+    report.minimum_criteria_product = bool(report.product_names)
+    report.version += 1
+    log_audit(
+        db,
+        entity_type="SafetyReport",
+        entity_id=report.id,
+        action="edit",
+        field_name="product_ids",
+        old_value=", ".join(old_product_ids),
+        new_value=", ".join(new_product_ids),
+        user_id=audit_user_id(db),
     )
     db.commit()
     db.refresh(report)
@@ -1935,18 +3746,93 @@ def triage_safety_report(db: Session, report: SafetyReport, payload: schemas.Tri
     return report
 
 
-def list_cases(db: Session) -> list[Case]:
+def update_safety_report_direction(
+    db: Session,
+    report: SafetyReport,
+    payload: schemas.MessageDirectionUpdate,
+) -> SafetyReport:
+    old_direction = report.message_direction
+    report.message_direction = payload.message_direction
+    report.version += 1
+    log_audit(
+        db,
+        entity_type="SafetyReport",
+        entity_id=report.id,
+        action="update",
+        field_name="message_direction",
+        old_value=old_direction,
+        new_value=report.message_direction,
+        user_id=audit_user_id(db),
+    )
+    db.commit()
+    db.refresh(report)
+    return report
+
+
+def cases_query(db: Session):
     return (
         db.query(Case)
         .options(
             joinedload(Case.partner),
-            joinedload(Case.case_products).joinedload(CaseProduct.product),
-            joinedload(Case.reactions),
+            joinedload(Case.numbering_partner),
+            selectinload(Case.identifiers).joinedload(CaseIdentifier.partner),
+            selectinload(Case.partner_links).joinedload(CasePartnerLink.partner),
+            joinedload(Case.safety_report),
+            selectinload(Case.case_products).joinedload(CaseProduct.product),
+            selectinload(Case.reactions),
         )
         .filter(Case.is_deleted.is_(False))
-        .order_by(Case.created_at.desc())
-        .all()
+        .order_by(Case.created_at.desc(), Case.id)
     )
+
+
+def list_cases(db: Session) -> list[Case]:
+    return cases_query(db).all()
+
+
+def filtered_cases_query(db: Session, *, search=None, status_filter=None, partner_id=None,
+                         product_id=None, date_from=None, date_to=None):
+    query = cases_query(db)
+    if status_filter:
+        query = query.filter(Case.workflow_status == status_filter)
+    if partner_id:
+        query = query.filter(Case.numbering_partner_id == partner_id)
+    if product_id:
+        query = query.filter(Case.case_products.any(CaseProduct.product_id == product_id))
+    if date_from:
+        query = query.filter(Case.initial_received_date >= date_from)
+    if date_to:
+        query = query.filter(Case.initial_received_date <= date_to)
+    if search and search.strip():
+        needle = search.strip().lower()
+        def matches(column):
+            return func.lower(column).contains(needle, autoescape=True)
+        # EXISTS keeps the case row unique regardless of collection sizes.
+        from sqlalchemy import select
+        partner_code = select(Partner.partner_code).where(Partner.id == Case.numbering_partner_id).scalar_subquery()
+        full_code = case(
+            ((Case.number_is_provisional.is_(True) | Case.numbering_partner_id.is_(None)),
+             case((Case.case_number.startswith("UNASSIGNED-"), Case.case_number), else_="UNASSIGNED-" + Case.case_number)),
+            else_=func.coalesce(partner_code, "PARTNER" + Case.numbering_partner_id) + "-" + Case.case_number,
+        )
+        query = query.filter(or_(
+            *(matches(column) for column in (Case.case_number, full_code, Case.worldwide_case_id,
+                                             Case.local_sender_case_id, Case.narrative)),
+            Case.partner.has(matches(Partner.partner_name)),
+            Case.numbering_partner.has(or_(matches(Partner.partner_code), matches(Partner.partner_name))),
+            Case.identifiers.any((CaseIdentifier.is_deleted.is_(False)) &
+                                 (CaseIdentifier.identifier_type != "previous_internal_number") & matches(CaseIdentifier.identifier_value)),
+            Case.case_products.any(or_(matches(CaseProduct.reported_product_name),
+                                       CaseProduct.product.has(matches(Product.product_name)))),
+            Case.reactions.any(matches(Reaction.reported_term)),
+        ))
+    return query
+
+
+def case_audit_query(db: Session, case_id: str):
+    return db.query(AuditTrail).options(joinedload(AuditTrail.user)).filter(
+        AuditTrail.case_id == case_id
+    ).order_by(AuditTrail.timestamp.desc(), AuditTrail.id)
 
 
 def get_case(db: Session, case_id: str) -> Case | None:
@@ -1954,25 +3840,105 @@ def get_case(db: Session, case_id: str) -> Case | None:
         db.query(Case)
         .options(
             joinedload(Case.partner),
+            joinedload(Case.numbering_partner),
+            selectinload(Case.identifiers).joinedload(CaseIdentifier.partner),
+            selectinload(Case.partner_links).joinedload(CasePartnerLink.partner),
             joinedload(Case.safety_report),
-            joinedload(Case.patients),
-            joinedload(Case.case_products).joinedload(CaseProduct.product),
-            joinedload(Case.reactions),
-            joinedload(Case.followups),
-            joinedload(Case.submissions).joinedload(Submission.recipient_partner),
-            joinedload(Case.audit_entries).joinedload(AuditTrail.user),
+            selectinload(Case.patients),
+            selectinload(Case.case_products).joinedload(CaseProduct.product),
+            selectinload(Case.case_products)
+            .selectinload(CaseProduct.assessments)
+            .joinedload(CaseProductReactionAssessment.reaction),
+            selectinload(Case.case_products).selectinload(CaseProduct.drug_substances).joinedload(CaseDrugSubstance.substance),
+            selectinload(Case.reactions),
+            selectinload(Case.followups),
+            selectinload(Case.submissions).joinedload(Submission.recipient_partner),
+            selectinload(Case.e2b_transmissions),
+            selectinload(Case.literature_references),
+            selectinload(Case.narratives),
+            selectinload(Case.incoming_request_links).joinedload(
+                IncomingRequestCaseLink.incoming_request
+            ),
         )
         .filter(Case.id == case_id)
         .first()
     )
 
 
+def add_case_partner(
+    db: Session,
+    case: Case,
+    partner: Partner,
+    *,
+    relationship_type: str = "related",
+) -> CasePartnerLink:
+    link = add_numbering_partner_link(
+        db,
+        case,
+        partner,
+        relationship_type=relationship_type,
+    )
+    db.flush()
+    log_create_event(
+        db,
+        entity_type="CasePartnerLink",
+        entity_id=link.id,
+        case_id=case.id,
+        data={
+            "partner_id": partner.id,
+            "relationship_type": link.relationship_type,
+        },
+        user_id=audit_user_id(db),
+        comment="Связанный партнёр добавлен без изменения номера случая.",
+    )
+    db.commit()
+    db.refresh(link)
+    return link
+
+
+def create_case_identifier(
+    db: Session,
+    case: Case,
+    payload: schemas.CaseIdentifierCreate,
+) -> tuple[CaseIdentifier, bool]:
+    data = clean_form_data(model_data(payload))
+    data.setdefault("identifier_type", "partner_case_number")
+    data.setdefault("is_primary", False)
+    if data.get("partner_id") and not get_partner(db, data["partner_id"]):
+        raise ValueError("Выбранный партнёр не найден.")
+    identifier, possible_duplicate = add_numbering_identifier(db, case, **data)
+    db.flush()
+    log_create_event(
+        db,
+        entity_type="CaseIdentifier",
+        entity_id=identifier.id,
+        case_id=case.id,
+        data=data,
+        user_id=audit_user_id(db),
+        comment=(
+            "Возможный дубликат внешнего номера у выбранного партнёра."
+            if possible_duplicate
+            else "Дополнительный номер добавлен."
+        ),
+    )
+    db.commit()
+    db.refresh(identifier)
+    return identifier, possible_duplicate
+
+
 def create_case(db: Session, payload: schemas.CaseCreate) -> Case:
     data = clean_form_data(model_data(payload))
-    data["case_number"] = data.get("case_number") or generate_number(db, Case, "case_number", "CASE")
+    supplied_number = data.pop("case_number", None)
     data["workflow_status"] = validate_case_status(data.get("workflow_status") or "new")
     actor_id = audit_user_id(db)
-    case = Case(**data, created_by=actor_id, updated_by=actor_id)
+    case = Case(case_number="", **data, created_by=actor_id, updated_by=actor_id)
+    assign_case_number(
+        db,
+        case,
+        partner_id=data.get("partner_id"),
+        supplied_number=supplied_number,
+    )
+    data["case_number"] = case.case_number
     apply_case_lock_state(case, case.workflow_status, actor_id)
     db.add(case)
     db.flush()
@@ -1996,12 +3962,251 @@ def create_case(db: Session, payload: schemas.CaseCreate) -> Case:
     return case
 
 
+def create_manual_case(
+    db: Session,
+    case_payload: schemas.CaseCreate,
+    *,
+    reporter_name: str | None,
+    reporter_email: str | None,
+    reporter_country_code: str | None,
+    source_type: str | None,
+    patient_payload: schemas.PatientCreate,
+    product_payload: schemas.CaseProductCreate,
+    reaction_payload: schemas.ReactionCreate,
+) -> Case:
+    """Create a complete manually entered ICSR as one database transaction."""
+    case_data = clean_form_data(model_data(case_payload))
+    patient_data = clean_form_data(model_data(patient_payload))
+    product_data = clean_form_data(model_data(product_payload))
+    reaction_data = clean_form_data(model_data(reaction_payload))
+
+    existing_report = None
+    if case_data.get("safety_report_id"):
+        existing_report = get_safety_report(db, case_data["safety_report_id"])
+        if not existing_report:
+            raise ValueError("Selected safety report was not found.")
+        if existing_report.case:
+            raise ValueError("Selected safety report is already linked to a case.")
+
+    patient_identified = bool(
+        patient_data.get("patient_initials") or patient_data.get("patient_identifier")
+    )
+    reporter_identified = bool(
+        reporter_name
+        or reporter_email
+        or (
+            existing_report
+            and (existing_report.reporter_name or existing_report.reporter_email)
+        )
+    )
+    product_identified = bool(
+        product_data.get("product_id") or product_data.get("reported_product_name")
+    )
+    event_identified = bool(reaction_data.get("reported_term"))
+    missing_criteria = []
+    if not patient_identified:
+        missing_criteria.append("an identifiable patient (initials or identifier)")
+    if not reporter_identified:
+        missing_criteria.append("an identifiable reporter (name or email)")
+    if not product_identified:
+        missing_criteria.append("a suspect product")
+    if not event_identified:
+        missing_criteria.append("an adverse reaction")
+    if missing_criteria:
+        raise ValueError("Manual ICSR requires " + ", ".join(missing_criteria) + ".")
+
+    product = None
+    if product_data.get("product_id"):
+        product = get_product(db, product_data["product_id"])
+        if not product:
+            raise ValueError("Selected product was not found.")
+        product_data["reported_product_name"] = (
+            product_data.get("reported_product_name") or product.product_name
+        )
+        product_data["route"] = product_data.get("route") or product.route
+        if not product_data.get("active_substance_text") and product.substance_links:
+            product_data["active_substance_text"] = ", ".join(
+                link.substance.substance_name
+                for link in product.substance_links
+                if link.substance
+            )
+
+    serious_fields = (
+        "seriousness_death",
+        "seriousness_life_threatening",
+        "seriousness_hospitalization",
+        "seriousness_disability",
+        "seriousness_congenital_anomaly",
+        "seriousness_other_medically_important",
+    )
+    reaction_is_serious = bool(
+        reaction_data.get("is_serious")
+        or any(reaction_data.get(field) for field in serious_fields)
+    )
+    reaction_data["is_serious"] = reaction_is_serious
+
+    actor_id = audit_user_id(db)
+    try:
+        report = existing_report
+        if not report:
+            received_date = case_data.get("initial_received_date") or date.today()
+            report = SafetyReport(
+                safety_report_number=generate_number(
+                    db,
+                    SafetyReport,
+                    "safety_report_number",
+                    "SR",
+                ),
+                received_at=utcnow(),
+                received_date=received_date,
+                source_type=source_type or "manual",
+                message_direction="needs_review",
+                partner_id=case_data.get("partner_id"),
+                reporter_name=empty_to_none(reporter_name),
+                reporter_email=empty_to_none(reporter_email),
+                reporter_country_code=empty_to_none(reporter_country_code),
+                raw_subject="Manual ICSR entry",
+                raw_text=case_data.get("narrative"),
+                triage_status="converted_to_case",
+                is_valid_icsr=True,
+                minimum_criteria_patient=True,
+                minimum_criteria_reporter=True,
+                minimum_criteria_product=True,
+                minimum_criteria_event=True,
+            )
+            db.add(report)
+            db.flush()
+            log_create_event(
+                db,
+                entity_type="SafetyReport",
+                entity_id=report.id,
+                data={
+                    "safety_report_number": report.safety_report_number,
+                    "source_type": report.source_type,
+                    "reporter_name": report.reporter_name,
+                    "reporter_email": report.reporter_email,
+                    "triage_status": report.triage_status,
+                    "is_valid_icsr": True,
+                },
+                user_id=actor_id,
+                comment="Created by manual ICSR entry",
+            )
+        else:
+            report.is_valid_icsr = True
+            report.minimum_criteria_patient = True
+            report.minimum_criteria_reporter = True
+            report.minimum_criteria_product = True
+            report.minimum_criteria_event = True
+            report.triage_status = "converted_to_case"
+
+        product_link_exists = any(
+            not link.is_deleted
+            and (
+                (product_data.get("product_id") and link.product_id == product_data["product_id"])
+                or (
+                    not product_data.get("product_id")
+                    and (link.reported_product_name or "").strip().casefold()
+                    == (product_data.get("reported_product_name") or "").strip().casefold()
+                )
+            )
+            for link in report.product_links
+        )
+        if not product_link_exists:
+            report.product_links.append(
+                SafetyReportProduct(
+                    product_id=product_data.get("product_id"),
+                    reported_product_name=product_data.get("reported_product_name"),
+                    drug_role=product_data.get("drug_role") or "suspect",
+                )
+            )
+
+        supplied_number = case_data.pop("case_number", None)
+        case_data["safety_report_id"] = report.id
+        case_data["partner_id"] = case_data.get("partner_id") or report.partner_id
+        case_data["case_type"] = case_data.get("case_type") or "spontaneous"
+        case_data["report_type"] = (
+            case_data.get("report_type") or source_type or report.source_type or "manual"
+        )
+        case_data["initial_received_date"] = (
+            case_data.get("initial_received_date") or report.received_date or date.today()
+        )
+        case_data["latest_received_date"] = (
+            case_data.get("latest_received_date") or case_data["initial_received_date"]
+        )
+        case_data["country_of_occurrence"] = (
+            case_data.get("country_of_occurrence") or report.reporter_country_code
+        )
+        case_data["seriousness"] = "serious" if reaction_is_serious else "non-serious"
+        case_data["workflow_status"] = validate_case_status(
+            case_data.get("workflow_status") or "data_entry"
+        )
+        case = Case(case_number="", **case_data, created_by=actor_id, updated_by=actor_id)
+        assign_case_number(
+            db,
+            case,
+            partner_id=case_data.get("partner_id"),
+            supplied_number=supplied_number,
+        )
+        case_data["case_number"] = case.case_number
+        apply_case_lock_state(case, case.workflow_status, actor_id)
+        db.add(case)
+        db.flush()
+        report.case_id = case.id
+
+        patient = Patient(case_id=case.id, **patient_data)
+        case_product = CaseProduct(case_id=case.id, **product_data)
+        reaction = Reaction(case_id=case.id, **reaction_data)
+        db.add_all([patient, case_product, reaction])
+        db.flush()
+
+        log_create_event(
+            db,
+            entity_type="Case",
+            entity_id=case.id,
+            case_id=case.id,
+            data=case_data,
+            user_id=actor_id,
+            comment="Complete manual ICSR entry",
+        )
+        log_create_event(
+            db,
+            entity_type="Patient",
+            entity_id=patient.id,
+            case_id=case.id,
+            data=patient_data,
+            user_id=actor_id,
+        )
+        log_create_event(
+            db,
+            entity_type="CaseProduct",
+            entity_id=case_product.id,
+            case_id=case.id,
+            data=product_data,
+            user_id=actor_id,
+        )
+        log_create_event(
+            db,
+            entity_type="Reaction",
+            entity_id=reaction.id,
+            case_id=case.id,
+            data=reaction_data,
+            user_id=actor_id,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    db.refresh(case)
+    return case
+
+
 def create_case_from_report(db: Session, report: SafetyReport) -> Case:
     if report.case:
         return report.case
 
     case = Case(
-        case_number=generate_number(db, Case, "case_number", "CASE"),
+        case_number="",
         safety_report_id=report.id,
         partner_id=report.partner_id,
         case_type="spontaneous",
@@ -2013,8 +4218,21 @@ def create_case_from_report(db: Session, report: SafetyReport) -> Case:
         narrative=report.raw_text,
         workflow_status="data_entry",
     )
+    assign_case_number(db, case, partner_id=report.partner_id)
     db.add(case)
     db.flush()
+    for link in report.product_links:
+        if link.is_deleted:
+            continue
+        db.add(
+            CaseProduct(
+                case_id=case.id,
+                product_id=link.product_id,
+                reported_product_name=link.reported_product_name
+                or (link.product.product_name if link.product else None),
+                drug_role=link.drug_role or "suspect",
+            )
+        )
     report.case_id = case.id
     report.triage_status = "converted_to_case"
     report.is_valid_icsr = True
@@ -2050,6 +4268,8 @@ def create_case_from_report(db: Session, report: SafetyReport) -> Case:
 
 
 def update_case_status(db: Session, case: Case, payload: schemas.CaseStatusUpdate) -> Case:
+    if payload.expected_version != case.version:
+        raise StaleDataError("Case version has changed. Reload before saving.")
     next_status_code = validate_icsr_transition(case.workflow_status, payload.workflow_status)
     current_status_code = normalized_status(case.workflow_status)
     if case_is_controlled(case) and next_status_code not in {
@@ -2200,6 +4420,132 @@ def add_reaction(db: Session, case: Case, payload: schemas.ReactionCreate) -> Re
     return reaction
 
 
+def list_case_causality_assessments(
+    db: Session,
+    case: Case,
+) -> list[CaseProductReactionAssessment]:
+    product_ids = [row.id for row in case.case_products]
+    reaction_ids = [row.id for row in case.reactions]
+    if not product_ids or not reaction_ids:
+        return []
+    return (
+        db.query(CaseProductReactionAssessment)
+        .options(
+            joinedload(CaseProductReactionAssessment.case_product).joinedload(CaseProduct.product),
+            joinedload(CaseProductReactionAssessment.reaction),
+            joinedload(CaseProductReactionAssessment.creator),
+        )
+        .filter(
+            CaseProductReactionAssessment.case_product_id.in_(product_ids),
+            CaseProductReactionAssessment.reaction_id.in_(reaction_ids),
+            CaseProductReactionAssessment.is_deleted.is_(False),
+        )
+        .order_by(
+            CaseProductReactionAssessment.assessment_date.desc(),
+            CaseProductReactionAssessment.created_at.desc(),
+        )
+        .all()
+    )
+
+
+def add_causality_assessment(
+    db: Session,
+    case: Case,
+    payload: schemas.CausalityAssessmentCreate,
+) -> CaseProductReactionAssessment:
+    assert_case_editable(case)
+    data = clean_form_data(model_data(payload))
+    answers = data.pop("naranjo_answers", {}) or {}
+    method = (data.get("causality_method") or "").strip().lower()
+    result = (data.get("relatedness") or "").strip().lower()
+    assessor_role = (data.get("assessor_role") or "").strip().lower()
+    assessor_name = (data.get("assessor_name") or "").strip()
+
+    case_product = (
+        db.query(CaseProduct)
+        .filter(
+            CaseProduct.id == data.get("case_product_id"),
+            CaseProduct.case_id == case.id,
+            CaseProduct.is_deleted.is_(False),
+        )
+        .first()
+    )
+    if not case_product:
+        raise ValueError("Selected product does not belong to this case.")
+    reaction = (
+        db.query(Reaction)
+        .filter(
+            Reaction.id == data.get("reaction_id"),
+            Reaction.case_id == case.id,
+            Reaction.is_deleted.is_(False),
+        )
+        .first()
+    )
+    if not reaction:
+        raise ValueError("Selected reaction does not belong to this case.")
+    if assessor_role not in ASSESSOR_ROLE_VALUES:
+        raise ValueError("Select who performed the assessment.")
+    if not assessor_name:
+        raise ValueError("Enter the assessor name.")
+
+    naranjo_score = None
+    naranjo_answers_json = None
+    if method == "who_umc":
+        if result not in WHO_UMC_VALUES:
+            raise ValueError("Select a valid WHO-UMC category.")
+    elif method == "naranjo":
+        if set(answers.values()) - NARANJO_ANSWER_VALUES:
+            raise ValueError("Naranjo answers must be yes, no, or unknown.")
+        naranjo_score = calculate_naranjo_score(answers)
+        expected_result = classify_naranjo_score(naranjo_score)
+        if result and result != expected_result:
+            raise ValueError("Naranjo result does not match the calculated score.")
+        result = expected_result
+        naranjo_answers_json = json.dumps(answers, ensure_ascii=False, sort_keys=True)
+    else:
+        raise ValueError("Assessment method must be WHO-UMC or Naranjo.")
+
+    actor_id = audit_user_id(db)
+    assessment = CaseProductReactionAssessment(
+        case_product_id=case_product.id,
+        reaction_id=reaction.id,
+        causality_method=method,
+        relatedness=result,
+        causality_company=result if assessor_role == "ars" else None,
+        naranjo_score=naranjo_score,
+        naranjo_answers_json=naranjo_answers_json,
+        assessor_role=assessor_role,
+        assessor_name=assessor_name,
+        assessor_organization=data.get("assessor_organization"),
+        assessment_date=data.get("assessment_date") or date.today(),
+        assessment_comment=data.get("assessment_comment"),
+        created_by_user_id=actor_id,
+    )
+    db.add(assessment)
+    db.flush()
+    log_create_event(
+        db,
+        entity_type="CaseProductReactionAssessment",
+        entity_id=assessment.id,
+        case_id=case.id,
+        data={
+            "case_product_id": case_product.id,
+            "reaction_id": reaction.id,
+            "causality_method": method,
+            "relatedness": result,
+            "naranjo_score": naranjo_score,
+            "assessor_role": assessor_role,
+            "assessor_name": assessor_name,
+            "assessor_organization": assessment.assessor_organization,
+            "assessment_date": assessment.assessment_date,
+        },
+        user_id=actor_id,
+    )
+    db.commit()
+    db.refresh(assessment)
+    return assessment
+
+
 def add_followup(db: Session, case: Case, payload: schemas.FollowUpCreate) -> FollowUp:
     assert_case_editable(case)
     data = clean_form_data(model_data(payload))
@@ -2225,17 +4571,51 @@ def add_followup(db: Session, case: Case, payload: schemas.FollowUpCreate) -> Fo
     return followup
 
 
+def get_followup(db: Session, followup_id: str) -> FollowUp | None:
+    return (
+        db.query(FollowUp)
+        .filter(FollowUp.id == followup_id, FollowUp.is_deleted.is_(False))
+        .first()
+    )
+
+
+def update_followup_direction(
+    db: Session,
+    followup: FollowUp,
+    payload: schemas.MessageDirectionUpdate,
+) -> FollowUp:
+    old_direction = followup.message_direction
+    followup.message_direction = payload.message_direction
+    followup.version += 1
+    log_audit(
+        db,
+        entity_type="FollowUp",
+        entity_id=followup.id,
+        case_id=followup.case_id,
+        action="update",
+        field_name="message_direction",
+        old_value=old_direction,
+        new_value=followup.message_direction,
+        user_id=audit_user_id(db),
+    )
+    db.commit()
+    db.refresh(followup)
+    return followup
+
+
 def list_attachments(db: Session) -> list[Attachment]:
     return (
         db.query(Attachment)
         .options(
             joinedload(Attachment.case).joinedload(Case.partner),
-            joinedload(Attachment.case).joinedload(Case.case_products).joinedload(CaseProduct.product),
+            joinedload(Attachment.case).selectinload(Case.case_products).joinedload(CaseProduct.product),
             joinedload(Attachment.safety_report).joinedload(SafetyReport.partner),
             joinedload(Attachment.partner),
             joinedload(Attachment.product),
             joinedload(Attachment.uploaded_by),
-            joinedload(Attachment.versions).joinedload(DocumentVersion.creator),
+            selectinload(Attachment.versions).joinedload(DocumentVersion.creator),
+            selectinload(Attachment.psmf_links).joinedload(PSMFDocumentLink.document_version),
+            selectinload(Attachment.build_inclusions).joinedload(PSMFBuildDocument.build),
         )
         .filter(Attachment.is_deleted.is_(False))
         .order_by(Attachment.uploaded_at.desc(), Attachment.created_at.desc())
@@ -2248,12 +4628,14 @@ def get_attachment(db: Session, attachment_id: str) -> Attachment | None:
         db.query(Attachment)
         .options(
             joinedload(Attachment.case).joinedload(Case.partner),
-            joinedload(Attachment.case).joinedload(Case.case_products).joinedload(CaseProduct.product),
+            joinedload(Attachment.case).selectinload(Case.case_products).joinedload(CaseProduct.product),
             joinedload(Attachment.safety_report).joinedload(SafetyReport.partner),
             joinedload(Attachment.partner),
             joinedload(Attachment.product),
             joinedload(Attachment.uploaded_by),
-            joinedload(Attachment.versions).joinedload(DocumentVersion.creator),
+            selectinload(Attachment.versions).joinedload(DocumentVersion.creator),
+            selectinload(Attachment.psmf_links).joinedload(PSMFDocumentLink.document_version),
+            selectinload(Attachment.build_inclusions).joinedload(PSMFBuildDocument.build),
         )
         .filter(Attachment.id == attachment_id, Attachment.is_deleted.is_(False))
         .first()
@@ -2279,10 +4661,18 @@ def create_attachment(
     file_url: str | None = None,
     document_version: str | None = None,
     document_date: date | None = None,
+    valid_until: date | None = None,
     status: str | None = None,
+    is_signed: bool = False,
+    page_count: int | None = None,
+    scope: str = "GLOBAL",
+    psmf_annex_code: str | None = None,
+    include_in_psmf: bool = False,
+    inclusion_order: int = 0,
     comment: str | None = None,
     checksum_sha256: str | None = None,
     uploaded_by_user_id: str | None = None,
+    commit: bool = True,
 ) -> Attachment:
     actor_id = uploaded_by_user_id or audit_user_id(db)
     attachment = Attachment(
@@ -2302,7 +4692,14 @@ def create_attachment(
         file_url=file_url,
         document_version=document_version,
         document_date=document_date,
+        valid_until=valid_until,
         status=status or "draft",
+        is_signed=is_signed,
+        page_count=page_count,
+        scope=scope,
+        psmf_annex_code=psmf_annex_code,
+        include_in_psmf=include_in_psmf,
+        inclusion_order=inclusion_order,
         comment=comment,
         checksum_sha256=checksum_sha256,
         uploaded_by_user_id=uploaded_by_user_id,
@@ -2334,20 +4731,42 @@ def create_attachment(
             "file_url": file_url,
             "document_version": document_version,
             "document_date": document_date,
+            "valid_until": valid_until,
             "status": status or "draft",
+            "is_signed": is_signed,
+            "page_count": page_count,
+            "scope": scope,
+            "psmf_annex_code": psmf_annex_code,
+            "include_in_psmf": include_in_psmf,
+            "inclusion_order": inclusion_order,
             "comment": comment,
             "checksum_sha256": checksum_sha256,
         },
         user_id=actor_id,
     )
-    create_document_version_snapshot(
+    version = create_document_version_snapshot(
         db,
         attachment,
         actor_id=actor_id,
         change_reason=comment,
     )
-    db.commit()
-    db.refresh(attachment)
+    if psmf_annex_code:
+        upsert_psmf_document_link(
+            db,
+            attachment,
+            document_version=version,
+            annex_code=psmf_annex_code,
+            partner_id=partner_id,
+            scope=scope,
+            is_included=include_in_psmf,
+            inclusion_order=inclusion_order,
+        )
+    if commit:
+        db.commit()
+    else:
+        db.flush()
+    if commit:
+        db.refresh(attachment)
     return attachment
 
 
@@ -2362,6 +4781,137 @@ def list_document_versions(db: Session, attachment_id: str) -> list[DocumentVers
         .order_by(DocumentVersion.created_at.desc())
         .all()
     )
+
+
+def create_new_document_version(
+    db: Session,
+    attachment: Attachment,
+    *,
+    file_name: str,
+    mime_type: str | None,
+    file_size_bytes: int | None,
+    storage_path: str | None,
+    checksum_sha256: str | None,
+    version_label: str | None,
+    document_date: date | None,
+    valid_until: date | None,
+    status: str | None,
+    is_signed: bool,
+    page_count: int | None,
+    change_reason: str | None,
+    actor_id: str | None,
+) -> DocumentVersion:
+    """Append an immutable file version while keeping the logical registry record."""
+
+    attachment.file_name = file_name
+    attachment.mime_type = mime_type
+    attachment.file_size_bytes = file_size_bytes
+    attachment.storage_path = storage_path
+    attachment.checksum_sha256 = checksum_sha256
+    attachment.document_version = (version_label or "").strip() or f"v{attachment.version + 1}"
+    attachment.document_date = document_date
+    attachment.valid_until = valid_until
+    attachment.status = status or attachment.status or "draft"
+    attachment.is_signed = is_signed
+    attachment.page_count = page_count
+    attachment.comment = change_reason
+    attachment.uploaded_at = utcnow()
+    attachment.uploaded_by_user_id = actor_id
+    attachment.updated_by = actor_id or audit_user_id(db)
+    attachment.version += 1
+    version = create_document_version_snapshot(
+        db,
+        attachment,
+        actor_id=attachment.updated_by,
+        change_reason=change_reason,
+    )
+    attachment.document_version = version.version_label
+    for link in attachment.psmf_links:
+        if not link.is_deleted:
+            link.document_version_id = version.id
+            link.version += 1
+    log_audit(
+        db,
+        entity_type="Attachment",
+        entity_id=attachment.id,
+        action="new_version",
+        field_name="document_version",
+        new_value=version.version_label,
+        user_id=attachment.updated_by,
+        source_module="Documents",
+        comment=change_reason,
+    )
+    db.commit()
+    db.refresh(version)
+    return version
+
+
+def upsert_psmf_document_link(
+    db: Session,
+    attachment: Attachment,
+    *,
+    document_version: DocumentVersion,
+    annex_code: str,
+    partner_id: str | None,
+    scope: str,
+    is_included: bool,
+    inclusion_order: int,
+) -> PSMFDocumentLink:
+    normalized_annex = annex_code.strip()
+    link = (
+        db.query(PSMFDocumentLink)
+        .filter(
+            PSMFDocumentLink.attachment_id == attachment.id,
+            PSMFDocumentLink.annex_code == normalized_annex,
+            PSMFDocumentLink.partner_id == partner_id,
+            PSMFDocumentLink.is_deleted.is_(False),
+        )
+        .first()
+    )
+    if not link:
+        link = PSMFDocumentLink(
+            attachment_id=attachment.id,
+            annex_code=normalized_annex,
+            partner_id=partner_id,
+        )
+        db.add(link)
+    link.document_version_id = document_version.id
+    link.scope = scope
+    link.is_included = is_included
+    link.inclusion_order = inclusion_order
+    db.flush()
+    return link
+
+
+def set_attachment_psmf_inclusion(
+    db: Session,
+    attachment: Attachment,
+    *,
+    is_included: bool,
+    actor_id: str | None = None,
+) -> Attachment:
+    old_value = attachment.include_in_psmf
+    attachment.include_in_psmf = is_included
+    attachment.updated_by = actor_id or audit_user_id(db)
+    attachment.version += 1
+    for link in attachment.psmf_links:
+        if not link.is_deleted:
+            link.is_included = is_included
+            link.version += 1
+    log_audit(
+        db,
+        entity_type="Attachment",
+        entity_id=attachment.id,
+        action="include_in_psmf" if is_included else "exclude_from_psmf",
+        field_name="include_in_psmf",
+        old_value=str(old_value),
+        new_value=str(is_included),
+        user_id=attachment.updated_by,
+        source_module="Documents",
+    )
+    db.commit()
+    db.refresh(attachment)
+    return attachment
 
 
 def delete_attachment(
@@ -2417,26 +4967,52 @@ def list_submissions(db: Session) -> list[Submission]:
 
 
 def get_submission(db: Session, submission_id: str) -> Submission | None:
-    return db.query(Submission).filter(Submission.id == submission_id).first()
+    return db.query(Submission).filter(
+        Submission.id == submission_id, Submission.is_deleted.is_(False)
+    ).first()
 
 
 def create_submission(db: Session, payload: schemas.SubmissionCreate) -> Submission:
     data = clean_form_data(model_data(payload))
+    expected_object_version = data.pop("expected_object_version", None)
     validate_submission_references(data)
     if data.get("case_id"):
+        if data.get("submission_object_type", "case") != "case":
+            raise ValueError("Submission object type does not match the selected case.")
         case = get_case(db, data["case_id"])
-        if not case:
+        if not case or case.is_deleted:
             raise ValueError("Selected case was not found.")
+        if expected_object_version is not None:
+            require_version(case, expected_object_version)
+        if case.number_is_provisional or not case.numbering_partner_id:
+            raise ValueError(
+                "Нельзя сформировать регуляторную отправку для случая с номером UNASSIGNED. "
+                "Сначала выберите партнёра нумерации."
+            )
         assert_case_editable(case)
+    elif data.get("pbrer_id"):
+        if data.get("submission_object_type", "case") != "pbrer":
+            raise ValueError("Submission object type does not match the selected PSUR.")
+        plan = db.get(PSURPlan, data["pbrer_id"])
+        if not plan or plan.is_deleted:
+            raise ValueError("Selected PSUR was not found.")
+        if expected_object_version is not None:
+            require_version(plan, expected_object_version)
+        # Reserve the parent version in the same transaction as the submission.
+        # This catches a concurrent status change or deletion at flush.
+        plan.version += 1
+    elif expected_object_version is not None:
+        raise ValueError("Versioned submissions support cases and PSUR plans only.")
     data["submission_number"] = data.get("submission_number") or generate_number(
         db,
         Submission,
         "submission_number",
         "SUB",
     )
-    if data.get("recipient_partner_id") and not data.get("recipient_country_code"):
-        partner = get_partner(db, data["recipient_partner_id"])
-        data["recipient_country_code"] = partner.country_code if partner else None
+    if data.get("submission_status") in {"submitted", "acknowledged"} and not data.get("submitted_at"):
+        data["submitted_at"] = utcnow()
+    if data.get("submission_status") == "acknowledged" and not data.get("acknowledged_at"):
+        data["acknowledged_at"] = utcnow()
     submission = Submission(**data)
     db.add(submission)
     db.flush()
@@ -2460,7 +5036,7 @@ def create_submission_for_case(
     data = model_data(payload)
     data["case_id"] = case.id
     data["submission_object_type"] = "case"
-    return create_submission(db, schemas.SubmissionCreate(**data))
+    return create_submission(db, type(payload)(**data))
 
 
 def update_submission_status(
@@ -2468,22 +5044,59 @@ def update_submission_status(
     submission: Submission,
     payload: schemas.SubmissionStatusUpdate,
 ) -> Submission:
-    old_status = submission.submission_status
+    require_version(submission, payload.expected_version)
+    old_values = {
+        "submission_status": submission.submission_status,
+        "submission_number": submission.submission_number,
+        "submitted_at": submission.submitted_at,
+        "acknowledged_at": submission.acknowledged_at,
+        "acknowledgement_code": submission.acknowledgement_code,
+        "error_message": submission.error_message,
+    }
+    requested_number = (payload.submission_number or "").strip()
+    if requested_number and requested_number != submission.submission_number:
+        duplicate = (
+            db.query(Submission)
+            .filter(
+                Submission.submission_number == requested_number,
+                Submission.id != submission.id,
+                Submission.is_deleted.is_(False),
+            )
+            .first()
+        )
+        if duplicate:
+            raise ValueError("Submission number already exists.")
+        submission.submission_number = requested_number
     submission.submission_status = payload.submission_status
     submission.error_message = payload.error_message
-    if submission.submission_status == "submitted" and not submission.submitted_at:
+    if payload.submitted_at is not None:
+        submission.submitted_at = payload.submitted_at
+    if payload.acknowledged_at is not None:
+        submission.acknowledged_at = payload.acknowledged_at
+    if payload.acknowledgement_code is not None:
+        submission.acknowledgement_code = payload.acknowledgement_code.strip() or None
+    if submission.submission_status in {"submitted", "acknowledged"} and not submission.submitted_at:
         submission.submitted_at = utcnow()
-    log_audit(
+    if submission.submission_status == "acknowledged" and not submission.acknowledged_at:
+        submission.acknowledged_at = utcnow()
+    submission.version += 1
+    new_values = {
+        "submission_status": submission.submission_status,
+        "submission_number": submission.submission_number,
+        "submitted_at": submission.submitted_at,
+        "acknowledged_at": submission.acknowledged_at,
+        "acknowledgement_code": submission.acknowledgement_code,
+        "error_message": submission.error_message,
+    }
+    log_field_changes(
         db,
         entity_type="Submission",
         entity_id=submission.id,
-        action="status_change",
+        action="status_change" if old_values["submission_status"] != submission.submission_status else "edit",
         case_id=submission.case_id,
-        field_name="submission_status",
-        old_value=old_status,
-        new_value=submission.submission_status,
+        old_values=old_values,
+        new_values=new_values,
         comment=payload.error_message,
-        user_id=audit_user_id(db),
     )
     db.commit()
     db.refresh(submission)
@@ -2521,14 +5134,16 @@ def list_psur_plans(db: Session) -> list[PSURPlan]:
         db.query(PSURPlan)
         .options(
             joinedload(PSURPlan.active_substance),
-            joinedload(PSURPlan.product),
+            joinedload(PSURPlan.product).joinedload(Product.dosage_form_ref),
             joinedload(PSURPlan.responsible_user),
             joinedload(PSURPlan.reviewer_user),
-            joinedload(PSURPlan.psur_products).joinedload(PSURProduct.product),
-            joinedload(PSURPlan.psur_cases).joinedload(PSURCase.case),
-            joinedload(PSURPlan.partner_requests).joinedload(PSURPartnerRequest.partner),
-            joinedload(PSURPlan.sections),
-            joinedload(PSURPlan.documents),
+            selectinload(PSURPlan.psur_products)
+            .joinedload(PSURProduct.product)
+            .joinedload(Product.dosage_form_ref),
+            selectinload(PSURPlan.psur_cases).joinedload(PSURCase.case),
+            selectinload(PSURPlan.partner_requests).joinedload(PSURPartnerRequest.partner),
+            selectinload(PSURPlan.sections),
+            selectinload(PSURPlan.documents),
         )
         .filter(PSURPlan.is_deleted.is_(False))
         .order_by(PSURPlan.reporting_period_end.desc(), PSURPlan.created_at.desc())
@@ -2541,25 +5156,28 @@ def get_psur_plan(db: Session, psur_plan_id: str) -> PSURPlan | None:
         db.query(PSURPlan)
         .options(
             joinedload(PSURPlan.active_substance),
-            joinedload(PSURPlan.product),
+            joinedload(PSURPlan.product).joinedload(Product.dosage_form_ref),
             joinedload(PSURPlan.responsible_user),
             joinedload(PSURPlan.reviewer_user),
-            joinedload(PSURPlan.psur_products).joinedload(PSURProduct.product),
-            joinedload(PSURPlan.psur_cases).joinedload(PSURCase.case).joinedload(Case.partner),
-            joinedload(PSURPlan.psur_cases)
+            selectinload(PSURPlan.psur_products)
+            .joinedload(PSURProduct.product)
+            .joinedload(Product.dosage_form_ref),
+            selectinload(PSURPlan.psur_cases).joinedload(PSURCase.case).joinedload(Case.partner),
+            selectinload(PSURPlan.psur_cases)
             .joinedload(PSURCase.case)
-            .joinedload(Case.case_products)
-            .joinedload(CaseProduct.product),
-            joinedload(PSURPlan.psur_cases)
+            .selectinload(Case.case_products)
+            .joinedload(CaseProduct.product)
+            .joinedload(Product.dosage_form_ref),
+            selectinload(PSURPlan.psur_cases)
             .joinedload(PSURCase.case)
-            .joinedload(Case.reactions),
-            joinedload(PSURPlan.partner_requests).joinedload(PSURPartnerRequest.partner),
-            joinedload(PSURPlan.partner_requests).joinedload(PSURPartnerRequest.contact_person),
-            joinedload(PSURPlan.partner_requests).joinedload(PSURPartnerRequest.document),
-            joinedload(PSURPlan.sections).joinedload(PSURSection.assignee),
-            joinedload(PSURPlan.sections).joinedload(PSURSection.reviewer),
-            joinedload(PSURPlan.sections).joinedload(PSURSection.confirmer),
-            joinedload(PSURPlan.documents).joinedload(PSURDocument.uploader),
+            .selectinload(Case.reactions),
+            selectinload(PSURPlan.partner_requests).joinedload(PSURPartnerRequest.partner),
+            selectinload(PSURPlan.partner_requests).joinedload(PSURPartnerRequest.contact_person),
+            selectinload(PSURPlan.partner_requests).joinedload(PSURPartnerRequest.document),
+            selectinload(PSURPlan.sections).joinedload(PSURSection.assignee),
+            selectinload(PSURPlan.sections).joinedload(PSURSection.reviewer),
+            selectinload(PSURPlan.sections).joinedload(PSURSection.confirmer),
+            selectinload(PSURPlan.documents).joinedload(PSURDocument.uploader),
         )
         .filter(PSURPlan.id == psur_plan_id, PSURPlan.is_deleted.is_(False))
         .first()
@@ -2699,11 +5317,21 @@ def delete_psur_plan(
     return plan
 
 
+def touch_psur_plan(db: Session, plan_id: str) -> PSURPlan:
+    """Keep child writes in conflict with changes or deletion of their parent."""
+    plan = db.get(PSURPlan, plan_id)
+    if not plan or plan.is_deleted:
+        raise ValueError("PSUR plan not found.")
+    plan.version += 1
+    return plan
+
+
 def add_psur_product(
     db: Session,
     plan: PSURPlan,
     payload: schemas.PSURProductCreate,
 ) -> PSURProduct:
+    touch_psur_plan(db, plan.id)
     data = clean_form_data(model_data(payload))
     product = PSURProduct(psur_plan_id=plan.id, **data)
     db.add(product)
@@ -2727,6 +5355,7 @@ def add_psur_document(
     *,
     uploaded_by_user_id: str | None = None,
 ) -> PSURDocument:
+    touch_psur_plan(db, plan.id)
     data = clean_form_data(model_data(payload))
     document = PSURDocument(
         psur_plan_id=plan.id,
@@ -2756,6 +5385,7 @@ def create_task(
     payload: schemas.TaskCreate,
     *,
     created_by_user_id: str | None = None,
+    commit: bool = True,
 ) -> Task:
     data = clean_form_data(model_data(payload))
     actor_id = created_by_user_id or audit_user_id(db)
@@ -2769,8 +5399,11 @@ def create_task(
         data=data,
         user_id=task.created_by,
     )
-    db.commit()
-    db.refresh(task)
+    if commit:
+        db.commit()
+        db.refresh(task)
+    else:
+        db.flush()
     return task
 
 
@@ -2822,15 +5455,96 @@ def update_task_status(
     return task
 
 
+INCOMING_CASE_LINK_TYPES = {
+    "initial",
+    "follow_up",
+    "duplicate",
+    "related",
+    "created_from_message",
+    "manual_link",
+}
+INCOMING_CASE_CREATION_LINK_TYPES = {"initial", "created_from_message"}
+INCOMING_REQUIRED_CRITERIA = {
+    "patient_missing": "has_identifiable_patient",
+    "reporter_missing": "has_identifiable_reporter",
+    "product_missing": "has_suspect_product",
+    "event_missing": "has_adverse_event",
+}
+
+
+def incoming_request_missing_criteria(row_or_data) -> list[str]:
+    missing = []
+    for missing_code, field_name in INCOMING_REQUIRED_CRITERIA.items():
+        value = (
+            row_or_data.get(field_name)
+            if isinstance(row_or_data, dict)
+            else getattr(row_or_data, field_name, False)
+        )
+        if not value:
+            missing.append(missing_code)
+    return missing
+
+
+def incoming_request_has_valid_criteria(row_or_data) -> bool:
+    return not incoming_request_missing_criteria(row_or_data)
+
+
+def incoming_request_status_from_triage(row: IncomingRequest) -> str:
+    if row.triage_status == "completed":
+        if row.triage_result == "create_case" and row.validity_status == "valid_icsr":
+            return "triage_completed"
+        if row.triage_result == "request_follow_up":
+            return "awaiting_information"
+        if row.triage_result in {"no_case_required", "medical_information_only", "quality_complaint_only"}:
+            return "closed_no_case"
+        if row.triage_result == "duplicate":
+            return "duplicate"
+        return "triage_completed"
+    if row.triage_status == "in_progress":
+        return "triage_in_progress"
+    if row.triage_status == "not_required":
+        return "closed_no_case"
+    return row.status or "new"
+
+
+def incoming_request_case_creation_error(row: IncomingRequest) -> str | None:
+    existing_link = incoming_request_primary_case_link(row)
+    if existing_link:
+        return "Safety message is already linked to an initial case."
+    if row.triage_status != "completed":
+        return "Complete triage before creating a case."
+    if row.potential_icsr != "yes":
+        return "Safety message triage does not mark this as a potential ICSR."
+    if row.validity_status != "valid_icsr":
+        return "Safety message must have valid ICSR status before case creation."
+    if row.triage_result != "create_case":
+        return "Triage result must be create_case before case creation."
+    return None
+
+
+def incoming_request_primary_case_link(row: IncomingRequest) -> IncomingRequestCaseLink | None:
+    for link in row.case_links:
+        if link.is_deleted:
+            continue
+        if link.link_type in INCOMING_CASE_CREATION_LINK_TYPES:
+            return link
+    return None
+
+
 def list_incoming_requests(db: Session) -> list[IncomingRequest]:
     return (
         db.query(IncomingRequest)
         .options(
             joinedload(IncomingRequest.partner),
-            joinedload(IncomingRequest.product),
+            joinedload(IncomingRequest.product).joinedload(Product.dosage_form_ref),
+            selectinload(IncomingRequest.product_links)
+            .joinedload(IncomingRequestProduct.product)
+            .joinedload(Product.dosage_form_ref),
             joinedload(IncomingRequest.case),
+            selectinload(IncomingRequest.case_links).joinedload(IncomingRequestCaseLink.case),
             joinedload(IncomingRequest.creator),
             joinedload(IncomingRequest.updater),
+            joinedload(IncomingRequest.triage_user),
         )
         .filter(IncomingRequest.is_deleted.is_(False))
         .order_by(IncomingRequest.created_at.desc())
@@ -2843,10 +5557,15 @@ def get_incoming_request(db: Session, request_id: str) -> IncomingRequest | None
         db.query(IncomingRequest)
         .options(
             joinedload(IncomingRequest.partner),
-            joinedload(IncomingRequest.product),
+            joinedload(IncomingRequest.product).joinedload(Product.dosage_form_ref),
+            selectinload(IncomingRequest.product_links)
+            .joinedload(IncomingRequestProduct.product)
+            .joinedload(Product.dosage_form_ref),
             joinedload(IncomingRequest.case),
+            selectinload(IncomingRequest.case_links).joinedload(IncomingRequestCaseLink.case),
             joinedload(IncomingRequest.creator),
             joinedload(IncomingRequest.updater),
+            joinedload(IncomingRequest.triage_user),
         )
         .filter(IncomingRequest.id == request_id, IncomingRequest.is_deleted.is_(False))
         .first()
@@ -2860,7 +5579,23 @@ def create_incoming_request(
     created_by_user_id: str | None = None,
 ) -> IncomingRequest:
     data = clean_form_data(model_data(payload))
+    product_ids = list(data.pop("product_ids", []) or [])
+    if data.get("product_id") and data["product_id"] not in product_ids:
+        product_ids.insert(0, data["product_id"])
+    product_ids = validate_message_product_ids(db, product_ids)
+    data["product_id"] = product_ids[0] if product_ids else None
     status_value = data.pop("status", None) or "confirmed"
+    data["message_number"] = data.get("message_number") or generate_number(
+        db,
+        IncomingRequest,
+        "message_number",
+        "MSG",
+    )
+    data["received_date"] = data.get("received_date") or date.today()
+    data["potential_icsr"] = data.get("potential_icsr") or data.get("possible_icsr") or "no"
+    data["triage_status"] = data.get("triage_status") or "not_started"
+    if product_ids:
+        data["has_suspect_product"] = True
     actor_id = created_by_user_id or audit_user_id(db)
     row = IncomingRequest(
         **data,
@@ -2871,6 +5606,7 @@ def create_incoming_request(
     )
     db.add(row)
     db.flush()
+    sync_message_product_links(db, row, IncomingRequestProduct, product_ids)
     log_create_event(
         db,
         entity_type="IncomingRequest",
@@ -2879,11 +5615,48 @@ def create_incoming_request(
             "request_type": row.request_type,
             "partner_id": row.partner_id,
             "product_id": row.product_id,
+            "product_ids": ", ".join(product_ids),
             "possible_icsr": row.possible_icsr,
             "status": row.status,
+            "message_number": row.message_number,
+            "triage_status": row.triage_status,
+            "triage_result": row.triage_result,
         },
         user_id=actor_id,
-        comment="Human confirmed GPT/mock analysis.",
+        comment="Human confirmed automated analysis draft.",
+    )
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def update_incoming_request_products(
+    db: Session,
+    row: IncomingRequest,
+    product_ids: list[str] | None,
+    *,
+    changed_by_user_id: str | None = None,
+) -> IncomingRequest:
+    old_product_ids = row.product_ids
+    new_product_ids = sync_message_product_links(
+        db,
+        row,
+        IncomingRequestProduct,
+        product_ids,
+    )
+    row.product_id = new_product_ids[0] if new_product_ids else None
+    row.has_suspect_product = bool(row.product_names)
+    row.updated_by = changed_by_user_id or audit_user_id(db)
+    row.version += 1
+    log_audit(
+        db,
+        entity_type="IncomingRequest",
+        entity_id=row.id,
+        action="edit",
+        field_name="product_ids",
+        old_value=", ".join(old_product_ids),
+        new_value=", ".join(new_product_ids),
+        user_id=row.updated_by,
     )
     db.commit()
     db.refresh(row)
@@ -2915,6 +5688,70 @@ def update_incoming_request_status(
     return row
 
 
+def save_incoming_request_triage(
+    db: Session,
+    row: IncomingRequest,
+    payload: schemas.IncomingRequestTriageUpdate,
+    *,
+    changed_by_user_id: str | None = None,
+) -> IncomingRequest:
+    data = clean_form_data(model_data(payload))
+    data.pop("expected_version", None)
+    manual_override = bool(data.pop("manual_override", False))
+    criteria_complete = incoming_request_has_valid_criteria(data)
+
+    if data.get("safety_relevance") == "not_safety_related":
+        data["potential_icsr"] = data.get("potential_icsr") or "no"
+        data["validity_status"] = data.get("validity_status") or "not_applicable"
+        data["triage_result"] = data.get("triage_result") or "no_case_required"
+    elif criteria_complete:
+        data["potential_icsr"] = data.get("potential_icsr") or "yes"
+        data["validity_status"] = data.get("validity_status") or "valid_icsr"
+        data["triage_result"] = data.get("triage_result") or "create_case"
+    else:
+        data["potential_icsr"] = data.get("potential_icsr") or "unclear"
+        data["validity_status"] = data.get("validity_status") or "pending_information"
+        data["triage_result"] = data.get("triage_result") or "request_follow_up"
+
+    if data.get("validity_status") == "valid_icsr" and not criteria_complete:
+        if not manual_override:
+            raise ValueError(
+                "Valid ICSR requires patient, reporter, product, and adverse event criteria."
+            )
+        if not data.get("triage_comment"):
+            raise ValueError("Manual validity override requires a triage comment.")
+
+    data["missing_criteria"] = data.get("missing_criteria") or (
+        "; ".join(incoming_request_missing_criteria(data)) or None
+    )
+    if data.get("triage_status") == "completed":
+        data["triaged_at"] = utcnow()
+    data["triaged_by"] = changed_by_user_id or audit_user_id(db)
+
+    old_values = {field: getattr(row, field, None) for field in data}
+    for field, value in data.items():
+        setattr(row, field, value)
+    old_status = row.status
+    row.status = incoming_request_status_from_triage(row)
+    row.possible_icsr = "yes" if row.potential_icsr == "yes" else "no"
+    row.updated_by = data["triaged_by"]
+    row.version += 1
+
+    log_field_changes(
+        db,
+        entity_type="IncomingRequest",
+        entity_id=row.id,
+        old_values={**old_values, "status": old_status},
+        new_values={**data, "status": row.status},
+        action="triage",
+        user_id=row.updated_by,
+        comment=row.triage_comment,
+    )
+    db.commit()
+    db.refresh(row)
+    return row
+
+
 def incoming_request_case_narrative(row: IncomingRequest) -> str:
     parts = [
         "Created from safety message.",
@@ -2936,32 +5773,227 @@ def incoming_request_case_narrative(row: IncomingRequest) -> str:
     return "\n".join(parts)
 
 
-def create_case_from_incoming_request(db: Session, row: IncomingRequest) -> Case:
+def create_incoming_request_case_link(
+    db: Session,
+    row: IncomingRequest,
+    case: Case,
+    *,
+    link_type: str = "manual_link",
+    comment: str | None = None,
+    created_by_user_id: str | None = None,
+    update_message_status: bool = True,
+) -> IncomingRequestCaseLink:
+    if link_type not in INCOMING_CASE_LINK_TYPES:
+        raise ValueError("Invalid safety message case link type.")
+
+    existing = (
+        db.query(IncomingRequestCaseLink)
+        .filter(
+            IncomingRequestCaseLink.incoming_request_id == row.id,
+            IncomingRequestCaseLink.case_id == case.id,
+            IncomingRequestCaseLink.link_type == link_type,
+            IncomingRequestCaseLink.is_deleted.is_(False),
+        )
+        .first()
+    )
+    if existing:
+        return existing
+
+    assert_case_editable(case)
+    case.version += 1
+    actor_id = created_by_user_id or audit_user_id(db)
+    link = IncomingRequestCaseLink(
+        incoming_request_id=row.id,
+        case_id=case.id,
+        link_type=link_type,
+        comment=comment,
+        created_by=actor_id,
+    )
+    db.add(link)
+    db.flush()
+
+    old_status = row.status
+    if not row.case_id or link_type in INCOMING_CASE_CREATION_LINK_TYPES:
+        row.case_id = case.id
+    if update_message_status:
+        if link_type in {"created_from_message", "initial", "manual_link"}:
+            row.status = "converted_to_case"
+        elif link_type == "duplicate":
+            row.status = "duplicate"
+        else:
+            row.status = "linked_to_case"
+    row.updated_by = actor_id
+    row.version += 1
+
+    if link_type == "follow_up":
+        current_count = db.query(FollowUp).filter(FollowUp.case_id == case.id).count()
+        case.case_version += 1
+        if row.received_date:
+            case.latest_received_date = row.received_date
+        db.add(
+            FollowUp(
+                case_id=case.id,
+                follow_up_number=current_count + 1,
+                received_date=row.received_date,
+                source_type="safety_message",
+                message_direction="needs_review",
+                description=incoming_request_case_narrative(row),
+                significant_new_information=True,
+                case_version_after_follow_up=case.case_version,
+            )
+        )
+
+    log_create_event(
+        db,
+        entity_type="IncomingRequestCaseLink",
+        entity_id=link.id,
+        case_id=case.id,
+        data={
+            "incoming_request_id": row.id,
+            "case_id": case.id,
+            "link_type": link.link_type,
+        },
+        user_id=actor_id,
+        comment=comment or "Safety message linked to case.",
+    )
+    if old_status != row.status:
+        log_audit(
+            db,
+            entity_type="IncomingRequest",
+            entity_id=row.id,
+            action="status_change",
+            field_name="status",
+            old_value=old_status,
+            new_value=row.status,
+            case_id=case.id,
+            user_id=actor_id,
+            comment=comment or f"Linked to case as {link_type}.",
+        )
+    return link
+
+
+def link_incoming_request_to_case(
+    db: Session,
+    row: IncomingRequest,
+    case: Case,
+    payload: schemas.IncomingRequestCaseLinkCreate,
+    *,
+    changed_by_user_id: str | None = None,
+) -> IncomingRequestCaseLink:
+    link = create_incoming_request_case_link(
+        db,
+        row,
+        case,
+        link_type=payload.link_type,
+        comment=payload.comment,
+        created_by_user_id=changed_by_user_id,
+    )
+    db.commit()
+    db.refresh(link)
+    return link
+
+
+def list_incoming_request_case_links(db: Session, request_id: str) -> list[IncomingRequestCaseLink]:
+    return (
+        db.query(IncomingRequestCaseLink)
+        .options(joinedload(IncomingRequestCaseLink.case))
+        .filter(
+            IncomingRequestCaseLink.incoming_request_id == request_id,
+            IncomingRequestCaseLink.is_deleted.is_(False),
+        )
+        .order_by(IncomingRequestCaseLink.created_at.desc())
+        .all()
+    )
+
+
+def list_case_incoming_request_links(db: Session, case_id: str) -> list[IncomingRequestCaseLink]:
+    return (
+        db.query(IncomingRequestCaseLink)
+        .options(joinedload(IncomingRequestCaseLink.incoming_request))
+        .filter(
+            IncomingRequestCaseLink.case_id == case_id,
+            IncomingRequestCaseLink.is_deleted.is_(False),
+        )
+        .order_by(IncomingRequestCaseLink.created_at.desc())
+        .all()
+    )
+
+
+def create_case_from_incoming_request(
+    db: Session,
+    row: IncomingRequest,
+    case_data: dict[str, Any] | None = None,
+) -> Case:
+    primary_link = incoming_request_primary_case_link(row)
+    if primary_link:
+        linked_case = get_case(db, primary_link.case_id)
+        if linked_case:
+            return linked_case
     if row.case_id:
         linked_case = get_case(db, row.case_id)
         if linked_case:
+            create_incoming_request_case_link(
+                db,
+                row,
+                linked_case,
+                link_type="created_from_message",
+                comment="Legacy direct safety message case link normalized.",
+                update_message_status=False,
+            )
+            db.commit()
             return linked_case
 
+    error = incoming_request_case_creation_error(row)
+    if error:
+        raise ValueError(error)
+
     actor_id = audit_user_id(db)
-    received_date = row.created_at.date() if row.created_at else date.today()
+    case_data = clean_form_data(case_data or {})
+    received_date = row.received_date or (row.created_at.date() if row.created_at else date.today())
     seriousness = "serious" if normalized_status(row.seriousness) == "serious" else "non-serious"
     case = Case(
-        case_number=generate_number(db, Case, "case_number", "CASE"),
+        case_number="",
         partner_id=row.partner_id,
-        case_type="spontaneous",
-        report_type=row.request_type or "safety_message",
-        initial_received_date=received_date,
-        latest_received_date=received_date,
-        seriousness=seriousness,
-        narrative=incoming_request_case_narrative(row),
-        workflow_status="data_entry",
+        case_type=case_data.get("case_type") or "spontaneous",
+        report_type=case_data.get("report_type") or row.request_type or "safety_message",
+        initial_received_date=case_data.get("initial_received_date") or received_date,
+        latest_received_date=case_data.get("latest_received_date") or received_date,
+        seriousness=case_data.get("seriousness") or seriousness,
+        narrative=case_data.get("narrative") or incoming_request_case_narrative(row),
+        workflow_status=case_data.get("workflow_status") or "data_entry",
         created_by=actor_id,
         updated_by=actor_id,
+    )
+    assign_case_number(
+        db,
+        case,
+        partner_id=row.partner_id,
+        supplied_number=case_data.get("case_number"),
     )
     db.add(case)
     db.flush()
 
-    if row.product_id or row.active_substance:
+    active_product_links = [link for link in row.product_links if not link.is_deleted]
+    active_product_links.sort(
+        key=lambda link: (
+            link.product_id != row.product_id,
+            link.created_at,
+            link.id,
+        )
+    )
+    if active_product_links:
+        for index, link in enumerate(active_product_links):
+            db.add(
+                CaseProduct(
+                    case_id=case.id,
+                    product_id=link.product_id,
+                    reported_product_name=link.reported_product_name
+                    or (link.product.product_name if link.product else None),
+                    active_substance_text=row.active_substance if index == 0 else None,
+                    drug_role=link.drug_role or "suspect",
+                )
+            )
+    elif row.product_id or row.active_substance:
         db.add(
             CaseProduct(
                 case_id=case.id,
@@ -2998,6 +6030,16 @@ def create_case_from_incoming_request(db: Session, row: IncomingRequest) -> Case
     row.updated_by = actor_id
     row.version += 1
 
+    create_incoming_request_case_link(
+        db,
+        row,
+        case,
+        link_type="created_from_message",
+        comment="Case created from safety message.",
+        created_by_user_id=actor_id,
+        update_message_status=False,
+    )
+
     log_create_event(
         db,
         entity_type="Case",
@@ -3028,34 +6070,74 @@ def create_case_from_incoming_request(db: Session, row: IncomingRequest) -> Case
     return case
 
 
-def export_incoming_requests_csv(db: Session) -> str:
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(
-        [
-            "created at",
-            "status",
-            "request type",
-            "partner",
-            "product",
-            "possible ICSR",
-            "patient information",
-            "adverse event",
-            "seriousness",
-            "missing information",
-            "recommended next action",
-            "case number",
-            "source text",
-        ]
-    )
+INCOMING_REQUEST_EXPORT_HEADERS = [
+    "message number",
+    "received date",
+    "created at",
+    "status",
+    "triage status",
+    "validity status",
+    "triage result",
+    "request type",
+    "source type",
+    "source name",
+    "channel",
+    "message category",
+    "partner code",
+    "partner",
+    "products",
+    "dosage forms",
+    "possible ICSR",
+    "patient information",
+    "adverse event",
+    "seriousness",
+    "missing information",
+    "recommended next action",
+    "case number",
+    "case creation status",
+    "linked cases",
+    "source text",
+]
+
+
+def incoming_request_export_rows(
+    db: Session,
+    *,
+    dosage_form_language: str = "ru",
+) -> list[list[Any]]:
+    rows = []
     for row in list_incoming_requests(db):
-        writer.writerow(
+        linked_cases = [
+            link.case.case_number
+            for link in row.case_links
+            if not link.is_deleted and link.case
+        ]
+        rows.append(
             [
+                row.message_number or "",
+                row.received_date or "",
                 row.created_at,
                 row.status,
+                row.triage_status or "",
+                row.validity_status or "",
+                row.triage_result or "",
                 row.request_type or "",
+                row.source_type or "",
+                row.source_name or "",
+                row.channel or "",
+                row.message_category or "",
+                (
+                    (row.partner.partner_code or f"PARTNER{row.partner.id}")
+                    if row.partner
+                    else "UNASSIGNED"
+                ),
                 row.partner.partner_name if row.partner else "",
-                row.product.product_name if row.product else "",
+                "; ".join(row.product_names),
+                "; ".join(
+                    dosage_form
+                    for product in row.linked_products
+                    if (dosage_form := product_dosage_form_name(product, dosage_form_language))
+                ),
                 row.possible_icsr,
                 row.patient_information or "",
                 row.adverse_event or "",
@@ -3063,10 +6145,39 @@ def export_incoming_requests_csv(db: Session) -> str:
                 row.missing_information or "",
                 row.recommended_next_action or "",
                 row.case.case_number if row.case else "",
+                "Кейс создан" if row.case or linked_cases else "Кейс не создан",
+                "; ".join(linked_cases),
                 row.source_text,
             ]
         )
+    return rows
+
+
+def export_incoming_requests_csv(db: Session, *, dosage_form_language: str = "ru") -> str:
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(INCOMING_REQUEST_EXPORT_HEADERS)
+    writer.writerows(
+        incoming_request_export_rows(db, dosage_form_language=dosage_form_language)
+    )
     return output.getvalue()
+
+
+def export_incoming_requests_xlsx(db: Session, *, dosage_form_language: str = "ru") -> bytes:
+    return build_xlsx(
+        [
+            (
+                "Safety message journal",
+                [
+                    INCOMING_REQUEST_EXPORT_HEADERS,
+                    *incoming_request_export_rows(
+                        db,
+                        dosage_form_language=dosage_form_language,
+                    ),
+                ],
+            )
+        ]
+    )
 
 
 def list_sops(db: Session) -> list[SOP]:
@@ -3075,7 +6186,7 @@ def list_sops(db: Session) -> list[SOP]:
         .options(
             joinedload(SOP.creator),
             joinedload(SOP.updater),
-            joinedload(SOP.versions).joinedload(SOPVersion.creator),
+            selectinload(SOP.versions).joinedload(SOPVersion.creator),
         )
         .filter(SOP.is_deleted.is_(False))
         .order_by(SOP.sop_code.asc())
@@ -3089,7 +6200,7 @@ def get_sop(db: Session, sop_id: str) -> SOP | None:
         .options(
             joinedload(SOP.creator),
             joinedload(SOP.updater),
-            joinedload(SOP.versions).joinedload(SOPVersion.creator),
+            selectinload(SOP.versions).joinedload(SOPVersion.creator),
         )
         .filter(SOP.id == sop_id, SOP.is_deleted.is_(False))
         .first()
@@ -3150,6 +6261,7 @@ def update_sop(
     payload: schemas.SOPCreate,
     *,
     changed_by_user_id: str | None = None,
+    commit: bool = True,
 ) -> SOP:
     data = clean_form_data(model_data(payload))
     old_values = {field: getattr(sop, field, None) for field in data}
@@ -3172,8 +6284,12 @@ def update_sop(
             actor_id=sop.updated_by,
             revision_reason=sop.revision_reason,
         )
-    db.commit()
-    db.refresh(sop)
+    if commit:
+        db.commit()
+    else:
+        db.flush()
+    if commit:
+        db.refresh(sop)
     return sop
 
 
@@ -3208,7 +6324,9 @@ def create_psur_partner_request(
     *,
     created_by_user_id: str | None = None,
     create_related_task: bool = True,
+    commit: bool = True,
 ) -> PSURPartnerRequest:
+    touch_psur_plan(db, plan.id)
     data = clean_form_data(model_data(payload))
     request = PSURPartnerRequest(
         psur_plan_id=plan.id,
@@ -3252,8 +6370,11 @@ def create_psur_partner_request(
             },
             user_id=task.created_by,
         )
-    db.commit()
-    db.refresh(request)
+    if commit:
+        db.commit()
+        db.refresh(request)
+    else:
+        db.flush()
     return request
 
 
@@ -3264,6 +6385,7 @@ def update_psur_partner_request(
     *,
     changed_by_user_id: str | None = None,
 ) -> PSURPartnerRequest:
+    touch_psur_plan(db, request.psur_plan_id)
     data = clean_form_data(model_data(payload))
     old_values = {field: getattr(request, field, None) for field in data}
     for field, value in data.items():
@@ -3295,7 +6417,7 @@ def create_psur_partner_requests(
     created_by_user_id: str | None = None,
 ) -> list[PSURPartnerRequest]:
     created = []
-    for partner_id in partner_ids:
+    for partner_id in dict.fromkeys(partner_ids):
         partner = get_partner(db, partner_id)
         if not partner:
             continue
@@ -3322,8 +6444,10 @@ def create_psur_partner_requests(
                     status="Not Sent",
                 ),
                 created_by_user_id=created_by_user_id,
+                commit=False,
             )
         )
+    db.commit()
     return created
 
 
@@ -3394,6 +6518,7 @@ def find_psur_case_candidates(db: Session, plan: PSURPlan) -> list[Case]:
 
 
 def find_and_link_psur_cases(db: Session, plan: PSURPlan) -> list[PSURCase]:
+    touch_psur_plan(db, plan.id)
     existing_case_ids = {
         row.case_id
         for row in db.query(PSURCase)
@@ -3448,6 +6573,7 @@ def update_psur_case(
     *,
     changed_by_user_id: str | None = None,
 ) -> PSURCase:
+    touch_psur_plan(db, psur_case.psur_plan_id)
     data = clean_form_data(model_data(payload))
     old_values = {field: getattr(psur_case, field, None) for field in data}
     for field, value in data.items():
@@ -3490,6 +6616,7 @@ def update_psur_section(
     *,
     changed_by_user_id: str | None = None,
 ) -> PSURSection:
+    touch_psur_plan(db, section.psur_plan_id)
     data = clean_form_data(model_data(payload))
     old_values = {field: getattr(section, field, None) for field in data}
     for field, value in data.items():
@@ -3525,12 +6652,14 @@ def generate_psur_section_draft(
     *,
     changed_by_user_id: str | None = None,
 ) -> PSURSection:
-    included_cases = [row for row in plan.psur_cases if row.case_included and row.case]
+    touch_psur_plan(db, plan.id)
+    included_cases = [row for row in plan.psur_cases
+                      if not row.is_deleted and row.case_included and row.case and not row.case.is_deleted]
     serious_cases = [row for row in included_cases if row.seriousness == "serious"]
     products = [
         row.product.product_name
         for row in plan.psur_products
-        if row.included_in_report and row.product
+        if not row.is_deleted and row.included_in_report and row.product and not row.product.is_deleted
     ]
     if plan.product and plan.product.product_name not in products:
         products.insert(0, plan.product.product_name)
@@ -3678,7 +6807,7 @@ def psur_dashboard_stats(db: Session) -> dict[str, Any]:
     }
 
 
-def export_psur_cases_csv(plan: PSURPlan) -> str:
+def export_psur_cases_csv(plan: PSURPlan, *, dosage_form_language: str = "ru") -> str:
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(
@@ -3686,6 +6815,8 @@ def export_psur_cases_csv(plan: PSURPlan) -> str:
             "case_number",
             "received_date",
             "seriousness",
+            "products",
+            "dosage_forms",
             "listedness",
             "case_origin",
             "included",
@@ -3695,11 +6826,25 @@ def export_psur_cases_csv(plan: PSURPlan) -> str:
     )
     for row in plan.psur_cases:
         case = row.case
+        case_products = case.case_products if case else []
+        product_names = "; ".join(
+            product_row.reported_product_name
+            or (product_row.product.product_name if product_row.product else "")
+            for product_row in case_products
+            if product_row.reported_product_name or product_row.product
+        )
+        dosage_forms = "; ".join(
+            product_dosage_form_name(product_row.product, dosage_form_language)
+            for product_row in case_products
+            if product_row.product
+        )
         writer.writerow(
             [
                 case.case_number if case else row.case_id,
                 (case.latest_received_date or case.initial_received_date) if case else "",
                 row.seriousness or (case.seriousness if case else ""),
+                product_names,
+                dosage_forms,
                 row.listedness or (case.listedness if case else ""),
                 row.case_origin or "",
                 row.case_included,
@@ -3796,7 +6941,7 @@ def rtf_escape(value: object) -> str:
     return "".join(escaped)
 
 
-def export_psur_summary_rtf(plan: PSURPlan) -> str:
+def export_psur_summary_rtf(plan: PSURPlan, *, dosage_form_language: str = "ru") -> str:
     included_cases = [row for row in plan.psur_cases if row.case_included]
     approved_sections = [
         section for section in plan.sections if section.section_status == "Approved"
@@ -3808,6 +6953,7 @@ def export_psur_summary_rtf(plan: PSURPlan) -> str:
         f"Status: {rtf_escape(plan.status)}\\par",
         f"Active substance: {rtf_escape(plan.active_substance.substance_name if plan.active_substance else '')}\\par",
         f"Product: {rtf_escape(plan.product.product_name if plan.product else '')}\\par",
+        f"Product dosage form: {rtf_escape(product_dosage_form_name(plan.product, dosage_form_language))}\\par",
         f"Reporting period: {plan.reporting_period_start} to {plan.reporting_period_end}\\par",
         f"Data lock point: {plan.data_lock_point}\\par",
         f"Internal due date: {plan.due_date_internal or ''}\\par",
@@ -3885,11 +7031,11 @@ def literature_plan_options(query):
         joinedload(LiteratureMonitoringPlan.partner),
         joinedload(LiteratureMonitoringPlan.active_substance),
         joinedload(LiteratureMonitoringPlan.responsible_user),
-        joinedload(LiteratureMonitoringPlan.products).joinedload(
+        selectinload(LiteratureMonitoringPlan.products).joinedload(
             LiteratureMonitoringPlanProduct.product
         ),
-        joinedload(LiteratureMonitoringPlan.search_logs),
-        joinedload(LiteratureMonitoringPlan.results),
+        selectinload(LiteratureMonitoringPlan.search_logs),
+        selectinload(LiteratureMonitoringPlan.results),
     )
 
 
@@ -3897,13 +7043,13 @@ def literature_log_options(query):
     return query.options(
         joinedload(LiteratureSearchLog.plan).joinedload(LiteratureMonitoringPlan.partner),
         joinedload(LiteratureSearchLog.plan)
-        .joinedload(LiteratureMonitoringPlan.products)
+        .selectinload(LiteratureMonitoringPlan.products)
         .joinedload(LiteratureMonitoringPlanProduct.product),
         joinedload(LiteratureSearchLog.partner),
         joinedload(LiteratureSearchLog.active_substance),
         joinedload(LiteratureSearchLog.searched_by),
-        joinedload(LiteratureSearchLog.products).joinedload(LiteratureSearchLogProduct.product),
-        joinedload(LiteratureSearchLog.results),
+        selectinload(LiteratureSearchLog.products).joinedload(LiteratureSearchLogProduct.product),
+        selectinload(LiteratureSearchLog.results),
     )
 
 
@@ -3913,7 +7059,7 @@ def literature_result_options(query):
         joinedload(LiteratureResult.search_log),
         joinedload(LiteratureResult.partner),
         joinedload(LiteratureResult.active_substance),
-        joinedload(LiteratureResult.products).joinedload(LiteratureResultProduct.product),
+        selectinload(LiteratureResult.products).joinedload(LiteratureResultProduct.product),
         joinedload(LiteratureResult.article_pdf_document),
         joinedload(LiteratureResult.screenshot_document),
         joinedload(LiteratureResult.linked_case),
@@ -4364,7 +7510,7 @@ def create_case_from_literature_result(
         result.abstract or result.specialist_comment or "",
     ]
     case = Case(
-        case_number=generate_number(db, Case, "case_number", "CASE"),
+        case_number="",
         partner_id=result.partner_id,
         case_type="literature",
         report_type="literature",
@@ -4380,9 +7526,12 @@ def create_case_from_literature_result(
         created_by=actor_id,
         updated_by=actor_id,
     )
+    assign_case_number(db, case, partner_id=result.partner_id)
     db.add(case)
     db.flush()
     for product_link in result.products:
+        if product_link.is_deleted or (product_link.product and product_link.product.is_deleted):
+            continue
         product = product_link.product or get_product(db, product_link.product_id)
         db.add(
             CaseProduct(
@@ -4839,58 +7988,159 @@ def case_overview(case: Case) -> schemas.CaseOverview:
     )
 
 
-def export_cases_csv(db: Session) -> str:
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(
-        [
-            "case number",
-            "received date",
-            "country",
-            "seriousness",
-            "product",
-            "active substance",
-            "reaction",
-            "MedDRA PT",
-            "outcome",
-            "workflow status",
-        ]
-    )
+CASE_DETAIL_EXPORT_HEADERS = [
+    "received date",
+    "country",
+    "seriousness",
+    "product",
+    "dosage form",
+    "active substance",
+    "reaction",
+    "MedDRA PT",
+    "outcome",
+    "workflow status",
+]
 
-    cases = (
+GENERAL_CASE_EXPORT_HEADERS = [
+    "full case code",
+    "case number",
+    "partner code",
+    "partner name",
+    "partner unassigned",
+    "technical case id",
+    "external partner case number",
+    "additional case numbers",
+    "C.1.1 sender case safety report identifier",
+    "C.1.8.1 worldwide unique case identification number",
+    "warning",
+    *CASE_DETAIL_EXPORT_HEADERS,
+]
+
+PARTNER_CASE_EXPORT_HEADERS = [
+    "case number",
+    "external partner case number",
+    "additional case numbers",
+    *CASE_DETAIL_EXPORT_HEADERS,
+]
+
+
+def case_export_rows(
+    db: Session,
+    *,
+    dosage_form_language: str = "ru",
+    partner_id: str | None = None,
+) -> list[list[Any]]:
+    query = (
         db.query(Case)
         .options(
-            joinedload(Case.case_products).joinedload(CaseProduct.product),
-            joinedload(Case.reactions),
+            joinedload(Case.numbering_partner),
+            selectinload(Case.identifiers),
+            selectinload(Case.case_products)
+            .joinedload(CaseProduct.product)
+            .joinedload(Product.dosage_form_ref),
+            selectinload(Case.reactions),
         )
         .filter(Case.is_deleted.is_(False))
-        .order_by(Case.created_at.desc())
-        .all()
     )
+    if partner_id:
+        query = query.filter(Case.numbering_partner_id == partner_id)
+    cases = query.order_by(Case.created_at.desc()).all()
+    rows = []
     for case in cases:
         products = case.case_products or [None]
         reactions = case.reactions or [None]
         for product_row in products:
             for reaction in reactions:
                 product_name = ""
+                dosage_form = ""
                 active_substance = ""
                 if product_row:
                     product_name = product_row.reported_product_name or (
                         product_row.product.product_name if product_row.product else ""
                     )
+                    dosage_form = product_dosage_form_name(
+                        product_row.product,
+                        dosage_form_language,
+                    )
                     active_substance = product_row.active_substance_text or ""
-                writer.writerow(
-                    [
-                        case.case_number,
-                        case.initial_received_date,
-                        case.country_of_occurrence,
-                        case.seriousness,
-                        product_name,
-                        active_substance,
-                        reaction.reported_term if reaction else "",
-                        reaction.meddra_pt_name or reaction.meddra_pt_code if reaction else "",
-                        reaction.outcome if reaction else "",
-                        case.workflow_status,
-                    ]
-                )
+                detail_values = [
+                    case.initial_received_date,
+                    case.country_of_occurrence,
+                    case.seriousness,
+                    product_name,
+                    dosage_form,
+                    active_substance,
+                    reaction.reported_term if reaction else "",
+                    reaction.meddra_pt_name or reaction.meddra_pt_code if reaction else "",
+                    reaction.outcome if reaction else "",
+                    case.workflow_status,
+                ]
+                if partner_id:
+                    rows.append(
+                        [
+                            case.case_number,
+                            case.primary_external_identifier or "",
+                            case.additional_case_numbers,
+                            *detail_values,
+                        ]
+                    )
+                else:
+                    rows.append(
+                        [
+                            case.full_case_code,
+                            case.case_number,
+                            case.numbering_partner_code,
+                            case.numbering_partner.partner_name if case.numbering_partner else "",
+                            "Да" if case.number_is_provisional else "Нет",
+                            case.id,
+                            case.primary_external_identifier or "",
+                            case.additional_case_numbers,
+                            case.local_sender_case_id or "",
+                            case.worldwide_case_id or "",
+                            case.numbering_warning or "",
+                            *detail_values,
+                        ]
+                    )
+    return rows
+
+
+def export_cases_csv(
+    db: Session,
+    *,
+    dosage_form_language: str = "ru",
+    partner_id: str | None = None,
+) -> str:
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(PARTNER_CASE_EXPORT_HEADERS if partner_id else GENERAL_CASE_EXPORT_HEADERS)
+    writer.writerows(
+        case_export_rows(
+            db,
+            dosage_form_language=dosage_form_language,
+            partner_id=partner_id,
+        )
+    )
     return output.getvalue()
+
+
+def export_cases_xlsx(
+    db: Session,
+    *,
+    dosage_form_language: str = "ru",
+    partner_id: str | None = None,
+) -> bytes:
+    return build_xlsx(
+        [
+            (
+                "ICSR cases",
+                [
+                    PARTNER_CASE_EXPORT_HEADERS if partner_id else GENERAL_CASE_EXPORT_HEADERS,
+                    *case_export_rows(
+                        db,
+                        dosage_form_language=dosage_form_language,
+                        partner_id=partner_id,
+                    ),
+                ],
+            )
+        ]
+    )

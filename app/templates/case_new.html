@@ -1,101 +1,238 @@
 {% extends "base.html" %}
-{% block title %}{{ _('New Case') }} - {{ _('PV MVP') }}{% endblock %}
+{% block title %}{{ _('New Case') }} - {{ _('PV System') }}{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
     <div>
+        <div class="text-secondary small">Карточка ИСНР</div>
         <h1 class="h3 mb-1">{{ _('New Case') }}</h1>
-        <div class="text-secondary small">{{ _('Manual ICSR entry') }}</div>
+        <div class="text-secondary small">{{ _('Manual ICSR entry') }} — XML / ZIP не требуется</div>
     </div>
     <a class="btn btn-outline-secondary btn-sm icon-button" href="/cases"><i data-lucide="arrow-left"></i><span>{{ _('Back') }}</span></a>
 </div>
 
-{% if message %}
-<div class="alert alert-success py-2" role="status">{{ _(message) }}</div>
-{% endif %}
-{% if error %}
-<div class="alert alert-danger py-2" role="alert">{{ _(error) }}</div>
-{% endif %}
-{% if validation %}
-<div class="alert alert-warning py-2" role="alert">{{ _(validation) }}</div>
-{% endif %}
+{% if message %}<div class="alert alert-success py-2" role="status">{{ _(message) }}</div>{% endif %}
+{% if error %}<div class="alert alert-danger py-2" role="alert">{{ _(error) }}</div>{% endif %}
+{% if validation %}<div class="alert alert-warning py-2" role="alert">{{ _(validation) }}</div>{% endif %}
 
-<section class="surface">
-    <form class="row g-3" method="post" action="/cases">
-        <div class="col-md-3">
-            <label class="form-label">{{ _('Case number') }}</label>
-            <input class="form-control" name="case_number" placeholder="{{ _('Auto if blank') }}">
+<div class="alert alert-info py-2" role="status">
+    Для создания валидного ICSR укажите четыре минимальных критерия: идентифицируемого пациента,
+    репортёра, подозреваемый препарат и нежелательную реакцию. Все данные сохраняются одновременно.
+</div>
+
+<ul class="nav nav-tabs case-section-tabs mb-3" id="newCaseTabs" role="tablist" aria-label="Шаги создания ИСНР">
+    <li class="nav-item" role="presentation"><button class="nav-link active" id="new-overview-tab" data-bs-toggle="tab" data-bs-target="#new-overview" type="button" role="tab" aria-controls="new-overview" aria-selected="true">Основные сведения</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" id="new-source-tab" data-bs-toggle="tab" data-bs-target="#new-source" type="button" role="tab" aria-controls="new-source" aria-selected="false">Источник и репортёр</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" id="new-product-tab" data-bs-toggle="tab" data-bs-target="#new-product" type="button" role="tab" aria-controls="new-product" aria-selected="false">Препарат</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" id="new-patient-tab" data-bs-toggle="tab" data-bs-target="#new-patient" type="button" role="tab" aria-controls="new-patient" aria-selected="false">Пациент</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" id="new-reactions-tab" data-bs-toggle="tab" data-bs-target="#new-reactions" type="button" role="tab" aria-controls="new-reactions" aria-selected="false">Нежелательные реакции</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" id="new-additional-tab" data-bs-toggle="tab" data-bs-target="#new-additional" type="button" role="tab" aria-controls="new-additional" aria-selected="false">Дополнительная информация</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" id="new-documents-tab" data-bs-toggle="tab" data-bs-target="#new-documents" type="button" role="tab" aria-controls="new-documents" aria-selected="false">Документы</button></li>
+</ul>
+
+<form method="post" action="/cases/manual" enctype="multipart/form-data" id="manual-case-form">
+    <div class="tab-content">
+        <div class="tab-pane fade" id="new-patient" role="tabpanel" aria-labelledby="new-patient-tab" tabindex="0">
+            <section class="surface mb-4">
+                <h2 class="h6 section-title">{{ _('Patient') }}</h2>
+                <div class="row g-3">
+                    <div class="col-md-3"><label class="form-label">{{ _('Initials') }}</label><input class="form-control" name="patient_initials"></div>
+                    <div class="col-md-3"><label class="form-label">{{ _('Identifier') }}</label><input class="form-control" name="patient_identifier"></div>
+                    <div class="col-md-2">
+                        <label class="form-label">{{ _('Sex') }}</label>
+                        <select class="form-select" name="sex"><option value="">{{ _('unknown') }}</option><option value="female">{{ _('female') }}</option><option value="male">{{ _('male') }}</option></select>
+                    </div>
+                    <div class="col-md-2"><label class="form-label">Дата рождения</label><input class="form-control" type="date" name="date_of_birth"></div>
+                    <div class="col-md-1"><label class="form-label">{{ _('Age') }}</label><input class="form-control" type="number" step="0.01" min="0" name="age_value"></div>
+                    <div class="col-md-1">
+                        <label class="form-label">Ед.</label>
+                        <select class="form-select" name="age_unit"><option value="years">лет</option><option value="months">мес.</option><option value="days">дней</option></select>
+                    </div>
+                    <div class="col-md-2"><label class="form-label">{{ _('Weight kg') }}</label><input class="form-control" type="number" step="0.01" min="0" name="weight_kg"></div>
+                    <div class="col-md-2"><label class="form-label">{{ _('Height cm') }}</label><input class="form-control" type="number" step="0.01" min="0" name="height_cm"></div>
+                    <div class="col-md-3"><label class="form-label">{{ _('Pregnancy') }}</label><input class="form-control" name="pregnancy_status"></div>
+                    <div class="col-md-5"><label class="form-label">{{ _('Medical history') }}</label><input class="form-control" name="medical_history_text"></div>
+                    <div class="col-12 form-text">Для идентификации пациента заполните инициалы или идентификатор.</div>
+                </div>
+            </section>
+            <div class="case-step-actions"><button class="btn btn-primary icon-button" type="button" data-next-case-tab="#new-reactions"><span>Следующий шаг</span><i data-lucide="arrow-right"></i></button></div>
         </div>
-        <div class="col-md-3">
-            <label class="form-label">{{ _('Worldwide ID') }}</label>
-            <input class="form-control" name="worldwide_case_id">
+
+        <div class="tab-pane fade" id="new-product" role="tabpanel" aria-labelledby="new-product-tab" tabindex="0">
+            <section class="surface mb-4">
+                <h2 class="h6 section-title">Подозреваемый препарат</h2>
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label">Препарат из справочника</label>
+                        <select class="form-select" name="product_id"><option value="">{{ _('None') }}</option>{% for product in products %}<option value="{{ product.id }}">{{ product.product_name }}</option>{% endfor %}</select>
+                    </div>
+                    <div class="col-md-4"><label class="form-label">Сообщённое название</label><input class="form-control" name="reported_product_name"></div>
+                    <div class="col-md-4"><label class="form-label">Действующее вещество</label><input class="form-control" name="active_substance_text"></div>
+                    <div class="col-md-2">
+                        <label class="form-label">{{ _('Role') }}</label>
+                        <select class="form-select" name="drug_role"><option value="suspect" selected>{{ _('suspect') }}</option><option value="concomitant">{{ _('concomitant') }}</option><option value="interacting">{{ _('interacting') }}</option></select>
+                    </div>
+                    <div class="col-md-3"><label class="form-label">Показание</label><input class="form-control" name="indication_text"></div>
+                    <div class="col-md-2"><label class="form-label">{{ _('Dose') }}</label><input class="form-control" name="dose_value"></div>
+                    <div class="col-md-2"><label class="form-label">{{ _('Unit') }}</label><input class="form-control" name="dose_unit"></div>
+                    <div class="col-md-3"><label class="form-label">{{ _('Route') }}</label><input class="form-control" name="route"></div>
+                    <div class="col-md-3"><label class="form-label">{{ _('Frequency') }}</label><input class="form-control" name="frequency"></div>
+                    <div class="col-md-2"><label class="form-label">Начало терапии</label><input class="form-control" type="date" name="therapy_start_date"></div>
+                    <div class="col-md-2"><label class="form-label">Окончание терапии</label><input class="form-control" type="date" name="therapy_end_date"></div>
+                    <div class="col-md-3"><label class="form-label">Предпринятые меры</label><input class="form-control" name="action_taken"></div>
+                    <div class="col-md-2"><label class="form-label">Серия / партия</label><input class="form-control" name="batch_lot_number"></div>
+                    <div class="col-12 form-text">Выберите препарат из справочника либо укажите сообщённое название.</div>
+                </div>
+            </section>
+            <div class="case-step-actions"><button class="btn btn-primary icon-button" type="button" data-next-case-tab="#new-patient"><span>Следующий шаг</span><i data-lucide="arrow-right"></i></button></div>
         </div>
-        <div class="col-md-3">
-            <label class="form-label">{{ _('Safety report') }}</label>
-            <select class="form-select" name="safety_report_id">
-                <option value="">{{ _('None') }}</option>
-                {% for report in reports %}
-                <option value="{{ report.id }}">{{ report.safety_report_number }}</option>
-                {% endfor %}
-            </select>
+
+        <div class="tab-pane fade" id="new-reactions" role="tabpanel" aria-labelledby="new-reactions-tab" tabindex="0">
+            <section class="surface mb-4">
+                <h2 class="h6 section-title">{{ _('Reaction') }}</h2>
+                <div class="row g-3">
+                    <div class="col-md-4"><label class="form-label">{{ _('Reported term') }} *</label><input class="form-control" name="reported_term" required></div>
+                    <div class="col-md-3"><label class="form-label">{{ _('Verbatim') }}</label><input class="form-control" name="verbatim_term"></div>
+                    <div class="col-md-2"><label class="form-label">{{ _('MedDRA PT code') }}</label><input class="form-control" name="meddra_pt_code"></div>
+                    <div class="col-md-3"><label class="form-label">{{ _('MedDRA PT name') }}</label><input class="form-control" name="meddra_pt_name"></div>
+                    <div class="col-md-2"><label class="form-label">Начало реакции</label><input class="form-control" type="date" name="onset_date"></div>
+                    <div class="col-md-2"><label class="form-label">Окончание реакции</label><input class="form-control" type="date" name="end_date"></div>
+                    <div class="col-md-3"><label class="form-label">{{ _('Outcome') }}</label><input class="form-control" name="reaction_outcome"></div>
+                    <div class="col-md-5 d-flex align-items-end"><div class="form-check mb-2"><input class="form-check-input" type="checkbox" name="is_serious" value="true" id="manual-serious"><label class="form-check-label" for="manual-serious">{{ _('Serious') }}</label></div></div>
+                    <div class="col-12">
+                        <div class="small text-secondary mb-2">Критерии серьёзности</div>
+                        <div class="d-flex flex-wrap gap-3">
+                            <div class="form-check"><input class="form-check-input" type="checkbox" name="seriousness_death" value="true" id="manual-death"><label class="form-check-label" for="manual-death">{{ _('Death') }}</label></div>
+                            <div class="form-check"><input class="form-check-input" type="checkbox" name="seriousness_life_threatening" value="true" id="manual-life"><label class="form-check-label" for="manual-life">{{ _('Life threatening') }}</label></div>
+                            <div class="form-check"><input class="form-check-input" type="checkbox" name="seriousness_hospitalization" value="true" id="manual-hospital"><label class="form-check-label" for="manual-hospital">{{ _('Hospitalization') }}</label></div>
+                            <div class="form-check"><input class="form-check-input" type="checkbox" name="seriousness_disability" value="true" id="manual-disability"><label class="form-check-label" for="manual-disability">{{ _('Disability') }}</label></div>
+                            <div class="form-check"><input class="form-check-input" type="checkbox" name="seriousness_congenital_anomaly" value="true" id="manual-congenital"><label class="form-check-label" for="manual-congenital">{{ _('Congenital anomaly') }}</label></div>
+                            <div class="form-check"><input class="form-check-input" type="checkbox" name="seriousness_other_medically_important" value="true" id="manual-important"><label class="form-check-label" for="manual-important">{{ _('Other medically important') }}</label></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            <div class="case-step-actions"><button class="btn btn-primary icon-button" type="button" data-next-case-tab="#new-additional"><span>Следующий шаг</span><i data-lucide="arrow-right"></i></button></div>
         </div>
-        <div class="col-md-3">
-            <label class="form-label">{{ _('Partner') }}</label>
-            <select class="form-select" name="partner_id">
-                <option value="">{{ _('None') }}</option>
-                {% for partner in partners %}
-                <option value="{{ partner.id }}">{{ partner.partner_name }}</option>
-                {% endfor %}
-            </select>
+
+        <div class="tab-pane fade" id="new-additional" role="tabpanel" aria-labelledby="new-additional-tab" tabindex="0">
+            <section class="surface mb-4">
+                <h2 class="h6 section-title">Оценка и описание</h2>
+                <div class="row g-3">
+                    <div class="col-md-4"><label class="form-label">Listedness</label><input class="form-control" name="listedness"></div>
+                    <div class="col-md-4"><label class="form-label">Expectedness</label><input class="form-control" name="expectedness"></div>
+                    <div class="col-md-4"><label class="form-label">Исход кейса</label><input class="form-control" name="case_outcome"></div>
+                    <div class="col-12"><label class="form-label">{{ _('Narrative') }}</label><textarea class="form-control" name="narrative" rows="5"></textarea></div>
+                </div>
+            </section>
+            <div class="case-step-actions"><button class="btn btn-primary icon-button" type="button" data-next-case-tab="#new-documents"><span>Следующий шаг</span><i data-lucide="arrow-right"></i></button></div>
         </div>
-        <div class="col-md-2">
-            <label class="form-label">{{ _('Case type') }}</label>
-            <input class="form-control" name="case_type" value="spontaneous">
+
+        <div class="tab-pane fade" id="new-source" role="tabpanel" aria-labelledby="new-source-tab" tabindex="0">
+            <div class="row g-4 mb-4">
+                <div class="col-lg-5">
+                    <section class="surface h-100">
+                        <h2 class="h6 section-title">Идентифицируемый репортёр</h2>
+                        <div class="row g-3">
+                            <div class="col-12"><label class="form-label">Имя репортёра</label><input class="form-control" name="reporter_name"></div>
+                            <div class="col-12"><label class="form-label">Email репортёра</label><input class="form-control" type="email" name="reporter_email"></div>
+                            <div class="col-12"><label class="form-label">Страна репортёра</label><input class="form-control text-uppercase" name="reporter_country_code" maxlength="2" pattern="[A-Za-z]{2}" placeholder="RU"></div>
+                            <div class="col-12 form-text">Необходимо заполнить имя или email. Для выбранного существующего сообщения используются сведения из него.</div>
+                        </div>
+                    </section>
+                </div>
+                <div class="col-lg-7">
+                    <section class="surface h-100">
+                        <h2 class="h6 section-title">Источник</h2>
+                        <div class="row g-3">
+                            <div class="col-md-5">
+                                <label class="form-label">Канал получения</label>
+                                <select class="form-select" name="source_type"><option value="email">{{ _('email') }}</option><option value="phone">{{ _('phone') }}</option><option value="web">{{ _('web') }}</option><option value="partner">{{ _('partner') }}</option><option value="literature">{{ _('literature') }}</option><option value="other" selected>{{ _('other') }}</option></select>
+                            </div>
+                            <div class="col-md-7">
+                                <label class="form-label">Существующее входящее сообщение</label>
+                                <select class="form-select" name="safety_report_id" data-version-field="expected_report_version"><option value="">{{ _('None') }}</option>{% for report in reports %}<option data-version="{{ report.version }}" value="{{ report.id }}">{{ report.safety_report_number }}</option>{% endfor %}</select>
+                                <div class="form-text">Оставьте пустым — система создаст сообщение автоматически.</div>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            </div>
+            <div class="case-step-actions"><button class="btn btn-primary icon-button" type="button" data-next-case-tab="#new-product"><span>Следующий шаг</span><i data-lucide="arrow-right"></i></button></div>
         </div>
-        <div class="col-md-2">
-            <label class="form-label">{{ _('Report type') }}</label>
-            <input class="form-control" name="report_type">
+
+        <div class="tab-pane fade show active" id="new-overview" role="tabpanel" aria-labelledby="new-overview-tab" tabindex="0">
+            <section class="surface mb-4">
+                <h2 class="h6 section-title">{{ _('Case Metadata') }}</h2>
+                <div class="row g-3">
+                    <div class="col-md-3"><label class="form-label">{{ _('Case number') }}</label><input class="form-control" value="Присваивается автоматически" disabled><div class="form-text">Последовательность определяется партнёром нумерации и годом регистрации.</div></div>
+                    <div class="col-md-3"><label class="form-label">{{ _('Worldwide ID') }}</label><input class="form-control" name="worldwide_case_id"></div>
+                    <div class="col-md-3"><label class="form-label">{{ _('Partner') }}</label><select class="form-select" name="partner_id"><option value="">{{ _('None') }}</option>{% for partner in partners %}<option value="{{ partner.id }}">{{ partner.partner_name }}</option>{% endfor %}</select></div>
+                    <div class="col-md-3"><label class="form-label">{{ _('Case type') }}</label><select class="form-select" name="case_type"><option value="spontaneous" selected>{{ _('spontaneous') }}</option><option value="literature">{{ _('literature') }}</option><option value="other">{{ _('other') }}</option></select></div>
+                    <div class="col-md-2"><label class="form-label">{{ _('Initial received') }} *</label><input class="form-control" type="date" name="initial_received_date" value="{{ today }}" required></div>
+                    <div class="col-md-2"><label class="form-label">{{ _('Latest received') }}</label><input class="form-control" type="date" name="latest_received_date"></div>
+                    <div class="col-md-2"><label class="form-label">Страна случая</label><input class="form-control text-uppercase" name="country_of_occurrence" maxlength="2" pattern="[A-Za-z]{2}" placeholder="RU"></div>
+                    <div class="col-md-2"><label class="form-label">{{ _('Due date') }}</label><input class="form-control" type="date" name="due_date"></div>
+                    <div class="col-md-4"><label class="form-label">{{ _('Workflow status') }}</label><select class="form-select" name="workflow_status"><option value="data_entry" selected>{{ _('data_entry') }}</option><option value="new">{{ _('new') }}</option><option value="medical_review">{{ _('medical_review') }}</option><option value="qc">{{ _('qc') }}</option></select></div>
+                </div>
+            </section>
+            <div class="case-step-actions"><button class="btn btn-primary icon-button" type="button" data-next-case-tab="#new-source"><span>Следующий шаг</span><i data-lucide="arrow-right"></i></button></div>
         </div>
-        <div class="col-md-2">
-            <label class="form-label">{{ _('Initial received') }}</label>
-            <input class="form-control" type="date" name="initial_received_date">
+
+        <div class="tab-pane fade" id="new-documents" role="tabpanel" aria-labelledby="new-documents-tab" tabindex="0">
+            <section class="surface mb-4">
+                <h2 class="h6 section-title">Прикрепить документ</h2>
+                <div class="row g-3">
+                    <div class="col-md-4"><label class="form-label">{{ _('Document title') }}</label><input class="form-control" name="document_title"></div>
+                    <div class="col-md-3"><label class="form-label">{{ _('Document type') }}</label><select class="form-select" name="document_type"><option value="other" selected>{{ _('other') }}</option><option value="incoming request">{{ _('incoming request') }}</option><option value="audit">{{ _('audit') }}</option></select></div>
+                    <div class="col-md-5"><label class="form-label">Файл</label><input class="form-control" type="file" name="document_file"></div>
+                    <div class="col-12"><label class="form-label">{{ _('Comment') }}</label><input class="form-control" name="document_comment"></div>
+                    <div class="col-12 form-text">Документ будет прикреплён к ИСНР сразу после её создания.</div>
+                </div>
+            </section>
+            <div class="d-flex flex-wrap gap-2 mb-4">
+                <button class="btn btn-primary icon-button" type="submit" name="next_step" value="entry"><i data-lucide="save"></i><span>Создать ручной кейс</span></button>
+                {% if has_permission('edit') or has_permission('icsr_workflow') %}<button class="btn btn-outline-primary icon-button" type="submit" name="next_step" value="assessment"><i data-lucide="clipboard-check"></i><span>Создать и оценить</span></button>{% endif %}
+                <a class="btn btn-outline-secondary" href="/cases">{{ _('Cancel') }}</a>
+            </div>
         </div>
-        <div class="col-md-2">
-            <label class="form-label">{{ _('Latest received') }}</label>
-            <input class="form-control" type="date" name="latest_received_date">
-        </div>
-        <div class="col-md-1">
-            <label class="form-label">{{ _('Country') }}</label>
-            <input class="form-control text-uppercase" name="country_of_occurrence" maxlength="2">
-        </div>
-        <div class="col-md-3">
-            <label class="form-label">{{ _('Seriousness') }}</label>
-            <select class="form-select" name="seriousness">
-                <option value="non-serious" selected>{{ _('non-serious') }}</option>
-                <option value="serious">{{ _('serious') }}</option>
-                <option value="unknown">{{ _('unknown') }}</option>
-            </select>
-        </div>
-        <div class="col-md-3">
-            <label class="form-label">{{ _('Workflow status') }}</label>
-            <select class="form-select" name="workflow_status">
-                <option value="new">{{ _('new') }}</option>
-                <option value="data_entry">{{ _('data_entry') }}</option>
-                <option value="medical_review">{{ _('medical_review') }}</option>
-                <option value="qc">{{ _('qc') }}</option>
-            </select>
-        </div>
-        <div class="col-md-3">
-            <label class="form-label">{{ _('Due date') }}</label>
-            <input class="form-control" type="date" name="due_date">
-        </div>
-        <div class="col-12">
-            <label class="form-label">{{ _('Narrative') }}</label>
-            <textarea class="form-control" name="narrative" rows="4"></textarea>
-        </div>
-        <div class="col-12">
-            <button class="btn btn-primary icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Create case') }}</span></button>
-        </div>
-    </form>
-</section>
+    </div>
+</form>
+
+<script>
+const manualCaseForm = document.getElementById("manual-case-form");
+let invalidTabActivationPending = false;
+
+function showNewCaseTab(targetSelector, focusTarget = null) {
+    const targetPane = document.querySelector(targetSelector);
+    const targetButton = document.querySelector(`#newCaseTabs [data-bs-target="${targetSelector}"]`);
+    if (!targetPane || !targetButton || !window.bootstrap) {
+        return;
+    }
+    targetButton.addEventListener("shown.bs.tab", () => {
+        const target = focusTarget || targetPane.querySelector("input:not([type='hidden']), select, textarea");
+        target?.focus();
+    }, { once: true });
+    bootstrap.Tab.getOrCreateInstance(targetButton).show();
+}
+
+document.querySelectorAll("[data-next-case-tab]").forEach((button) => {
+    button.addEventListener("click", () => showNewCaseTab(button.dataset.nextCaseTab));
+});
+
+manualCaseForm?.addEventListener("invalid", (event) => {
+    if (invalidTabActivationPending) {
+        return;
+    }
+    invalidTabActivationPending = true;
+    window.setTimeout(() => {
+        invalidTabActivationPending = false;
+    }, 0);
+    const invalidField = event.target;
+    const invalidPane = invalidField.closest(".tab-pane");
+    if (invalidPane) {
+        showNewCaseTab(`#${invalidPane.id}`, invalidField);
+    }
+}, true);
+</script>
 {% endblock %}

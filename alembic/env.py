@@ -3,7 +3,7 @@ from pathlib import Path
 import sys
 
 from alembic import context
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, pool, event
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -34,19 +34,42 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+def migrate_connection(connection) -> None:
+    context.configure(connection=connection, target_metadata=target_metadata)
+    with context.begin_transaction():
+        context.run_migrations()
+    if connection.dialect.name == "sqlite":
+        violations = connection.exec_driver_sql("PRAGMA foreign_key_check").fetchmany(20)
+        if violations:
+            raise RuntimeError(f"Foreign key violations: {violations}")
+
+
 def run_migrations_online() -> None:
+    # A maintenance command may own one transaction across stamp + upgrade.
+    supplied = config.attributes.get("connection")
+    if supplied is not None:
+        migrate_connection(supplied)
+        return
     configuration = config.get_section(config.config_ini_section, {})
     connectable = engine_from_config(
         configuration,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
+    if connectable.dialect.name == "sqlite":
+        @event.listens_for(connectable, "connect")
+        def migration_connection(connection, record):
+            # Batch migrations rebuild tables with cyclic references. Validate
+            # all links after the rebuild, inside an explicit DDL transaction.
+            connection.isolation_level = None
+            connection.execute("PRAGMA foreign_keys=OFF")
 
-    with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        @event.listens_for(connectable, "begin")
+        def migration_begin(connection):
+            connection.exec_driver_sql("BEGIN")
 
-        with context.begin_transaction():
-            context.run_migrations()
+    with connectable.begin() as connection:
+        migrate_connection(connection)
 
 
 if context.is_offline_mode():

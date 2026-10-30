@@ -1,5 +1,133 @@
 {% extends "base.html" %}
-{% block title %}{{ _('Contract contacts') }} - {{ _('PV MVP') }}{% endblock %}
+{% from "_immutable_documents.html" import immutable_documents_block with context %}
+{% block title %}{{ _('Contract contacts') }} - {{ _('PV System') }}{% endblock %}
+
+{% macro full_name(contact) -%}
+{{ contact.last_name }} {{ contact.first_name }}{% if contact.patronymic %} {{ contact.patronymic }}{% endif %}
+{%- endmacro %}
+
+{% macro phone_summary(contact) -%}
+{% if contact.mobile_phone %}{{ contact.mobile_phone }}{% endif %}{% if contact.work_phone %}{% if contact.mobile_phone %} / {% endif %}{{ contact.work_phone }}{% endif %}{% if contact.extension_phone %}{% if contact.mobile_phone or contact.work_phone %} / {% endif %}{{ _('ext.') }} {{ contact.extension_phone }}{% endif %}
+{%- endmacro %}
+
+{% macro participation_label(contact) -%}
+{% if not contact.is_current %}
+{{ _('Does not participate') }}
+{% elif contact.is_reconciliation_recipient %}
+{{ _('Main reconciliation contact') }}
+{% elif contact.cc_reconciliation %}
+{{ _('Reconciliation copy') }}
+{% else %}
+{{ _('Does not participate') }}
+{% endif %}
+{%- endmacro %}
+
+{% macro participation_value(contact) -%}
+{% if contact.is_current and contact.is_reconciliation_recipient %}primary{% elif contact.is_current and contact.cc_reconciliation %}cc{% else %}none{% endif %}
+{%- endmacro %}
+
+{% macro contact_form_fields(prefix, contact, partners, contact_type_options, reconciliation_participation_options, small=False) -%}
+{% set control_size = ' form-control-sm' if small else '' %}
+{% set select_size = ' form-select-sm' if small else '' %}
+{% set selected_type = contact.contact_type if contact and contact.contact_type else 'pv' %}
+{% set selected_status = 'current' if (not contact or contact.is_current) else 'inactive' %}
+{% set selected_participation = participation_value(contact) if contact else 'primary' %}
+<div class="col-12">
+    <div class="fw-semibold small text-uppercase text-secondary">{{ _('Basic information') }}</div>
+</div>
+<div class="col-md-3">
+    <label class="form-label">{{ _('Partner') }}</label>
+    <select class="form-select{{ select_size }}" name="partner_id" required {% if prefix == 'add' %}data-partner-select{% endif %} data-version-field="expected_partner_version">
+        <option value="" disabled {% if not contact and not filters.partner_id %}selected{% endif %}>{{ _('Select partner') }}</option>
+        {% for partner in partners %}
+        <option data-version="{{ partner.version }}" value="{{ partner.id }}" {% if (contact and contact.partner_id == partner.id) or (not contact and filters.partner_id == partner.id) %}selected{% endif %}>{{ partner.partner_name }}</option>
+        {% endfor %}
+    </select>
+</div>
+<div class="col-md-2">
+    <label class="form-label">{{ _('Last name') }}</label>
+    <input class="form-control{{ control_size }}" name="last_name" value="{{ contact.last_name if contact else '' }}" placeholder="{{ _('Last name') }}" required>
+</div>
+<div class="col-md-2">
+    <label class="form-label">{{ _('First name') }}</label>
+    <input class="form-control{{ control_size }}" name="first_name" value="{{ contact.first_name if contact else '' }}" placeholder="{{ _('First name') }}" required>
+</div>
+<div class="col-md-2">
+    <label class="form-label">{{ _('Patronymic') }}</label>
+    <input class="form-control{{ control_size }}" name="patronymic" value="{{ contact.patronymic if contact and contact.patronymic else '' }}">
+</div>
+<div class="col-md-3">
+    <label class="form-label">{{ _('Position') }}</label>
+    <input class="form-control{{ control_size }}" name="position" value="{{ contact.position if contact else '' }}" placeholder="{{ _('Position') }}" required>
+</div>
+<div class="col-md-3">
+    <label class="form-label">{{ _('Contact type') }}</label>
+    <select class="form-select{{ select_size }}" name="contact_type">
+        {% for value, label in contact_type_options %}
+        <option value="{{ value }}" {% if selected_type == value %}selected{% endif %}>{{ _(label) }}</option>
+        {% endfor %}
+    </select>
+</div>
+<div class="col-md-3 d-flex align-items-end">
+    <div class="form-check mb-2">
+        <input class="form-check-input" type="checkbox" value="yes" name="is_billing_contact" id="{{ prefix }}-{{ contact.id if contact else 'new' }}-is-billing-contact" {% if contact and contact.is_billing_contact %}checked{% endif %}>
+        <label class="form-check-label" for="{{ prefix }}-{{ contact.id if contact else 'new' }}-is-billing-contact">Контакт для счетов</label>
+    </div>
+</div>
+<div class="col-md-2">
+    <label class="form-label">{{ _('Contact status') }}</label>
+    <select class="form-select{{ select_size }}" name="contact_status" data-contact-status>
+        <option value="current" {% if selected_status == 'current' %}selected{% endif %}>{{ _('Current') }}</option>
+        <option value="inactive" {% if selected_status == 'inactive' %}selected{% endif %}>{{ _('Not current') }}</option>
+    </select>
+</div>
+
+<div class="col-12 mt-2">
+    <div class="fw-semibold small text-uppercase text-secondary">{{ _('Contact details') }}</div>
+</div>
+<div class="col-md-3">
+    <label class="form-label">{{ _('Email') }}</label>
+    <input class="form-control{{ control_size }}" type="email" name="email" value="{{ contact.email if contact and contact.email else '' }}" placeholder="name@example.com">
+    <div class="form-text">{{ _('Use format name@example.com.') }}</div>
+</div>
+<div class="col-md-3">
+    <label class="form-label">{{ _('Mobile phone') }}</label>
+    <input class="form-control{{ control_size }}" name="mobile_phone" value="{{ contact.mobile_phone if contact and contact.mobile_phone else '' }}">
+</div>
+<div class="col-md-3">
+    <label class="form-label">{{ _('Work phone') }}</label>
+    <input class="form-control{{ control_size }}" name="work_phone" value="{{ contact.work_phone if contact and contact.work_phone else '' }}">
+</div>
+<div class="col-md-3">
+    <label class="form-label">{{ _('Extension phone') }}</label>
+    <input class="form-control{{ control_size }}" name="extension_phone" value="{{ contact.extension_phone if contact and contact.extension_phone else '' }}">
+</div>
+<div class="col-md-4">
+    <label class="form-label">{{ _('Company website') }}</label>
+    <input class="form-control{{ control_size }}" name="company_website" value="{{ contact.company_website if contact and contact.company_website else '' }}">
+</div>
+<div class="col-md-8">
+    <label class="form-label">{{ _('Address') }}</label>
+    <textarea class="form-control{{ control_size }}" name="address" rows="{{ 2 if small else 3 }}">{{ contact.address if contact and contact.address else '' }}</textarea>
+</div>
+
+<div class="col-12 mt-2">
+    <div class="fw-semibold small text-uppercase text-secondary">{{ _('PV process use') }}</div>
+</div>
+<div class="col-md-4">
+    <label class="form-label">{{ _('Reconciliation participation') }}</label>
+    <select class="form-select{{ select_size }}" name="reconciliation_participation" data-reconciliation-participation>
+        {% for value, label in reconciliation_participation_options %}
+        <option value="{{ value }}" {% if selected_participation|trim == value %}selected{% endif %}>{{ _(label) }}</option>
+        {% endfor %}
+    </select>
+    <div class="form-text text-warning d-none" data-reconciliation-warning>{{ _('Inactive contacts are not used in reconciliation emails.') }}</div>
+</div>
+<div class="col-md-8">
+    <label class="form-label">{{ _('Comments') }}</label>
+    <textarea class="form-control{{ control_size }}" name="comments" rows="{{ 2 if small else 3 }}">{{ contact.comments if contact and contact.comments else '' }}</textarea>
+</div>
+{%- endmacro %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
@@ -20,114 +148,100 @@
 {% endif %}
 
 <section class="surface mb-4">
-    <h2 class="h6 section-title">{{ _('Filters') }}</h2>
+    <h2 class="h6 section-title">{{ _('Search') }}</h2>
     <form class="row g-2 align-items-end" method="get" action="/contract-contacts">
         <div class="col-md-4">
             <label class="form-label">{{ _('Search') }}</label>
-            <input class="form-control" name="search" value="{{ filters.search }}" placeholder="{{ _('Last name') }} / {{ _('Email') }} / {{ _('Position') }}">
+            <input class="form-control" name="search" value="{{ filters.search }}" placeholder="{{ _('Last name') }}, {{ _('Email') }} or {{ _('Position') }}">
         </div>
         <div class="col-md-3">
             <label class="form-label">{{ _('Partner') }}</label>
-            <select class="form-select" name="partner_id">
+            <select class="form-select" name="partner_id" data-search-partner-select data-version-field="expected_partner_version">
                 <option value="">{{ _('All') }}</option>
                 {% for partner in partners %}
-                <option value="{{ partner.id }}" {% if filters.partner_id == partner.id %}selected{% endif %}>{{ partner.partner_name }}</option>
+                <option data-version="{{ partner.version }}" value="{{ partner.id }}" {% if filters.partner_id == partner.id %}selected{% endif %}>{{ partner.partner_name }}</option>
                 {% endfor %}
             </select>
         </div>
         <div class="col-md-2">
-            <label class="form-label">{{ _('Status') }}</label>
+            <label class="form-label">{{ _('Contact status') }}</label>
             <select class="form-select" name="status_filter">
                 <option value="">{{ _('All') }}</option>
                 <option value="current" {% if filters.status_filter == "current" %}selected{% endif %}>{{ _('Current') }}</option>
-                <option value="inactive" {% if filters.status_filter == "inactive" %}selected{% endif %}>{{ _('Inactive') }}</option>
+                <option value="inactive" {% if filters.status_filter == "inactive" %}selected{% endif %}>{{ _('Not current') }}</option>
             </select>
         </div>
         <div class="col-md-3 d-flex flex-wrap gap-2">
             <button class="btn btn-primary icon-button" type="submit"><i data-lucide="search"></i><span>{{ _('Search') }}</span></button>
-            <a class="btn btn-outline-secondary icon-button" href="/contract-contacts"><i data-lucide="x"></i><span>{{ _('Cancel') }}</span></a>
+            <a class="btn btn-outline-secondary icon-button" href="/contract-contacts"><i data-lucide="x"></i><span>{{ _('Clear search') }}</span></a>
         </div>
     </form>
 </section>
 
 {% if has_permission('create') or has_permission('manage_reference_data') %}
-<section class="surface mb-4">
-    <h2 class="h6 section-title">{{ _('Add contact') }}</h2>
-    <form class="row g-3" method="post" action="/contract-contacts">
-        <div class="col-md-3">
-            <label class="form-label">{{ _('Partner') }}</label>
-            <select class="form-select" name="partner_id" required>
-                <option value="" disabled selected>{{ _('Select partner') }}</option>
-                {% for partner in partners %}
-                <option value="{{ partner.id }}">{{ partner.partner_name }}</option>
-                {% endfor %}
-            </select>
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">{{ _('Last name') }}</label>
-            <input class="form-control" name="last_name" required>
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">{{ _('First name') }}</label>
-            <input class="form-control" name="first_name" required>
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">{{ _('Patronymic') }}</label>
-            <input class="form-control" name="patronymic">
-        </div>
-        <div class="col-md-3">
-            <label class="form-label">{{ _('Email') }}</label>
-            <input class="form-control" type="email" name="email">
-        </div>
-        <div class="col-md-3">
-            <label class="form-label">{{ _('Position') }}</label>
-            <input class="form-control" name="position" required>
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">{{ _('Current?') }}</label>
-            <select class="form-select" name="is_current">
-                <option value="true" selected>{{ _('Yes') }}</option>
-                <option value="false">{{ _('No') }}</option>
-            </select>
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">{{ _('Contact type') }}</label>
-            <input class="form-control" name="contact_type" value="pv">
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">{{ _('PV contact') }}</label>
-            <select class="form-select" name="is_pv_contact">
-                <option value="true" selected>{{ _('Yes') }}</option>
-                <option value="false">{{ _('No') }}</option>
-            </select>
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">{{ _('To reconciliation') }}</label>
-            <select class="form-select" name="is_reconciliation_recipient">
-                <option value="true" selected>{{ _('Yes') }}</option>
-                <option value="false">{{ _('No') }}</option>
-            </select>
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">{{ _('Cc reconciliation') }}</label>
-            <select class="form-select" name="cc_reconciliation">
-                <option value="false" selected>{{ _('No') }}</option>
-                <option value="true">{{ _('Yes') }}</option>
-            </select>
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">{{ _('Primary') }}</label>
-            <select class="form-select" name="is_primary">
-                <option value="false" selected>{{ _('No') }}</option>
-                <option value="true">{{ _('Yes') }}</option>
-            </select>
-        </div>
-        <div class="col-md-4">
-            <label class="form-label">{{ _('Comments') }}</label>
-            <input class="form-control" name="comments">
-        </div>
-        <div class="col-md-2 d-flex align-items-end">
-            <button class="btn btn-primary w-100 icon-button" type="submit" {% if not partners %}disabled{% endif %}><i data-lucide="plus"></i><span>{{ _('Add') }}</span></button>
+<section class="surface mb-4 d-none" data-selected-partner-block>
+    <h2 class="h6 section-title">{{ _('Contacts of selected partner') }}</h2>
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0">
+            <thead>
+            <tr>
+                <th>{{ _('Full name') }}</th>
+                <th>{{ _('Position') }}</th>
+                <th>{{ _('Email') }}</th>
+                <th>{{ _('Phone') }}</th>
+                <th>{{ _('Contact type') }}</th>
+                <th>{{ _('Contact status') }}</th>
+                <th>{{ _('Reconciliation participation') }}</th>
+                <th>{{ _('Actions') }}</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for contact in partner_contact_preview %}
+            <tr data-selected-partner-row data-partner-id="{{ contact.partner_id }}">
+                <td class="fw-medium">{{ full_name(contact) }}</td>
+                <td>{{ contact.position }}</td>
+                <td>{% if contact.email %}<a href="mailto:{{ contact.email }}">{{ contact.email }}</a>{% endif %}</td>
+                <td>{{ phone_summary(contact) }}</td>
+                <td>{{ _(contact_type_labels.get(contact.contact_type or 'pv', contact.contact_type or '')) }}{% if contact.is_billing_contact %}<span class="badge text-bg-info ms-1">Бухгалтерия</span>{% endif %}</td>
+                <td>{% if contact.is_current %}<span class="badge text-bg-success">{{ _('Current') }}</span>{% else %}<span class="badge text-bg-secondary">{{ _('Not current') }}</span>{% endif %}</td>
+                <td>{{ participation_label(contact) }}</td>
+                <td>
+                    <div class="d-flex flex-wrap gap-1">
+                        <button class="btn btn-outline-secondary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#contact-view-{{ contact.id }}" data-scroll-target="#contact-view-{{ contact.id }}" title="{{ _('View') }}"><i data-lucide="eye"></i></button>
+                        {% if has_permission('edit') or has_permission('manage_reference_data') %}
+                        <button class="btn btn-outline-primary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#contact-edit-{{ contact.id }}" data-scroll-target="#contact-edit-{{ contact.id }}" title="{{ _('Edit') }}"><i data-lucide="pencil"></i></button>
+                        {% endif %}
+                        {% if has_permission('create') or has_permission('manage_reference_data') %}
+                        <a class="btn btn-outline-secondary btn-sm icon-only" href="/contract-contacts?duplicate_id={{ contact.id }}#add-contact" title="{{ _('Duplicate') }}"><i data-lucide="copy"></i></a>
+                        {% endif %}
+                        {% if has_permission('soft_delete') or has_permission('manage_reference_data') %}
+                        <form method="post" action="/contract-contacts/{{ contact.id }}/delete">
+                            <input type="hidden" name="expected_version" value="{{ contact.version }}">
+                            <button class="btn btn-outline-danger btn-sm icon-only" type="submit" title="{{ _('Delete') }}" data-confirm-message="{{ _('Delete contact confirmation') }}"><i data-lucide="trash-2"></i></button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+            <tr class="d-none" data-selected-partner-empty>
+                <td colspan="8" class="text-secondary">{{ _('Selected partner has no contact persons yet.') }}</td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="surface mb-4" id="add-contact">
+    <h2 class="h6 section-title">{{ _('Add contact person') }}</h2>
+    {% if duplicate_contact %}
+    <div class="alert alert-info py-2">{{ _('A contact copy is prepared. Edit the person details and save it as a new contact.') }}</div>
+    {% endif %}
+    <form class="row g-3" method="post" action="/contract-contacts" data-contact-form>
+        {{ contact_form_fields('add', duplicate_contact, partners, contact_type_options, reconciliation_participation_options) }}
+        <div class="col-md-4 d-flex align-items-end gap-2">
+            <button class="btn btn-primary icon-button" type="submit" {% if not partners %}disabled{% endif %}><i data-lucide="plus"></i><span>{{ _('Add contact person') }}</span></button>
+            <button class="btn btn-outline-secondary icon-button" type="button" data-clear-contact-form><i data-lucide="eraser"></i><span>{{ _('Clear form') }}</span></button>
         </div>
     </form>
 </section>
@@ -139,13 +253,13 @@
             <thead>
             <tr>
                 <th>{{ _('Partner') }}</th>
-                <th>{{ _('Last name') }}</th>
-                <th>{{ _('First name') }}</th>
-                <th>{{ _('Patronymic') }}</th>
+                <th>{{ _('Full name') }}</th>
                 <th>{{ _('Email') }}</th>
                 <th>{{ _('Position') }}</th>
-                <th>{{ _('Current?') }}</th>
-                <th>{{ _('Reconciliation') }}</th>
+                <th>{{ _('Contact type') }}</th>
+                <th>{{ _('Contact status') }}</th>
+                <th>{{ _('Reconciliation participation') }}</th>
+                <th>{{ _('Phone') }}</th>
                 <th>{{ _('Actions') }}</th>
             </tr>
             </thead>
@@ -153,32 +267,32 @@
             {% for contact in contacts %}
             <tr>
                 <td>{{ contact.partner.partner_name if contact.partner else "" }}</td>
-                <td class="fw-medium">{{ contact.last_name }}</td>
-                <td>{{ contact.first_name }}</td>
-                <td>{{ contact.patronymic or "" }}</td>
+                <td class="fw-medium">{{ full_name(contact) }}</td>
                 <td>{% if contact.email %}<a href="mailto:{{ contact.email }}">{{ contact.email }}</a>{% endif %}</td>
                 <td>{{ contact.position }}</td>
+                <td>{{ _(contact_type_labels.get(contact.contact_type or 'pv', contact.contact_type or '')) }}{% if contact.is_billing_contact %}<span class="badge text-bg-info ms-1">Бухгалтерия</span>{% endif %}</td>
                 <td>
                     {% if contact.is_current %}
-                    <span class="badge text-bg-success">{{ _('Yes') }}</span>
+                    <span class="badge text-bg-success">{{ _('Current') }}</span>
                     {% else %}
-                    <span class="badge text-bg-secondary">{{ _('No') }}</span>
+                    <span class="badge text-bg-secondary">{{ _('Not current') }}</span>
                     {% endif %}
                 </td>
-                <td>
-                    {% if contact.is_reconciliation_recipient %}<span class="badge text-bg-primary">To</span>{% endif %}
-                    {% if contact.cc_reconciliation %}<span class="badge text-bg-info">Cc</span>{% endif %}
-                    {% if contact.is_primary %}<span class="badge text-bg-success">{{ _('Primary') }}</span>{% endif %}
-                </td>
+                <td>{{ participation_label(contact) }}</td>
+                <td>{{ phone_summary(contact) }}</td>
                 <td>
                     <div class="d-flex flex-wrap gap-1">
                         <button class="btn btn-outline-secondary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#contact-view-{{ contact.id }}" title="{{ _('View') }}"><i data-lucide="eye"></i></button>
                         {% if has_permission('edit') or has_permission('manage_reference_data') %}
                         <button class="btn btn-outline-primary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#contact-edit-{{ contact.id }}" title="{{ _('Edit') }}"><i data-lucide="pencil"></i></button>
                         {% endif %}
+                        {% if has_permission('create') or has_permission('manage_reference_data') %}
+                        <a class="btn btn-outline-secondary btn-sm icon-only" href="/contract-contacts?duplicate_id={{ contact.id }}#add-contact" title="{{ _('Duplicate') }}"><i data-lucide="copy"></i></a>
+                        {% endif %}
                         {% if has_permission('soft_delete') or has_permission('manage_reference_data') %}
                         <form method="post" action="/contract-contacts/{{ contact.id }}/delete">
-                            <button class="btn btn-outline-danger btn-sm icon-only" type="submit" title="{{ _('Delete') }}"><i data-lucide="trash-2"></i></button>
+                            <input type="hidden" name="expected_version" value="{{ contact.version }}">
+                            <button class="btn btn-outline-danger btn-sm icon-only" type="submit" title="{{ _('Delete') }}" data-confirm-message="{{ _('Delete contact confirmation') }}"><i data-lucide="trash-2"></i></button>
                         </form>
                         {% endif %}
                     </div>
@@ -188,105 +302,161 @@
                 <td colspan="9">
                     <div class="row g-2 small">
                         <div class="col-md-3"><span class="text-secondary">{{ _('Partner') }}</span><div>{{ contact.partner.partner_name if contact.partner else "" }}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Full name') }}</span><div>{{ full_name(contact) }}</div></div>
                         <div class="col-md-3"><span class="text-secondary">{{ _('Email') }}</span><div>{{ contact.email or "" }}</div></div>
                         <div class="col-md-3"><span class="text-secondary">{{ _('Position') }}</span><div>{{ contact.position }}</div></div>
-                        <div class="col-md-3"><span class="text-secondary">{{ _('Contact type') }}</span><div>{{ contact.contact_type or "" }}</div></div>
-                        <div class="col-md-3"><span class="text-secondary">{{ _('PV contact') }}</span><div>{{ _('Yes') if contact.is_pv_contact else _('No') }}</div></div>
-                        <div class="col-md-3"><span class="text-secondary">{{ _('To reconciliation') }}</span><div>{{ _('Yes') if contact.is_reconciliation_recipient else _('No') }}</div></div>
-                        <div class="col-md-3"><span class="text-secondary">{{ _('Cc reconciliation') }}</span><div>{{ _('Yes') if contact.cc_reconciliation else _('No') }}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Contact type') }}</span><div>{{ _(contact_type_labels.get(contact.contact_type or 'pv', contact.contact_type or '')) }}{% if contact.is_billing_contact %}<span class="badge text-bg-info ms-1">Бухгалтерия</span>{% endif %}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Contact status') }}</span><div>{{ _('Current') if contact.is_current else _('Not current') }}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Reconciliation participation') }}</span><div>{{ participation_label(contact) }}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Phone') }}</span><div>{{ phone_summary(contact) }}</div></div>
+                        <div class="col-md-3"><span class="text-secondary">{{ _('Company website') }}</span><div>{% if contact.company_website %}<a href="{{ contact.company_website }}" target="_blank" rel="noopener">{{ contact.company_website }}</a>{% endif %}</div></div>
                         <div class="col-md-3"><span class="text-secondary">{{ _('Updated') }}</span><div>{{ contact.updated_at }}</div></div>
+                        <div class="col-md-6"><span class="text-secondary">{{ _('Address') }}</span><div>{{ contact.address or "" }}</div></div>
                         <div class="col-md-12"><span class="text-secondary">{{ _('Comments') }}</span><div>{{ contact.comments or "" }}</div></div>
                     </div>
+                    {{ immutable_documents_block(documents_by_contact.get(contact.id, []), 'PartnerResponsiblePerson', contact.id, contact.partner_id, 'Приложение А-3', 'PARTNER_SPECIFIC', '/contract-contacts?partner_id=' ~ contact.partner_id, 'Нередактируемые документы ответственного лица партнера', context_version=contact.version) }}
                 </td>
             </tr>
             {% if has_permission('edit') or has_permission('manage_reference_data') %}
             <tr class="collapse" id="contact-edit-{{ contact.id }}">
                 <td colspan="9">
-                    <form class="row g-2 align-items-end" method="post" action="/contract-contacts/{{ contact.id }}/edit">
-                        <div class="col-md-3">
-                            <label class="form-label">{{ _('Partner') }}</label>
-                            <select class="form-select form-select-sm" name="partner_id" required>
-                                {% for partner in partners %}
-                                <option value="{{ partner.id }}" {% if contact.partner_id == partner.id %}selected{% endif %}>{{ partner.partner_name }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        <div class="col-md-2">
-                            <label class="form-label">{{ _('Last name') }}</label>
-                            <input class="form-control form-control-sm" name="last_name" value="{{ contact.last_name }}" required>
-                        </div>
-                        <div class="col-md-2">
-                            <label class="form-label">{{ _('First name') }}</label>
-                            <input class="form-control form-control-sm" name="first_name" value="{{ contact.first_name }}" required>
-                        </div>
-                        <div class="col-md-2">
-                            <label class="form-label">{{ _('Patronymic') }}</label>
-                            <input class="form-control form-control-sm" name="patronymic" value="{{ contact.patronymic or '' }}">
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label">{{ _('Email') }}</label>
-                            <input class="form-control form-control-sm" type="email" name="email" value="{{ contact.email or '' }}">
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label">{{ _('Position') }}</label>
-                            <input class="form-control form-control-sm" name="position" value="{{ contact.position }}" required>
-                        </div>
-                        <div class="col-md-2">
-                            <label class="form-label">{{ _('Current?') }}</label>
-                            <select class="form-select form-select-sm" name="is_current">
-                                <option value="true" {% if contact.is_current %}selected{% endif %}>{{ _('Yes') }}</option>
-                                <option value="false" {% if not contact.is_current %}selected{% endif %}>{{ _('No') }}</option>
-                            </select>
-                        </div>
-                        <div class="col-md-2">
-                            <label class="form-label">{{ _('Contact type') }}</label>
-                            <input class="form-control form-control-sm" name="contact_type" value="{{ contact.contact_type or '' }}">
-                        </div>
-                        <div class="col-md-2">
-                            <label class="form-label">{{ _('PV contact') }}</label>
-                            <select class="form-select form-select-sm" name="is_pv_contact">
-                                <option value="true" {% if contact.is_pv_contact %}selected{% endif %}>{{ _('Yes') }}</option>
-                                <option value="false" {% if not contact.is_pv_contact %}selected{% endif %}>{{ _('No') }}</option>
-                            </select>
-                        </div>
-                        <div class="col-md-2">
-                            <label class="form-label">{{ _('To reconciliation') }}</label>
-                            <select class="form-select form-select-sm" name="is_reconciliation_recipient">
-                                <option value="true" {% if contact.is_reconciliation_recipient %}selected{% endif %}>{{ _('Yes') }}</option>
-                                <option value="false" {% if not contact.is_reconciliation_recipient %}selected{% endif %}>{{ _('No') }}</option>
-                            </select>
-                        </div>
-                        <div class="col-md-2">
-                            <label class="form-label">{{ _('Cc reconciliation') }}</label>
-                            <select class="form-select form-select-sm" name="cc_reconciliation">
-                                <option value="false" {% if not contact.cc_reconciliation %}selected{% endif %}>{{ _('No') }}</option>
-                                <option value="true" {% if contact.cc_reconciliation %}selected{% endif %}>{{ _('Yes') }}</option>
-                            </select>
-                        </div>
-                        <div class="col-md-2">
-                            <label class="form-label">{{ _('Primary') }}</label>
-                            <select class="form-select form-select-sm" name="is_primary">
-                                <option value="false" {% if not contact.is_primary %}selected{% endif %}>{{ _('No') }}</option>
-                                <option value="true" {% if contact.is_primary %}selected{% endif %}>{{ _('Yes') }}</option>
-                            </select>
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label">{{ _('Comments') }}</label>
-                            <input class="form-control form-control-sm" name="comments" value="{{ contact.comments or '' }}">
-                        </div>
+                    <form class="row g-2 align-items-end" method="post" action="/contract-contacts/{{ contact.id }}/edit" data-contact-form>
+                        <input type="hidden" name="expected_version" value="{{ contact.version }}">
+                        {{ contact_form_fields('edit', contact, partners, contact_type_options, reconciliation_participation_options, True) }}
                         <div class="col-md-3 d-flex gap-2">
-                            <button class="btn btn-primary btn-sm icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Save') }}</span></button>
-                            <button class="btn btn-outline-secondary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#contact-edit-{{ contact.id }}" title="{{ _('Cancel') }}"><i data-lucide="x"></i></button>
+                            <button class="btn btn-primary btn-sm icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Save contact person') }}</span></button>
+                            <button class="btn btn-outline-secondary btn-sm icon-button" type="button" data-bs-toggle="collapse" data-bs-target="#contact-edit-{{ contact.id }}"><i data-lucide="x"></i><span>{{ _('Cancel') }}</span></button>
                         </div>
                     </form>
                 </td>
             </tr>
             {% endif %}
             {% else %}
-            <tr><td colspan="9" class="text-secondary">{% if filters.active and total_count %}{{ _('No records match the filters.') }}{% else %}{{ _('No contacts yet.') }}{% endif %}</td></tr>
+            <tr><td colspan="9" class="empty-state-cell"><div class="empty-state text-secondary"><i data-lucide="search"></i><span>{% if filters.active and total_count %}{{ _('No records match the filters.') }}{% else %}{{ _('No contacts yet.') }}{% endif %}</span></div></td></tr>
             {% endfor %}
             </tbody>
         </table>
     </div>
 </section>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('[data-contact-form]').forEach(function (form) {
+        var status = form.querySelector('[data-contact-status]');
+        var participation = form.querySelector('[data-reconciliation-participation]');
+        var warning = form.querySelector('[data-reconciliation-warning]');
+        if (!status || !participation) {
+            return;
+        }
+        var syncParticipation = function () {
+            var inactive = status.value === 'inactive';
+            if (inactive) {
+                participation.value = 'none';
+            }
+            if (warning) {
+                warning.classList.toggle('d-none', !inactive);
+            }
+        };
+        status.addEventListener('change', syncParticipation);
+        syncParticipation();
+    });
+
+    document.querySelectorAll('[data-scroll-target]').forEach(function (button) {
+        button.addEventListener('click', function () {
+            var target = document.querySelector(button.dataset.scrollTarget);
+            if (!target) {
+                return;
+            }
+            window.setTimeout(function () {
+                target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 150);
+        });
+    });
+
+    var partnerSelect = document.querySelector('[data-partner-select]');
+    var searchPartnerSelect = document.querySelector('[data-search-partner-select]');
+    var block = document.querySelector('[data-selected-partner-block]');
+    var emptyRow = document.querySelector('[data-selected-partner-empty]');
+    var rows = Array.prototype.slice.call(document.querySelectorAll('[data-selected-partner-row]'));
+    if (!block) {
+        return;
+    }
+    var activePartnerSource = partnerSelect && partnerSelect.value ? 'add' : 'search';
+    var clearPartnerSelect = function (select) {
+        if (select) {
+            select.value = '';
+        }
+    };
+    var selectedPartnerId = function () {
+        if (activePartnerSource === 'add' && partnerSelect && partnerSelect.value) {
+            return partnerSelect.value;
+        }
+        if (activePartnerSource === 'search' && searchPartnerSelect && searchPartnerSelect.value) {
+            return searchPartnerSelect.value;
+        }
+        if (partnerSelect && partnerSelect.value) {
+            return partnerSelect.value;
+        }
+        return searchPartnerSelect ? searchPartnerSelect.value : '';
+    };
+    var syncPartnerContacts = function () {
+        var partnerId = selectedPartnerId();
+        var visibleCount = 0;
+        rows.forEach(function (row) {
+            var visible = partnerId && row.dataset.partnerId === partnerId;
+            row.classList.toggle('d-none', !visible);
+            if (visible) {
+                visibleCount += 1;
+            }
+        });
+        block.classList.toggle('d-none', !partnerId);
+        if (emptyRow) {
+            emptyRow.classList.toggle('d-none', !partnerId || visibleCount > 0);
+        }
+    };
+    if (partnerSelect) {
+        partnerSelect.addEventListener('change', function () {
+            if (partnerSelect.value && searchPartnerSelect && searchPartnerSelect.value && partnerSelect.value !== searchPartnerSelect.value) {
+                clearPartnerSelect(searchPartnerSelect);
+            }
+            activePartnerSource = 'add';
+            syncPartnerContacts();
+        });
+    }
+    if (searchPartnerSelect) {
+        searchPartnerSelect.addEventListener('change', function () {
+            if (searchPartnerSelect.value && partnerSelect && partnerSelect.value && searchPartnerSelect.value !== partnerSelect.value) {
+                clearPartnerSelect(partnerSelect);
+            }
+            activePartnerSource = 'search';
+            syncPartnerContacts();
+        });
+    }
+    document.querySelectorAll('[data-clear-contact-form]').forEach(function (button) {
+        button.addEventListener('click', function () {
+            var form = button.closest('form');
+            if (!form) {
+                return;
+            }
+            form.querySelectorAll('input, textarea, select').forEach(function (field) {
+                if (field.name === 'contact_status') {
+                    field.value = 'current';
+                } else if (field.name === 'contact_type') {
+                    field.value = 'pv';
+                } else if (field.name === 'reconciliation_participation') {
+                    field.value = 'primary';
+                } else if (field.tagName === 'SELECT') {
+                    field.selectedIndex = 0;
+                } else {
+                    field.value = '';
+                }
+                field.dispatchEvent(new Event('change', { bubbles: true }));
+            });
+            activePartnerSource = 'search';
+            syncPartnerContacts();
+        });
+    });
+    syncPartnerContacts();
+});
+</script>
 {% endblock %}

@@ -1,10 +1,14 @@
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from app import models
+from app.concurrency import protect_record
+from app.unit_of_work import atomic_write
+from fastapi import Query, APIRouter, Depends, Form, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import crud, schemas
 from app.auth import require_any_permission
+from app.concurrency import require_version
 from app.database import get_db
 from app.templating import templates
 from app.ui_helpers import redirect_with_message
@@ -71,12 +75,14 @@ def edit_substance_form(
     inn_name: str | None = Form(None),
     cas_number: str | None = Form(None),
     atc_code: str | None = Form(None),
-    substance_type: str | None = Form("active"),
+    substance_type: str | None = Form(None),
+    expected_version: int = Form(..., ge=1),
     db: Session = Depends(get_db),
 ):
     substance = crud.get_substance(db, substance_id)
     if not substance:
         return redirect_with_message("/substances", error="Substance not found.")
+    require_version(substance, expected_version)
     if not substance_name.strip():
         return redirect_with_message("/substances", validation="Substance name is required.")
     try:
@@ -86,9 +92,11 @@ def edit_substance_form(
             schemas.SubstanceCreate(
                 substance_name=substance_name.strip(),
                 inn_name=inn_name,
-                cas_number=cas_number,
+                cas_number=cas_number if cas_number is not None else substance.cas_number,
                 atc_code=atc_code,
-                substance_type=substance_type,
+                substance_type=(
+                    substance_type if substance_type is not None else substance.substance_type
+                ),
             ),
         )
     except IntegrityError:
@@ -105,11 +113,13 @@ def delete_substance_form(
     substance_id: str,
     request: Request,
     delete_reason: str | None = Form(None),
+    expected_version: int = Form(..., ge=1),
     db: Session = Depends(get_db),
 ):
     substance = crud.get_substance(db, substance_id)
     if not substance:
         return redirect_with_message("/substances", error="Substance not found.")
+    require_version(substance, expected_version)
     current_user = getattr(request.state, "current_user", None)
     crud.delete_substance(
         db,
@@ -124,13 +134,16 @@ def delete_substance_form(
     "/product-substances",
     dependencies=[Depends(require_any_permission("manage_reference_data", "create"))],
 )
+@atomic_write
 def create_product_substance_form(
     product_id: str = Form(...),
     substance_id: str = Form(...),
     substance_role: str = Form("active"),
     is_primary: bool = Form(True),
+    expected_product_version: int = Form(..., gt=0),
     db: Session = Depends(get_db),
 ):
+    protect_record(db, models.Product, product_id, expected_product_version)
     validate_product_substance_references(db, product_id, substance_id)
     crud.create_product_substance(
         db,
@@ -175,11 +188,13 @@ def api_get_substance(substance_id: str, db: Session = Depends(get_db)):
 def api_update_substance(
     substance_id: str,
     payload: schemas.SubstanceCreate,
+    expected_version: int = Query(..., ge=1),
     db: Session = Depends(get_db),
 ):
     substance = crud.get_substance(db, substance_id)
     if not substance:
         raise HTTPException(status_code=404, detail="Substance not found")
+    require_version(substance, expected_version)
     return crud.update_substance(db, substance, payload)
 
 
@@ -191,11 +206,13 @@ def api_update_substance(
 def api_delete_substance(
     substance_id: str,
     request: Request,
+    expected_version: int = Query(..., ge=1),
     db: Session = Depends(get_db),
 ):
     substance = crud.get_substance(db, substance_id)
     if not substance:
         raise HTTPException(status_code=404, detail="Substance not found")
+    require_version(substance, expected_version)
     current_user = getattr(request.state, "current_user", None)
     return crud.delete_substance(
         db,
@@ -210,10 +227,13 @@ def api_delete_substance(
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_any_permission("manage_reference_data", "create"))],
 )
+@atomic_write
 def api_create_product_substance(
     payload: schemas.ProductSubstanceCreate,
+    expected_product_version: int = Query(..., gt=0),
     db: Session = Depends(get_db),
 ):
+    protect_record(db, models.Product, payload.product_id, expected_product_version)
     validate_product_substance_references(db, payload.product_id, payload.substance_id)
     return crud.create_product_substance(db, payload)
 

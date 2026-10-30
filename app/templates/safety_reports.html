@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ _('Safety Reports') }} - {{ _('PV MVP') }}{% endblock %}
+{% block title %}{{ _('Safety Reports') }} - {{ _('PV System') }}{% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
@@ -44,6 +44,15 @@
                 {% endfor %}
             </select>
         </div>
+        <div class="col-md-4">
+            <label class="form-label">{{ _('Products') }}</label>
+            <select class="form-select" name="product_ids" multiple size="4">
+                {% for product in products %}
+                <option value="{{ product.id }}">{{ product.product_name }}</option>
+                {% endfor %}
+            </select>
+            <div class="form-text">{{ _('Select one or more products.') }}</div>
+        </div>
         <div class="col-md-1">
             <label class="form-label">{{ _('Date from') }}</label>
             <input class="form-control" type="date" name="date_from" value="{{ filters.date_from }}">
@@ -61,6 +70,26 @@
 
 {% if has_permission('create') %}
 <section class="surface mb-4">
+    <h2 class="h6 section-title">{{ _('Import E2B(R3) XML / ZIP') }}</h2>
+    <form class="row g-3 align-items-end" method="post" action="/safety-reports/e2b-imports" enctype="multipart/form-data">
+        <div class="col-md-8">
+            <label class="form-label">{{ _('E2B XML or ZIP package') }}</label>
+            <input class="form-control" type="file" name="file" accept=".xml,.zip,application/xml,text/xml,application/zip,application/x-zip-compressed" required>
+        </div>
+        <div class="col-md-4">
+            <button class="btn btn-outline-primary icon-button" type="submit"><i data-lucide="upload"></i><span>{{ _('Import E2B XML / ZIP') }}</span></button>
+        </div>
+    </form>
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 border-top mt-3 pt-3">
+        <div>
+            <div class="fw-semibold">Нет XML / ZIP?</div>
+            <div class="small text-secondary">Введите сведения о пациенте, репортёре, препарате и реакции вручную.</div>
+        </div>
+        <a class="btn btn-primary icon-button" href="/cases/new"><i data-lucide="file-pen-line"></i><span>Создать кейс вручную</span></a>
+    </div>
+</section>
+
+<section class="surface mb-4">
     <h2 class="h6 section-title">{{ _('New Safety Report') }}</h2>
     <form class="row g-3" method="post" action="/safety-reports">
         <div class="col-md-2">
@@ -71,6 +100,14 @@
                 <option value="literature">{{ _('literature') }}</option>
                 <option value="partner">{{ _('partner') }}</option>
                 <option value="web">{{ _('web') }}</option>
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Message direction') }}</label>
+            <select class="form-select" name="message_direction" required>
+                <option value="" selected disabled>{{ _('Select message direction') }}</option>
+                <option value="partner_to_our_company">{{ _('partner_to_our_company') }}</option>
+                <option value="our_company_to_partner">{{ _('our_company_to_partner') }}</option>
             </select>
         </div>
         <div class="col-md-3">
@@ -117,7 +154,9 @@
                 <th>{{ _('Report no.') }}</th>
                 <th>{{ _('Received') }}</th>
                 <th>{{ _('Source') }}</th>
+                <th>{{ _('Message direction') }}</th>
                 <th>{{ _('Partner') }}</th>
+                <th>{{ _('Products') }}</th>
                 <th>{{ _('Triage') }}</th>
                 <th>{{ _('Valid ICSR') }}</th>
                 <th></th>
@@ -129,13 +168,15 @@
                 <td class="fw-medium">{{ report.safety_report_number }}</td>
                 <td>{{ report.received_date or "" }}</td>
                 <td>{{ _(report.source_type) }}</td>
+                <td><span class="status-pill {% if report.message_direction == 'needs_review' %}pv-status-warning{% endif %}">{{ _(report.message_direction) }}</span></td>
                 <td>{{ report.partner.partner_name if report.partner else "" }}</td>
+                <td>{{ report.product_names|join(', ') }}</td>
                 <td><span class="status-pill">{{ _(report.triage_status) }}</span></td>
                 <td>{% if report.is_valid_icsr %}<span class="badge text-bg-success">{{ _('Yes') }}</span>{% else %}<span class="text-secondary">{{ _('No') }}</span>{% endif %}</td>
                 <td class="text-end"><a class="btn btn-outline-primary btn-sm icon-button" href="/safety-reports/{{ report.id }}"><i data-lucide="eye"></i><span>{{ _('View') }}</span></a></td>
             </tr>
             {% else %}
-            <tr><td colspan="7" class="text-secondary">{% if filters.active and total_count %}{{ _('No records match the filters.') }}{% else %}{{ _('No safety reports yet.') }}{% endif %}</td></tr>
+            <tr><td colspan="9" class="text-secondary">{% if filters.active and total_count %}{{ _('No records match the filters.') }}{% else %}{{ _('No safety reports yet.') }}{% endif %}</td></tr>
             {% endfor %}
             </tbody>
         </table>

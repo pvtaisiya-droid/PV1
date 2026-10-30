@@ -34,6 +34,8 @@ DOCUMENT_STATUSES = [
     StatusDefinition("draft", "Draft"),
     StatusDefinition("under_review", "Under review"),
     StatusDefinition("active", "Active"),
+    StatusDefinition("replaced", "Replaced", terminal=True, locked=True),
+    StatusDefinition("expired", "Expired", terminal=True, locked=True),
     StatusDefinition("archived", "Archived", terminal=True, locked=True),
 ]
 

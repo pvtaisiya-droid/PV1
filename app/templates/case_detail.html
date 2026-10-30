@@ -1,13 +1,24 @@
 {% extends "base.html" %}
-{% block title %}{{ case.case_number }} - {{ _('PV MVP') }}{% endblock %}
+{% block title %}{{ case.case_number }} - {{ _('PV System') }}{% endblock %}
 
 {% block content %}
+{% set case_needs_review = case.workflow_status in ['new', 'triage', 'data_entry', 'medical_review', 'qc', 'reopened'] %}
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
     <div>
+        <div class="text-secondary small">Карточка ИСНР</div>
         <h1 class="h3 mb-1">{{ case.case_number }}</h1>
-        <div class="text-secondary small">{{ _('Version') }} {{ case.case_version }} / {{ _(case.workflow_status) }}</div>
+        <div class="text-secondary small">Полный код: <span class="font-monospace">{{ case.full_case_code }}</span></div>
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            <span class="status-pill {% if case.workflow_status in ['closed', 'submitted'] %}pv-status-success{% elif case_needs_review %}pv-status-warning{% else %}pv-status-neutral{% endif %}">{{ _(case.workflow_status) }}</span>
+            <span class="text-secondary small">{% if case.workflow_status == 'closed' %}Кейс завершён.{% elif case.workflow_status == 'ready_for_submission' %}Кейс готов к отправке.{% elif case_needs_review %}Проверьте данные и обновите этап работы.{% else %}Текущий этап обработки указан в карточке.{% endif %}</span>
+        </div>
     </div>
-    <a class="btn btn-outline-secondary btn-sm icon-button" href="/cases"><i data-lucide="arrow-left"></i><span>{{ _('Back') }}</span></a>
+    <div class="d-flex flex-wrap gap-2">
+        <a class="btn btn-outline-secondary btn-sm icon-button" href="/cases"><i data-lucide="arrow-left"></i><span>{{ _('Back') }}</span></a>
+        {% if has_permission('edit') or has_permission('icsr_workflow') %}
+        <button class="btn btn-primary btn-sm icon-button" type="button" data-case-status-toggle aria-controls="case-status-edit" aria-expanded="false"><i data-lucide="workflow"></i><span>Обновить этап</span></button>
+        {% endif %}
+    </div>
 </div>
 
 {% if message %}
@@ -19,40 +30,142 @@
 {% if validation %}
 <div class="alert alert-warning py-2" role="alert">{{ _(validation) }}</div>
 {% endif %}
-
-<ul class="nav nav-tabs mb-3" id="caseTabs" role="tablist">
-    <li class="nav-item" role="presentation"><button class="nav-link active" id="overview-tab" data-bs-toggle="tab" data-bs-target="#overview" type="button" role="tab">{{ _('Overview') }}</button></li>
-    <li class="nav-item" role="presentation"><button class="nav-link" id="entry-tab" data-bs-toggle="tab" data-bs-target="#entry" type="button" role="tab">{{ _('Data Entry') }}</button></li>
-    <li class="nav-item" role="presentation"><button class="nav-link" id="followup-tab" data-bs-toggle="tab" data-bs-target="#followup" type="button" role="tab">{{ _('Follow-up') }}</button></li>
-    <li class="nav-item" role="presentation"><button class="nav-link" id="submission-tab" data-bs-toggle="tab" data-bs-target="#submission" type="button" role="tab">{{ _('Submissions') }}</button></li>
-    {% if has_permission('audit_view') %}
-    <li class="nav-item" role="presentation"><button class="nav-link" id="audit-tab" data-bs-toggle="tab" data-bs-target="#audit" type="button" role="tab">{{ _('Audit') }}</button></li>
+{% if case.number_is_provisional %}
+<div class="alert alert-warning" role="alert">
+    <div class="fw-semibold">Партнёр не выбран.</div>
+    <div>Случаю присвоен предварительный номер. До формирования регуляторной отправки необходимо выбрать партнёра.</div>
+    {% if has_permission('edit') or has_permission('icsr_workflow') %}
+    <form class="row g-2 align-items-end mt-1" method="post" action="/cases/{{ case.id }}/numbering-partner">
+<input type="hidden" name="expected_version" value="{{ case.version }}">
+        <div class="col-md-5">
+            <label class="form-label">Партнёр нумерации</label>
+            <select class="form-select" name="partner_id" required>
+                <option value="">{{ _('Select') }}</option>
+                {% for partner in partners %}<option value="{{ partner.id }}">{{ partner.partner_code }} — {{ partner.partner_name }}</option>{% endfor %}
+            </select>
+        </div>
+        <div class="col-md-3"><button class="btn btn-primary" type="submit">Назначить партнёра</button></div>
+    </form>
     {% endif %}
+</div>
+{% endif %}
+
+<ul class="nav nav-tabs case-section-tabs mb-3" id="caseTabs" role="tablist" aria-label="Разделы карточки ИСНР">
+    <li class="nav-item" role="presentation"><button class="nav-link active" id="overview-tab" data-bs-toggle="tab" data-bs-target="#overview" type="button" role="tab" aria-controls="overview" aria-selected="true">Основные сведения</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" id="source-tab" data-bs-toggle="tab" data-bs-target="#source" type="button" role="tab" aria-controls="source" aria-selected="false">Источник и репортёр</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" id="product-tab" data-bs-toggle="tab" data-bs-target="#product" type="button" role="tab" aria-controls="product" aria-selected="false">Препарат</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" id="patient-tab" data-bs-toggle="tab" data-bs-target="#patient" type="button" role="tab" aria-controls="patient" aria-selected="false">Пациент</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" id="reactions-tab" data-bs-toggle="tab" data-bs-target="#reactions" type="button" role="tab" aria-controls="reactions" aria-selected="false">Нежелательные реакции</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" id="additional-tab" data-bs-toggle="tab" data-bs-target="#additional" type="button" role="tab" aria-controls="additional" aria-selected="false">Дополнительная информация</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" id="documents-tab" data-bs-toggle="tab" data-bs-target="#documents" type="button" role="tab" aria-controls="documents" aria-selected="false">Документы</button></li>
 </ul>
 
 <div class="tab-content">
     <div class="tab-pane fade show active" id="overview" role="tabpanel" aria-labelledby="overview-tab" tabindex="0">
         <div class="row g-4">
             <div class="col-lg-8">
-                <section class="surface">
+                <section class="surface" id="case-workflow">
                     <h2 class="h6 section-title">{{ _('Case Metadata') }}</h2>
                     <dl class="row compact-dl">
+                        <dt class="col-sm-3">Номер случая</dt><dd class="col-sm-9">{{ case.case_number }}</dd>
+                        <dt class="col-sm-3">Полный код</dt><dd class="col-sm-9 font-monospace">{{ case.full_case_code }}</dd>
+                        <dt class="col-sm-3">Партнёр нумерации</dt><dd class="col-sm-9">{% if case.numbering_partner %}{{ case.numbering_partner.partner_code }} — {{ case.numbering_partner.partner_name }}{% else %}Партнёр не выбран{% endif %}</dd>
+                        <dt class="col-sm-3">Связанные партнёры</dt><dd class="col-sm-9">{% if case.partner %}{{ case.partner.partner_name }}{% endif %}{% for link in case.partner_links if not case.partner or link.partner_id != case.partner.id %}{% if case.partner or not loop.first %}; {% endif %}{{ link.partner.partner_name }}{% else %}{% if not case.partner %}—{% endif %}{% endfor %}</dd>
+                        <dt class="col-sm-3">Статус валидности</dt><dd class="col-sm-9">{% if case.safety_report %}{% if case.safety_report.is_valid_icsr %}Валидная ИСНР{% else %}Требует оценки{% endif %}{% else %}Требует оценки{% endif %}</dd>
+                        <dt class="col-sm-3">Основной дополнительный номер</dt><dd class="col-sm-9">{{ case.primary_external_identifier or "" }}</dd>
+                        <dt class="col-sm-3">Тип информации</dt><dd class="col-sm-9">{{ case.version_label }}</dd>
+                        <dt class="col-sm-3">Версия</dt><dd class="col-sm-9">{{ case.case_version }}</dd>
                         <dt class="col-sm-3">{{ _('Worldwide ID') }}</dt><dd class="col-sm-9">{{ case.worldwide_case_id or "" }}</dd>
+                        <dt class="col-sm-3">{{ _('Partner case ID') }}</dt><dd class="col-sm-9">{{ case.local_sender_case_id or "" }}</dd>
                         <dt class="col-sm-3">{{ _('Safety report') }}</dt><dd class="col-sm-9">{{ case.safety_report.safety_report_number if case.safety_report else "" }}</dd>
                         <dt class="col-sm-3">{{ _('Partner') }}</dt><dd class="col-sm-9">{{ case.partner.partner_name if case.partner else "" }}</dd>
                         <dt class="col-sm-3">{{ _('Received') }}</dt><dd class="col-sm-9">{{ case.initial_received_date or "" }}</dd>
+                        <dt class="col-sm-3">{{ _('Latest information') }}</dt><dd class="col-sm-9">{{ case.latest_received_date or "" }}</dd>
                         <dt class="col-sm-3">{{ _('Country') }}</dt><dd class="col-sm-9">{{ case.country_of_occurrence or "" }}</dd>
                         <dt class="col-sm-3">{{ _('Seriousness') }}</dt><dd class="col-sm-9">{{ _(case.seriousness) }}</dd>
+                        <dt class="col-sm-3">{{ _('Data review') }}</dt><dd class="col-sm-9">{{ _(case.data_review_status or 'requires_review') }}</dd>
                         <dt class="col-sm-3">{{ _('Due date') }}</dt><dd class="col-sm-9">{{ case.due_date or "" }}</dd>
                     </dl>
-                    <div class="raw-text">{{ case.narrative or "" }}</div>
+                </section>
+                {% if has_permission('edit') or has_permission('icsr_workflow') %}
+                <section class="surface mt-4">
+                    <h2 class="h6 section-title">Связанные партнёры и дополнительные номера</h2>
+                    <div class="row g-4">
+                        <div class="col-lg-5">
+                            <form class="row g-2" method="post" action="/cases/{{ case.id }}/partners">
+<input type="hidden" name="expected_version" value="{{ case.version }}">
+                                <div class="col-12"><label class="form-label">Добавить связанного партнёра</label><select class="form-select" name="partner_id" required><option value="">{{ _('Select') }}</option>{% for partner in partners %}<option value="{{ partner.id }}">{{ partner.partner_code }} — {{ partner.partner_name }}</option>{% endfor %}</select></div>
+                                <input type="hidden" name="relationship_type" value="related">
+                                <div class="col-12"><button class="btn btn-outline-primary btn-sm" type="submit">Добавить партнёра</button></div>
+                            </form>
+                        </div>
+                        <div class="col-lg-7">
+                            <form class="row g-2" method="post" action="/cases/{{ case.id }}/identifiers">
+<input type="hidden" name="expected_version" value="{{ case.version }}">
+                                <div class="col-md-6"><label class="form-label">Дополнительный номер</label><input class="form-control" name="identifier_value" required></div>
+                                <div class="col-md-6"><label class="form-label">Партнёр</label><select class="form-select" name="partner_id"><option value="">Другая организация</option>{% for partner in partners %}<option value="{{ partner.id }}">{{ partner.partner_code }} — {{ partner.partner_name }}</option>{% endfor %}</select></div>
+                                <div class="col-md-4"><label class="form-label">Тип</label><select class="form-select" name="identifier_type"><option value="partner_case_number">Номер партнёра</option><option value="partner_of_partner_case_number">Номер партнёра партнёра</option><option value="regulatory">Регуляторный</option><option value="c_1_9">C.1.9</option><option value="other">Другой</option></select></div>
+                                <div class="col-md-4"><label class="form-label">Организация</label><input class="form-control" name="organization_name"></div>
+                                <div class="col-md-4"><label class="form-label">Дата получения</label><input class="form-control" type="date" name="received_date"></div>
+                                <div class="col-12 d-flex align-items-center gap-3"><label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="is_primary" value="true"> Основной дополнительный номер</label><button class="btn btn-outline-primary btn-sm" type="submit">Добавить номер</button></div>
+                            </form>
+                        </div>
+                    </div>
+                    {% if case.identifiers %}
+                    <div class="table-responsive mt-3"><table class="table table-sm"><thead><tr><th>Дополнительный номер</th><th>Тип</th><th>Партнёр / организация</th><th>Получен</th><th>Основной</th></tr></thead><tbody>{% for identifier in case.identifiers %}<tr><td>{{ identifier.identifier_value }}</td><td>{{ _(identifier.identifier_type) }}</td><td>{{ identifier.partner.partner_name if identifier.partner else identifier.organization_name or "" }}</td><td>{{ identifier.received_date or "" }}</td><td>{% if identifier.is_primary %}Да{% endif %}</td></tr>{% endfor %}</tbody></table></div>
+                    {% endif %}
+                </section>
+                {% endif %}
+                {% if has_permission('manage_reference_data') and not case.number_is_provisional %}
+                <section class="surface mt-4">
+                    <h2 class="h6 section-title">Административное исправление партнёра нумерации</h2>
+                    <form class="row g-2 align-items-end" method="post" action="/cases/{{ case.id }}/numbering-partner/correct">
+<input type="hidden" name="expected_version" value="{{ case.version }}">
+                        <div class="col-md-5"><label class="form-label">Новый партнёр нумерации</label><select class="form-select" name="partner_id" required><option value="">{{ _('Select') }}</option>{% for partner in partners if partner.id != case.numbering_partner_id %}<option value="{{ partner.id }}">{{ partner.partner_code }} — {{ partner.partner_name }}</option>{% endfor %}</select></div>
+                        <div class="col-md-5"><label class="form-label">Причина исправления</label><input class="form-control" name="reason" required></div>
+                        <div class="col-md-2"><button class="btn btn-outline-danger" type="submit">Исправить</button></div>
+                    </form>
+                </section>
+                {% endif %}
+                <section class="surface mt-4">
+                    <h2 class="h6 section-title">{{ _('Imported overview') }}</h2>
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <span class="text-secondary small">{{ _('Patient') }}</span>
+                            {% set patient = case.patients[0] if case.patients else none %}
+                            <div class="fw-semibold">{% if patient %}{{ patient.patient_initials or patient.patient_identifier or _('Patient') }}{% else %}{{ _('No patients.') }}{% endif %}</div>
+                            {% if patient %}<div class="small">{{ _(patient.sex) }} {{ patient.age_value or "" }} {{ patient.age_unit or "" }}</div>{% endif %}
+                        </div>
+                        <div class="col-md-4">
+                            <span class="text-secondary small">{{ _('Main reactions') }}</span>
+                            <div class="fw-semibold">{{ case.reactions|map(attribute='reported_term')|join(', ') }}</div>
+                        </div>
+                        <div class="col-md-4">
+                            <span class="text-secondary small">{{ _('Suspect products') }}</span>
+                            <div class="fw-semibold">
+                                {% for product in case.case_products if product.drug_role == 'suspect' %}
+                                {{ product.reported_product_name or (product.product.product_name if product.product else '') }}{% if not loop.last %}, {% endif %}
+                                {% else %}{{ _('No products.') }}{% endfor %}
+                            </div>
+                        </div>
+                    </div>
                 </section>
             </div>
             {% if has_permission('edit') or has_permission('icsr_workflow') %}
             <div class="col-lg-4">
                 <section class="surface">
-                    <h2 class="h6 section-title">{{ _('Change Workflow Status') }}</h2>
-                    <form class="row g-3" method="post" action="/cases/{{ case.id }}/status">
+                    <div class="d-flex justify-content-between align-items-center gap-2 mb-3" data-case-status-view>
+                        <h2 class="h6 section-title mb-0">{{ _('Workflow status') }}</h2>
+                        <button class="btn btn-outline-primary btn-sm icon-button" type="button" data-case-status-toggle aria-controls="case-status-edit" aria-expanded="false">
+                            <i data-lucide="pencil"></i><span>{{ _('Edit') }}</span>
+                        </button>
+                    </div>
+                    <div data-case-status-view>
+                        <span class="text-secondary small">{{ _('Status') }}</span>
+                        <div class="fw-semibold">{{ _(case.workflow_status) }}</div>
+                    </div>
+                    <form class="row g-3" method="post" action="/cases/{{ case.id }}/status" id="case-status-edit" hidden>
+                        <input type="hidden" name="expected_version" value="{{ case.version }}">
                         <div class="col-12">
                             <label class="form-label">{{ _('Status') }}</label>
                             <select class="form-select" name="workflow_status">
@@ -66,7 +179,8 @@
                             <input class="form-control" name="change_reason">
                         </div>
                         <div class="col-12">
-                            <button class="btn btn-primary icon-button" type="submit"><i data-lucide="refresh-cw"></i><span>{{ _('Update') }}</span></button>
+                            <button class="btn btn-primary icon-button" type="submit"><i data-lucide="refresh-cw"></i><span>Сохранить этап</span></button>
+                            <button class="btn btn-outline-secondary icon-button" type="button" data-case-status-toggle><i data-lucide="x"></i><span>{{ _('Cancel') }}</span></button>
                         </div>
                     </form>
                 </section>
@@ -75,13 +189,14 @@
         </div>
     </div>
 
-    <div class="tab-pane fade" id="entry" role="tabpanel" aria-labelledby="entry-tab" tabindex="0">
+    <div class="tab-pane fade" id="patient" role="tabpanel" aria-labelledby="patient-tab" tabindex="0">
         {% if has_permission('create') %}
         <div class="row g-4">
-            <div class="col-lg-4">
+            <div class="col-lg-6">
                 <section class="surface h-100">
                     <h2 class="h6 section-title">{{ _('Add Patient') }}</h2>
                     <form class="row g-3" method="post" action="/cases/{{ case.id }}/patients">
+<input type="hidden" name="expected_version" value="{{ case.version }}">
                         <div class="col-md-6"><label class="form-label">{{ _('Initials') }}</label><input class="form-control" name="patient_initials"></div>
                         <div class="col-md-6"><label class="form-label">{{ _('Identifier') }}</label><input class="form-control" name="patient_identifier"></div>
                         <div class="col-md-6"><label class="form-label">{{ _('Sex') }}</label><select class="form-select" name="sex"><option value="">{{ _('unknown') }}</option><option value="female">{{ _('female') }}</option><option value="male">{{ _('male') }}</option><option value="other">{{ _('other') }}</option></select></div>
@@ -95,11 +210,34 @@
                     </form>
                 </section>
             </div>
+        </div>
+        {% endif %}
 
-            <div class="col-lg-4">
+        <section class="surface mt-4">
+            <h2 class="h6 section-title">{{ _('Patients') }}</h2>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead><tr><th>{{ _('Initials') }}</th><th>{{ _('Identifier') }}</th><th>{{ _('Sex') }}</th><th>{{ _('Age') }}</th><th>{{ _('Weight kg') }}</th><th>{{ _('Height cm') }}</th><th>{{ _('Pregnancy') }}</th><th>{{ _('Medical history') }}</th></tr></thead>
+                    <tbody>
+                    {% for patient in case.patients %}
+                    <tr><td>{{ patient.patient_initials or "" }}</td><td>{{ patient.patient_identifier or "" }}</td><td>{{ _(patient.sex) }}</td><td>{{ patient.age_value or "" }} {{ patient.age_unit or "" }}</td><td>{{ patient.weight_kg or "" }}</td><td>{{ patient.height_cm or "" }}</td><td>{{ patient.pregnancy_status or "" }}</td><td>{{ patient.medical_history_text or "" }}</td></tr>
+                    {% else %}
+                    <tr><td colspan="8" class="text-secondary">{{ _('No patients.') }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <div class="tab-pane fade" id="product" role="tabpanel" aria-labelledby="product-tab" tabindex="0">
+        {% if has_permission('create') %}
+        <div class="row g-4">
+            <div class="col-lg-6">
                 <section class="surface h-100">
                     <h2 class="h6 section-title">{{ _('Add Case Product') }}</h2>
                     <form class="row g-3" method="post" action="/cases/{{ case.id }}/products">
+<input type="hidden" name="expected_version" value="{{ case.version }}">
                         <div class="col-12">
                             <label class="form-label">{{ _('Product') }}</label>
                             <select class="form-select" name="product_id">
@@ -120,11 +258,34 @@
                     </form>
                 </section>
             </div>
+        </div>
+        {% endif %}
 
-            <div class="col-lg-4">
+        <section class="surface mt-4">
+            <h2 class="h6 section-title">{{ _('Products') }}</h2>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead><tr><th>{{ _('Reported name') }}</th><th>{{ _('Product') }}</th><th>{{ _('Active substance') }}</th><th>{{ _('Role') }}</th><th>{{ _('Dose') }}</th><th>{{ _('Route') }}</th><th>{{ _('Frequency') }}</th></tr></thead>
+                    <tbody>
+                    {% for case_product in case.case_products %}
+                    <tr><td>{{ case_product.reported_product_name or "" }}</td><td>{{ case_product.product.product_name if case_product.product else "" }}</td><td>{{ case_product.active_substance_text or "" }}</td><td>{{ _(case_product.drug_role) }}</td><td>{{ case_product.dose_value or "" }} {{ case_product.dose_unit or "" }}</td><td>{{ case_product.route or "" }}</td><td>{{ case_product.frequency or "" }}</td></tr>
+                    {% else %}
+                    <tr><td colspan="7" class="text-secondary">{{ _('No products.') }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <div class="tab-pane fade" id="reactions" role="tabpanel" aria-labelledby="reactions-tab" tabindex="0">
+        {% if has_permission('create') %}
+        <div class="row g-4">
+            <div class="col-lg-6">
                 <section class="surface h-100">
                     <h2 class="h6 section-title">{{ _('Add Reaction') }}</h2>
                     <form class="row g-3" method="post" action="/cases/{{ case.id }}/reactions">
+<input type="hidden" name="expected_version" value="{{ case.version }}">
                         <div class="col-12"><label class="form-label">{{ _('Reported term') }}</label><input class="form-control" name="reported_term" required></div>
                         <div class="col-12"><label class="form-label">{{ _('Verbatim') }}</label><input class="form-control" name="verbatim_term"></div>
                         <div class="col-md-6"><label class="form-label">{{ _('MedDRA PT code') }}</label><input class="form-control" name="meddra_pt_code"></div>
@@ -146,37 +307,371 @@
         </div>
         {% endif %}
 
-        <div class="row g-4 mt-1">
-            <div class="col-lg-4">
-                <section class="surface">
-                    <h2 class="h6 section-title">{{ _('Patients') }}</h2>
-                    <table class="table table-sm"><tbody>{% for patient in case.patients %}<tr><td>{{ patient.patient_initials or patient.patient_identifier or _('Patient') }}</td><td>{{ _(patient.sex) }}</td><td>{{ patient.age_value or "" }} {{ patient.age_unit or "" }}</td></tr>{% else %}<tr><td class="text-secondary">{{ _('No patients.') }}</td></tr>{% endfor %}</tbody></table>
+        <section class="surface mt-4">
+            <h2 class="h6 section-title">{{ _('Reactions') }}</h2>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead><tr><th>{{ _('Reported term') }}</th><th>{{ _('Verbatim') }}</th><th>{{ _('MedDRA PT code') }}</th><th>{{ _('MedDRA PT name') }}</th><th>{{ _('Outcome') }}</th><th>{{ _('Seriousness') }}</th></tr></thead>
+                    <tbody>
+                    {% for reaction in case.reactions %}
+                    <tr><td>{{ reaction.reported_term }}</td><td>{{ reaction.verbatim_term or "" }}</td><td>{{ reaction.meddra_pt_code or "" }}</td><td>{{ reaction.meddra_pt_name or "" }}</td><td>{{ reaction.outcome or "" }}</td><td>{% if reaction.is_serious %}{{ _('Serious') }}{% else %}{{ _('Non-serious') }}{% endif %}</td></tr>
+                    {% else %}
+                    <tr><td colspan="6" class="text-secondary">{{ _('No reactions.') }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <div class="tab-pane fade" id="additional" role="tabpanel" aria-labelledby="additional-tab" tabindex="0"></div>
+
+    <div class="tab-pane fade" id="medical" role="tabpanel" aria-labelledby="medical-tab" tabindex="0">
+        <div class="row g-4">
+            <div class="col-lg-8">
+                <section class="surface h-100">
+                    <h2 class="h6 section-title">{{ _('Narrative') }}</h2>
+                    <div class="raw-text">{{ case.narrative or "" }}</div>
                 </section>
             </div>
             <div class="col-lg-4">
-                <section class="surface">
-                    <h2 class="h6 section-title">{{ _('Products') }}</h2>
-                    <table class="table table-sm"><tbody>{% for product in case.case_products %}<tr><td>{{ product.reported_product_name or "" }}</td><td>{{ _(product.drug_role) }}</td><td>{{ product.dose_value or "" }} {{ product.dose_unit or "" }}</td></tr>{% else %}<tr><td class="text-secondary">{{ _('No products.') }}</td></tr>{% endfor %}</tbody></table>
-                </section>
-            </div>
-            <div class="col-lg-4">
-                <section class="surface">
-                    <h2 class="h6 section-title">{{ _('Reactions') }}</h2>
-                    <table class="table table-sm"><tbody>{% for reaction in case.reactions %}<tr><td>{{ reaction.reported_term }}</td><td>{{ reaction.outcome or "" }}</td><td>{% if reaction.is_serious %}{{ _('Serious') }}{% else %}{{ _('Non-serious') }}{% endif %}</td></tr>{% else %}<tr><td class="text-secondary">{{ _('No reactions.') }}</td></tr>{% endfor %}</tbody></table>
+                <section class="surface h-100">
+                    <h2 class="h6 section-title">Оценка и описание</h2>
+                    <dl class="row compact-dl mb-0">
+                        <dt class="col-sm-5">Listedness</dt><dd class="col-sm-7">{{ case.listedness or "" }}</dd>
+                        <dt class="col-sm-5">Expectedness</dt><dd class="col-sm-7">{{ case.expectedness or "" }}</dd>
+                        <dt class="col-sm-5">Исход кейса</dt><dd class="col-sm-7">{{ case.case_outcome or "" }}</dd>
+                        <dt class="col-sm-5">{{ _('Seriousness') }}</dt><dd class="col-sm-7">{{ _(case.seriousness) }}</dd>
+                    </dl>
                 </section>
             </div>
         </div>
+        {% if case.medical_review_comment or case.company_comment %}
+        <section class="surface mt-4">
+            <h2 class="h6 section-title">Комментарии</h2>
+            <dl class="row compact-dl mb-0">
+                {% if case.medical_review_comment %}<dt class="col-sm-3">Медицинский комментарий</dt><dd class="col-sm-9 raw-text">{{ case.medical_review_comment }}</dd>{% endif %}
+                {% if case.company_comment %}<dt class="col-sm-3">Комментарий компании</dt><dd class="col-sm-9 raw-text">{{ case.company_comment }}</dd>{% endif %}
+            </dl>
+        </section>
+        {% endif %}
+        {% if case.narratives %}
+        <section class="surface mt-4">
+            <h2 class="h6 section-title">{{ _('Narrative') }}</h2>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead><tr><th>{{ _('Type') }}</th><th>{{ _('Source') }}</th><th>Язык</th><th>{{ _('Description') }}</th></tr></thead>
+                    <tbody>{% for narrative in case.narratives %}<tr><td>{{ narrative.narrative_type }}</td><td>{{ narrative.source or "" }}</td><td>{{ narrative.language or "" }}</td><td class="raw-text">{{ narrative.narrative_text or "" }}</td></tr>{% endfor %}</tbody>
+                </table>
+            </div>
+        </section>
+        {% endif %}
     </div>
 
-    <div class="tab-pane fade" id="followup" role="tabpanel" aria-labelledby="followup-tab" tabindex="0">
+    <div class="tab-pane fade" id="source" role="tabpanel" aria-labelledby="source-tab" tabindex="0">
+        <div class="row g-4">
+            <div class="col-lg-4">
+                <section class="surface h-100">
+                    <h2 class="h6 section-title">Идентифицируемый репортёр</h2>
+                    {% if case.safety_report %}
+                    <dl class="row compact-dl mb-0">
+                        <dt class="col-sm-5">Имя репортёра</dt><dd class="col-sm-7">{{ case.safety_report.reporter_name or "" }}</dd>
+                        <dt class="col-sm-5">Email репортёра</dt><dd class="col-sm-7">{{ case.safety_report.reporter_email or "" }}</dd>
+                        <dt class="col-sm-5">Страна репортёра</dt><dd class="col-sm-7">{{ case.safety_report.reporter_country_code or "" }}</dd>
+                    </dl>
+                    {% else %}
+                    <div class="text-secondary">{{ _('None') }}</div>
+                    {% endif %}
+                </section>
+            </div>
+            <div class="col-lg-8">
+                <section class="surface h-100">
+                    <h2 class="h6 section-title">Источник и идентификаторы</h2>
+                    <dl class="row compact-dl mb-0">
+                        <dt class="col-sm-4">Канал получения</dt><dd class="col-sm-8">{{ _(case.safety_report.source_type) if case.safety_report else "" }}</dd>
+                        <dt class="col-sm-4">{{ _('Safety report') }}</dt><dd class="col-sm-8">{{ case.safety_report.safety_report_number if case.safety_report else "" }}</dd>
+                        <dt class="col-sm-4">{{ _('Partner') }}</dt><dd class="col-sm-8">{{ case.partner.partner_name if case.partner else "" }}</dd>
+                        <dt class="col-sm-4">{{ _('Worldwide ID') }}</dt><dd class="col-sm-8">{{ case.worldwide_case_id or "" }}</dd>
+                        <dt class="col-sm-4">{{ _('Partner case ID') }}</dt><dd class="col-sm-8">{{ case.local_sender_case_id or "" }}</dd>
+                    </dl>
+                </section>
+            </div>
+        </div>
+        <section class="surface mt-4">
+            <h2 class="h6 section-title">{{ _('Source messages') }}</h2>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead><tr><th>{{ _('Message no.') }}</th><th>{{ _('Received') }}</th><th>{{ _('Source') }}</th><th>{{ _('Link type') }}</th><th>{{ _('Status') }}</th><th>{{ _('Actions') }}</th></tr></thead>
+                    <tbody>
+                    {% for link in case.incoming_request_links if not link.is_deleted %}
+                    <tr>
+                        <td>{{ link.incoming_request.message_number or link.incoming_request.id[:8] }}</td>
+                        <td>{{ link.incoming_request.received_date or link.incoming_request.created_at.date() }}</td>
+                        <td>{{ link.incoming_request.source_type or link.incoming_request.channel or link.incoming_request.request_type or "" }}</td>
+                        <td>{{ _(link.link_type) }}</td>
+                        <td><span class="status-pill">{{ _(link.incoming_request.status) }}</span></td>
+                        <td><a class="btn btn-outline-primary btn-sm icon-button" href="/incoming-requests?search={{ link.incoming_request.message_number or link.incoming_request.id }}"><i data-lucide="external-link"></i><span>{{ _('Open source message') }}</span></a></td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="6" class="text-secondary">{{ _('No source messages.') }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+        {% if case.literature_references %}
+        <section class="surface mt-4">
+            <h2 class="h6 section-title">{{ _('Literature') }}</h2>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead><tr><th>{{ _('Title') }}</th><th>{{ _('Journal') }}</th><th>{{ _('Year') }}</th><th>{{ _('PMID') }}</th><th>{{ _('DOI') }}</th></tr></thead>
+                    <tbody>{% for literature in case.literature_references %}<tr><td>{{ literature.title or literature.citation or "" }}</td><td>{{ literature.journal or "" }}</td><td>{{ literature.publication_year or "" }}</td><td>{{ literature.pmid or "" }}</td><td>{{ literature.doi or "" }}</td></tr>{% endfor %}</tbody>
+                </table>
+            </div>
+        </section>
+        {% endif %}
+    </div>
+
+    <div class="tab-pane fade" id="assessment" role="tabpanel" aria-labelledby="assessment-tab" tabindex="0">
+        <div class="alert alert-info py-2">
+            Оценка выполняется отдельно для каждой пары «препарат — реакция». Можно сохранить несколько независимых
+            мнений, например ДРУ, АРС и регулятора. Результат не заменяет медицинское заключение специалиста.
+        </div>
+
+        {% if not case.case_products or not case.reactions %}
+        <div class="alert alert-warning">
+            Для оценки сначала добавьте в ИСНР хотя бы один препарат на вкладке «Препарат» и одну реакцию на вкладке «Нежелательные реакции».
+        </div>
+        {% elif has_permission('edit') or has_permission('icsr_workflow') %}
+        <div class="row g-4 mb-4">
+            <div class="col-xl-6">
+                <section class="surface h-100">
+                    <h2 class="h6 section-title">WHO‑UMC</h2>
+                    <p class="small text-secondary">
+                        Категория выбирается медицинским специалистом с учётом временной связи, альтернативных причин,
+                        отмены и повторного назначения препарата.
+                    </p>
+                    <form class="row g-3" method="post" action="/cases/{{ case.id }}/assessments">
+<input type="hidden" name="expected_version" value="{{ case.version }}">
+                        <input type="hidden" name="causality_method" value="who_umc">
+                        <div class="col-md-6">
+                            <label class="form-label">Препарат *</label>
+                            <select class="form-select" name="case_product_id" required>
+                                <option value="" selected disabled>Выберите препарат</option>
+                                {% for product in case.case_products %}
+                                <option value="{{ product.id }}">{{ product.reported_product_name or (product.product.product_name if product.product else product.id) }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Реакция *</label>
+                            <select class="form-select" name="reaction_id" required>
+                                <option value="" selected disabled>Выберите реакцию</option>
+                                {% for reaction in case.reactions %}
+                                <option value="{{ reaction.id }}">{{ reaction.reported_term }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Категория WHO‑UMC *</label>
+                            <div class="d-grid gap-2" role="radiogroup" aria-label="Категория WHO-UMC">
+                                {% for value, label in who_umc_categories %}
+                                <label class="border rounded p-3 d-flex gap-3 align-items-start" for="who-umc-{{ value }}">
+                                    <input class="form-check-input flex-shrink-0 mt-1" type="radio" name="relatedness" value="{{ value }}" id="who-umc-{{ value }}" required>
+                                    <span>
+                                        <span class="fw-semibold d-block">{{ label }}</span>
+                                        <span class="small text-secondary d-block mt-1">{{ who_umc_descriptions[value] }}</span>
+                                    </span>
+                                </label>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Кто оценил *</label>
+                            <select class="form-select" name="assessor_role" required>
+                                <option value="" {% if not default_assessor_role %}selected{% endif %} disabled>Выберите роль</option>
+                                {% for value, label in assessor_roles %}
+                                <option value="{{ value }}" {% if value == default_assessor_role %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-8">
+                            <label class="form-label">ФИО оценившего *</label>
+                            <input class="form-control" name="assessor_name" value="{{ default_assessor_name }}" required>
+                        </div>
+                        <div class="col-md-8">
+                            <label class="form-label">Организация</label>
+                            <input class="form-control" name="assessor_organization">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Дата оценки *</label>
+                            <input class="form-control" type="date" name="assessment_date" value="{{ today }}" required>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Обоснование / комментарий</label>
+                            <textarea class="form-control" name="assessment_comment" rows="3"></textarea>
+                        </div>
+                        <div class="col-12">
+                            <button class="btn btn-primary icon-button" type="submit"><i data-lucide="clipboard-check"></i><span>Сохранить WHO‑UMC</span></button>
+                        </div>
+                    </form>
+                </section>
+            </div>
+
+            <div class="col-xl-6">
+                <section class="surface h-100">
+                    <h2 class="h6 section-title">Шкала Наранжо</h2>
+                    <p class="small text-secondary">
+                        Ответьте на все 10 вопросов. Система автоматически рассчитает балл и категорию:
+                        ≥9 — определённая, 5–8 — вероятная, 1–4 — возможная, ≤0 — сомнительная.
+                    </p>
+                    <form class="row g-3" method="post" action="/cases/{{ case.id }}/assessments">
+<input type="hidden" name="expected_version" value="{{ case.version }}">
+                        <input type="hidden" name="causality_method" value="naranjo">
+                        <div class="col-md-6">
+                            <label class="form-label">Препарат *</label>
+                            <select class="form-select" name="case_product_id" required>
+                                <option value="" selected disabled>Выберите препарат</option>
+                                {% for product in case.case_products %}
+                                <option value="{{ product.id }}">{{ product.reported_product_name or (product.product.product_name if product.product else product.id) }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Реакция *</label>
+                            <select class="form-select" name="reaction_id" required>
+                                <option value="" selected disabled>Выберите реакцию</option>
+                                {% for reaction in case.reactions %}
+                                <option value="{{ reaction.id }}">{{ reaction.reported_term }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <div class="table-responsive">
+                                <table class="table table-sm align-middle mb-0">
+                                    <thead><tr><th>№</th><th>Вопрос</th><th style="min-width: 145px;">Ответ *</th></tr></thead>
+                                    <tbody>
+                                    {% for question in naranjo_questions %}
+                                    <tr>
+                                        <td>{{ loop.index }}</td>
+                                        <td>{{ question.text }}<div class="small text-secondary">Да: {{ '%+d'|format(question.yes_score) }}, нет: {{ '%+d'|format(question.no_score) }}, неизвестно: 0</div></td>
+                                        <td>
+                                            <select class="form-select form-select-sm" name="{{ question.key }}" required>
+                                                <option value="unknown" selected>Неизвестно</option>
+                                                <option value="yes">Да</option>
+                                                <option value="no">Нет</option>
+                                            </select>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Кто оценил *</label>
+                            <select class="form-select" name="assessor_role" required>
+                                <option value="" {% if not default_assessor_role %}selected{% endif %} disabled>Выберите роль</option>
+                                {% for value, label in assessor_roles %}
+                                <option value="{{ value }}" {% if value == default_assessor_role %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-8">
+                            <label class="form-label">ФИО оценившего *</label>
+                            <input class="form-control" name="assessor_name" value="{{ default_assessor_name }}" required>
+                        </div>
+                        <div class="col-md-8">
+                            <label class="form-label">Организация</label>
+                            <input class="form-control" name="assessor_organization">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Дата оценки *</label>
+                            <input class="form-control" type="date" name="assessment_date" value="{{ today }}" required>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Обоснование / комментарий</label>
+                            <textarea class="form-control" name="assessment_comment" rows="3"></textarea>
+                        </div>
+                        <div class="col-12">
+                            <button class="btn btn-primary icon-button" type="submit"><i data-lucide="calculator"></i><span>Рассчитать и сохранить Наранжо</span></button>
+                        </div>
+                    </form>
+                </section>
+            </div>
+        </div>
+        {% endif %}
+
+        <section class="surface">
+            <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+                <h2 class="h6 section-title mb-0">История оценок</h2>
+                <div class="small text-secondary">
+                    Методические источники:
+                    <a href="https://who-umc.org/media/u4gjgxvv/who-umc-causality-assessment_new-logo.pdf" target="_blank" rel="noopener noreferrer">WHO‑UMC</a>,
+                    <a href="https://pubmed.ncbi.nlm.nih.gov/7249508/" target="_blank" rel="noopener noreferrer">Naranjo et al.</a>
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                    <thead><tr><th>Дата</th><th>Препарат → реакция</th><th>Метод</th><th>Результат</th><th>Кто оценил</th><th>Комментарий</th></tr></thead>
+                    <tbody>
+                    {% for item in causality_assessments %}
+                    <tr>
+                        <td>{{ item.assessment_date or item.created_at.date() }}</td>
+                        <td>
+                            <div>{{ item.case_product.reported_product_name or (item.case_product.product.product_name if item.case_product.product else item.case_product.id) }}</div>
+                            <div class="small text-secondary">→ {{ item.reaction.reported_term }}</div>
+                        </td>
+                        <td>{% if item.causality_method == 'who_umc' %}WHO‑UMC{% elif item.causality_method == 'naranjo' %}Наранжо{% else %}{{ item.causality_method }}{% endif %}</td>
+                        <td>
+                            <div class="fw-semibold">{{ causality_result_labels.get(item.relatedness, item.relatedness) }}</div>
+                            {% if item.naranjo_score is not none %}
+                            <div class="small">Балл: {{ item.naranjo_score }}</div>
+                            {% set saved_answers = naranjo_answers_by_assessment.get(item.id, {}) %}
+                            <details class="small mt-1">
+                                <summary>Ответы Наранжо</summary>
+                                <ol class="mb-0 ps-3">
+                                    {% for question in naranjo_questions %}
+                                    {% set answer = saved_answers.get(question.key, 'unknown') %}
+                                    <li>{{ 'Да' if answer == 'yes' else ('Нет' if answer == 'no' else 'Неизвестно') }}</li>
+                                    {% endfor %}
+                                </ol>
+                            </details>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div>{{ assessor_role_labels.get(item.assessor_role, item.assessor_role or '—') }} — {{ item.assessor_name or '—' }}</div>
+                            <div class="small text-secondary">{{ item.assessor_organization or '' }}</div>
+                        </td>
+                        <td>{{ item.assessment_comment or '' }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="6" class="text-secondary">Оценки причинно-следственной связи пока не добавлены.</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <div class="tab-pane fade" id="history" role="tabpanel" aria-labelledby="history-tab" tabindex="0">
         <div class="row g-4">
             {% if has_permission('create') %}
             <div class="col-lg-4">
                 <section class="surface">
                     <h2 class="h6 section-title">{{ _('Add Follow-up') }}</h2>
                     <form class="row g-3" method="post" action="/cases/{{ case.id }}/followups">
+<input type="hidden" name="expected_version" value="{{ case.version }}">
                         <div class="col-12"><label class="form-label">{{ _('Received date') }}</label><input class="form-control" type="date" name="received_date"></div>
                         <div class="col-12"><label class="form-label">{{ _('Source') }}</label><input class="form-control" name="source_type"></div>
+                        <div class="col-12">
+                            <label class="form-label">{{ _('Message direction') }}</label>
+                            <select class="form-select" name="message_direction" required>
+                                <option value="" selected disabled>{{ _('Select message direction') }}</option>
+                                <option value="partner_to_our_company">{{ _('partner_to_our_company') }}</option>
+                                <option value="our_company_to_partner">{{ _('our_company_to_partner') }}</option>
+                            </select>
+                        </div>
                         <div class="col-12"><label class="form-label">{{ _('Description') }}</label><textarea class="form-control" rows="4" name="description"></textarea></div>
                         <div class="col-12"><label class="form-check"><input class="form-check-input" type="checkbox" name="significant_new_information" value="true"> {{ _('Significant new information') }}</label></div>
                         <div class="col-12"><button class="btn btn-outline-primary w-100 icon-button" type="submit"><i data-lucide="plus"></i><span>{{ _('Add Follow-up') }}</span></button></div>
@@ -189,22 +684,139 @@
                     <h2 class="h6 section-title">{{ _('Follow-ups') }}</h2>
                     <div class="table-responsive">
                         <table class="table table-sm align-middle">
-                            <thead><tr><th>{{ _('No.') }}</th><th>{{ _('Received') }}</th><th>{{ _('Source') }}</th><th>{{ _('Description') }}</th></tr></thead>
-                            <tbody>{% for item in case.followups %}<tr><td>{{ item.follow_up_number }}</td><td>{{ item.received_date or "" }}</td><td>{{ _(item.source_type) }}</td><td>{{ item.description or "" }}</td></tr>{% else %}<tr><td colspan="4" class="text-secondary">{{ _('No follow-ups.') }}</td></tr>{% endfor %}</tbody>
+                            <thead><tr><th>{{ _('No.') }}</th><th>{{ _('Received') }}</th><th>{{ _('Source') }}</th><th>{{ _('Message direction') }}</th><th>{{ _('Description') }}</th></tr></thead>
+                            <tbody>
+                            {% for item in case.followups %}
+                            <tr>
+                                <td>{{ item.follow_up_number }}</td>
+                                <td>{{ item.received_date or "" }}</td>
+                                <td>{{ _(item.source_type) }}</td>
+                                <td>
+                                    {% if has_permission('edit') or has_permission('icsr_workflow') %}
+                                    <form class="d-flex gap-2" method="post" action="/cases/{{ case.id }}/followups/{{ item.id }}/direction">
+<input type="hidden" name="expected_followup_version" value="{{ item.version }}">
+<input type="hidden" name="expected_version" value="{{ case.version }}">
+                                        <select class="form-select form-select-sm" name="message_direction" required aria-label="{{ _('Message direction') }}">
+                                            <option value="" disabled {% if item.message_direction == 'needs_review' %}selected{% endif %}>{{ _('Select message direction') }}</option>
+                                            <option value="partner_to_our_company" {% if item.message_direction == 'partner_to_our_company' %}selected{% endif %}>{{ _('partner_to_our_company') }}</option>
+                                            <option value="our_company_to_partner" {% if item.message_direction == 'our_company_to_partner' %}selected{% endif %}>{{ _('our_company_to_partner') }}</option>
+                                        </select>
+                                        <button class="btn btn-outline-primary btn-sm icon-only" type="submit" title="{{ _('Save') }}"><i data-lucide="save"></i></button>
+                                    </form>
+                                    {% else %}
+                                    <span class="status-pill {% if item.message_direction == 'needs_review' %}pv-status-warning{% endif %}">{{ _(item.message_direction) }}</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ item.description or "" }}</td>
+                            </tr>
+                            {% else %}
+                            <tr><td colspan="5" class="text-secondary">{{ _('No follow-ups.') }}</td></tr>
+                            {% endfor %}
+                            </tbody>
                         </table>
                     </div>
                 </section>
             </div>
         </div>
+        {% if has_permission('audit_view') %}
+        <section class="surface mt-4">
+            <h2 class="h6 section-title">{{ _('Audit Trail') }}</h2>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead><tr><th>{{ _('Timestamp') }}</th><th>{{ _('Action') }}</th><th>{{ _('Entity') }}</th><th>{{ _('Field') }}</th><th>{{ _('Old') }}</th><th>{{ _('New') }}</th><th>{{ _('User') }}</th></tr></thead>
+                    <tbody>
+                    {% for entry in audit_entries %}
+                    <tr>
+                        <td>{{ entry.timestamp }}</td>
+                        <td>{{ _(entry.action) }}</td>
+                        <td>{{ _(entry.entity_type) }}</td>
+                        <td>{{ entry.field_name or "" }}</td>
+                        <td>{{ entry.old_value or "" }}</td>
+                        <td>{{ entry.new_value or "" }}</td>
+                        <td>{{ entry.user.email if entry.user else "" }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="7" class="text-secondary">{{ _('No audit entries.') }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if audit_pagination %}
+            <nav class="d-flex gap-3 mt-2" aria-label="Журнал аудита">
+                {% if audit_pagination.has_previous %}<a href="?tab=assessment&audit_page={{ audit_pagination.page - 1 }}">Назад</a>{% endif %}
+                <span>{{ audit_pagination.page }} / {{ audit_pagination.pages }} · {{ audit_pagination.total }}</span>
+                {% if audit_pagination.has_next %}<a href="?tab=assessment&audit_page={{ audit_pagination.page + 1 }}">Далее</a>{% endif %}
+            </nav>
+            {% endif %}
+        </section>
+        {% endif %}
     </div>
 
-    <div class="tab-pane fade" id="submission" role="tabpanel" aria-labelledby="submission-tab" tabindex="0">
+    <div class="tab-pane fade" id="documents" role="tabpanel" aria-labelledby="documents-tab" tabindex="0">
+        {% if has_permission('upload') or has_permission('create') or has_permission('manage_document_versions') %}
+        <section class="surface mb-4">
+            <h2 class="h6 section-title">Прикрепить документ</h2>
+            <form class="row g-3" method="post" action="/documents" enctype="multipart/form-data">
+                <input type="hidden" name="case_id" value="{{ case.id }}">
+<input type="hidden" name="expected_related_version" value="{{ case.version }}">
+                <input type="hidden" name="return_to_case_id" value="{{ case.id }}">
+                <div class="col-md-4"><label class="form-label">{{ _('Document title') }} *</label><input class="form-control" name="document_title" required></div>
+                <div class="col-md-3"><label class="form-label">{{ _('Document type') }}</label><select class="form-select" name="document_type"><option value="other" selected>{{ _('other') }}</option><option value="incoming request">{{ _('incoming request') }}</option><option value="audit">{{ _('audit') }}</option></select></div>
+                <div class="col-md-5"><label class="form-label">Файл *</label><input class="form-control" type="file" name="document_file" required></div>
+                <div class="col-12"><label class="form-label">{{ _('Comment') }}</label><input class="form-control" name="comment"></div>
+                <div class="col-12"><button class="btn btn-primary icon-button" type="submit"><i data-lucide="upload"></i><span>Прикрепить документ</span></button></div>
+            </form>
+        </section>
+        {% endif %}
+        <section class="surface mb-4">
+            <h2 class="h6 section-title">Документы</h2>
+            {% set case_document_ids = case.attachments|map(attribute='id')|list %}
+            {% set source_documents = case.safety_report.attachments if case.safety_report else [] %}
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead><tr><th>Связь</th><th>{{ _('Document title') }}</th><th>{{ _('File name') }}</th><th>{{ _('Document type') }}</th><th>{{ _('Version') }}</th><th>{{ _('Document date') }}</th><th>{{ _('Size') }}</th><th>{{ _('Actions') }}</th></tr></thead>
+                    <tbody>
+                    {% for attachment in case.attachments %}
+                    <tr>
+                        <td>ИСНР</td><td>{{ attachment.document_title or "" }}</td><td>{{ attachment.file_name }}</td><td>{{ attachment.document_type or attachment.attachment_type or "" }}</td><td>{{ attachment.document_version or "" }}</td><td>{{ attachment.document_date or "" }}</td><td>{% if attachment.file_size_bytes is not none %}{{ attachment.file_size_bytes }} Б{% endif %}</td>
+                        <td><a class="btn btn-outline-primary btn-sm icon-button" href="/documents/{{ attachment.id }}/download"><i data-lucide="download"></i><span>{{ _('Download') }}</span></a></td>
+                    </tr>
+                    {% endfor %}
+                    {% for attachment in source_documents if attachment.id not in case_document_ids %}
+                    <tr>
+                        <td>Исходное сообщение</td><td>{{ attachment.document_title or "" }}</td><td>{{ attachment.file_name }}</td><td>{{ attachment.document_type or attachment.attachment_type or "" }}</td><td>{{ attachment.document_version or "" }}</td><td>{{ attachment.document_date or "" }}</td><td>{% if attachment.file_size_bytes is not none %}{{ attachment.file_size_bytes }} Б{% endif %}</td>
+                        <td><a class="btn btn-outline-primary btn-sm icon-button" href="/documents/{{ attachment.id }}/download"><i data-lucide="download"></i><span>{{ _('Download') }}</span></a></td>
+                    </tr>
+                    {% endfor %}
+                    {% if not case.attachments and not source_documents %}
+                    <tr><td colspan="8" class="text-secondary">Документы пока не добавлены.</td></tr>
+                    {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+        <section class="surface mb-4">
+            <h2 class="h6 section-title">{{ _('E2B messages and versions') }}</h2>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead><tr><th>{{ _('Message ID') }}</th><th>{{ _('Version') }}</th><th>{{ _('Sender') }}</th><th>{{ _('Receiver') }}</th><th>{{ _('Type') }}</th><th>{{ _('XML checksum') }}</th></tr></thead>
+                    <tbody>
+                    {% for transmission in case.e2b_transmissions %}
+                    <tr><td>{{ transmission.message_identifier or "" }}</td><td>{{ transmission.message_version or "" }}</td><td>{{ transmission.sender or "" }}</td><td>{{ transmission.receiver or "" }}</td><td>{{ transmission.followup_type or transmission.message_type or "" }}</td><td class="small text-break">{{ transmission.xml_checksum_sha256 or "" }}</td></tr>
+                    {% else %}
+                    <tr><td colspan="6" class="text-secondary">{{ _('No E2B transmissions.') }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
         <div class="row g-4">
             {% if has_permission('create') %}
             <div class="col-lg-4">
                 <section class="surface">
                     <h2 class="h6 section-title">{{ _('Create Submission') }}</h2>
                     <form class="row g-3" method="post" action="/cases/{{ case.id }}/submissions">
+                        <input type="hidden" name="expected_object_version" value="{{ case.version }}">
                         <div class="col-12">
                             <label class="form-label">{{ _('Recipient partner') }}</label>
                             <select class="form-select" name="recipient_partner_id">
@@ -237,32 +849,91 @@
         </div>
     </div>
 
-    {% if has_permission('audit_view') %}
-    <div class="tab-pane fade" id="audit" role="tabpanel" aria-labelledby="audit-tab" tabindex="0">
-        <section class="surface">
-            <h2 class="h6 section-title">{{ _('Audit Trail') }}</h2>
-            <div class="table-responsive">
-                <table class="table table-sm align-middle">
-                    <thead><tr><th>{{ _('Timestamp') }}</th><th>{{ _('Action') }}</th><th>{{ _('Entity') }}</th><th>{{ _('Field') }}</th><th>{{ _('Old') }}</th><th>{{ _('New') }}</th><th>{{ _('User') }}</th></tr></thead>
-                    <tbody>
-                    {% for entry in case.audit_entries|sort(attribute="timestamp", reverse=true) %}
-                    <tr>
-                        <td>{{ entry.timestamp }}</td>
-                        <td>{{ _(entry.action) }}</td>
-                        <td>{{ _(entry.entity_type) }}</td>
-                        <td>{{ entry.field_name or "" }}</td>
-                        <td>{{ entry.old_value or "" }}</td>
-                        <td>{{ entry.new_value or "" }}</td>
-                        <td>{{ entry.user.email if entry.user else "" }}</td>
-                    </tr>
-                    {% else %}
-                    <tr><td colspan="7" class="text-secondary">{{ _('No audit entries.') }}</td></tr>
-                    {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </section>
-    </div>
-    {% endif %}
 </div>
+<script>
+const additionalCasePane = document.getElementById("additional");
+["medical", "assessment", "history"].forEach((paneId) => {
+    const pane = document.getElementById(paneId);
+    if (!additionalCasePane || !pane) {
+        return;
+    }
+    while (pane.firstChild) {
+        additionalCasePane.appendChild(pane.firstChild);
+    }
+    pane.remove();
+});
+const caseTabAliases = {
+    entry: "patient",
+    reactions: "reactions",
+    medical: "additional",
+    assessment: "additional",
+    history: "additional",
+    followup: "additional",
+    submission: "documents",
+    audit: "additional",
+};
+const requestedCaseTab = new URLSearchParams(window.location.search).get("tab");
+const resolvedCaseTab = caseTabAliases[requestedCaseTab] || requestedCaseTab;
+const activateRequestedCaseTab = () => {
+    if (!resolvedCaseTab || !window.bootstrap) {
+        return;
+    }
+    const requestedCaseTabButton = document.getElementById(`${resolvedCaseTab}-tab`);
+    if (requestedCaseTabButton) {
+        bootstrap.Tab.getOrCreateInstance(requestedCaseTabButton).show();
+    }
+};
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", activateRequestedCaseTab, { once: true });
+} else {
+    activateRequestedCaseTab();
+}
+document.querySelectorAll("#caseTabs [data-bs-toggle='tab']").forEach((button) => {
+    button.addEventListener("shown.bs.tab", () => {
+        const tabName = button.id.replace(/-tab$/, "");
+        const url = new URL(window.location.href);
+        url.searchParams.set("tab", tabName);
+        window.history.replaceState({}, "", url);
+    });
+});
+const caseTabButtons = Array.from(document.querySelectorAll("#caseTabs [data-bs-toggle='tab']"));
+caseTabButtons.slice(0, -1).forEach((button, index) => {
+    const pane = document.querySelector(button.dataset.bsTarget);
+    const nextButton = caseTabButtons[index + 1];
+    if (!pane || !nextButton) {
+        return;
+    }
+    const actions = document.createElement("div");
+    actions.className = "case-step-actions";
+    const control = document.createElement("button");
+    control.className = "btn btn-primary icon-button";
+    control.type = "button";
+    control.innerHTML = '<span>Следующий шаг</span><i data-lucide="arrow-right"></i>';
+    control.addEventListener("click", () => {
+        nextButton.addEventListener("shown.bs.tab", () => nextButton.focus(), { once: true });
+        bootstrap.Tab.getOrCreateInstance(nextButton).show();
+    });
+    actions.appendChild(control);
+    pane.appendChild(actions);
+});
+document.querySelectorAll("[data-case-status-toggle]").forEach((button) => {
+    button.addEventListener("click", () => {
+        const panel = document.getElementById("case-status-edit");
+        if (!panel) {
+            return;
+        }
+        const willOpen = panel.hidden;
+        panel.hidden = !willOpen;
+        document.querySelectorAll("[data-case-status-view]").forEach((viewElement) => {
+            viewElement.hidden = willOpen;
+        });
+        document.querySelectorAll("[data-case-status-toggle][aria-controls='case-status-edit']").forEach((toggle) => {
+            toggle.setAttribute("aria-expanded", willOpen ? "true" : "false");
+        });
+        if (willOpen) {
+            panel.querySelector("input, select, textarea")?.focus();
+        }
+    });
+});
+</script>
 {% endblock %}

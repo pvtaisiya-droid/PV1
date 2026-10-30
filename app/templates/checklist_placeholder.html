@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}{{ page_title }} - {{ _('PV System') }}{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+        <h1 class="h3 mb-1">{{ page_title }}</h1>
+        <div class="text-secondary small">Быстрый сценарий</div>
+    </div>
+    <a class="btn btn-outline-secondary btn-sm icon-button" href="/">
+        <i data-lucide="arrow-left"></i><span>Вернуться на главную страницу</span>
+    </a>
+</div>
+
+<section class="surface placeholder-panel">
+    <span class="status-pill">Раздел в разработке</span>
+    <p class="mb-0 text-secondary">Здесь будет чек-лист выбранного сценария.</p>
+</section>
+{% endblock %}

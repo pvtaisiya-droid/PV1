@@ -1,3 +1,6 @@
+from app import models
+from app.concurrency import protect_record
+from app.unit_of_work import atomic_write, register_new_file
 import hashlib
 import re
 import uuid
@@ -5,13 +8,14 @@ from datetime import date
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app import crud
 from app.audit import log_audit
 from app.auth import require_any_permission, require_permission
 from app.config import get_settings
+from app.concurrency import require_version
 from app.database import get_db
 from app.pagination import paginate_items
 from app.statuses import status_codes
@@ -26,7 +30,7 @@ from app.ui_helpers import (
 
 
 router = APIRouter()
-UPLOAD_ROOT = (Path.cwd() / "uploads" / "documents").resolve()
+UPLOAD_ROOT = get_settings().storage_root / "documents"
 MAX_UPLOAD_BYTES = get_settings().max_upload_bytes
 ALLOWED_UPLOAD_EXTENSIONS = {
     ".csv",
@@ -49,7 +53,19 @@ ALLOWED_UPLOAD_EXTENSIONS = {
     ".xml",
 }
 DOCUMENT_TYPES = [
+    "job description",
+    "appointment order",
+    "CV",
+    "diploma or certificate",
     "PV agreement",
+    "additional agreement",
+    "organization chart",
+    "training record",
+    "risk management plan",
+    "safety reference information",
+    "risk minimization measure",
+    "audit document",
+    "quality system document",
     "reconciliation form",
     "partner response",
     "registration document",
@@ -61,14 +77,42 @@ DOCUMENT_TYPES = [
 ]
 DOCUMENT_STATUSES = status_codes("document")
 RELATED_OBJECT_TYPES = [
+    "QPPV",
+    "QPPVDeputy",
+    "PartnerResponsiblePerson",
+    "OrganizationStructure",
     "Partner",
+    "Contract",
     "Product",
+    "Employee",
+    "Training",
+    "Audit",
+    "Study",
+    "SafetySource",
+    "ComputerizedSystem",
+    "Monitoring",
     "Case",
     "SafetyReport",
     "Reconciliation",
     "IncomingRequest",
     "SOP",
+    "PSMFComponent",
+    "PSMFBlock",
     "Other",
+]
+PSMF_ANNEX_CODES = [
+    "Приложение А-1", "Приложение А-2", "Приложение А-3",
+    "Приложение Б-1", "Приложение Б-1.1", "Приложение Б-3", "Приложение Б-3.1",
+    "Приложение В-1", "Приложение В-1.1", "Приложение В-2",
+    "Приложение Г-1", "Приложение Г-1.1",
+    "Приложение Д-1", "Приложение Д-1.1", "Приложение Д-2",
+    "Приложение Е-1", "Приложение Е-2", "Приложение Е-2.1", "Приложение Е-3",
+    "Приложение Ж-1", "Приложение Ж-1.1", "Приложение Ж-2", "Приложение Ж-2.1",
+    "Приложение Ж-3", "Приложение Ж-3.1", "Приложение Ж-4",
+    "Приложение З-1", "Приложение З-2", "Приложение З-2.1", "Приложение З-3",
+    "Приложение З-4", "Приложение З-5", "Приложение З-6",
+    "Приложение И-1", "Приложение И-2", "Приложение И-2.1",
+    "Приложение К", "Приложение Л",
 ]
 
 
@@ -88,6 +132,10 @@ PLACEHOLDER_PAGES = {
     "audit_log": {
         "title": "Audit Log",
         "description": "Central audit trail view.",
+    },
+    "message_journal": {
+        "title": "Incoming message journal",
+        "description": "Incoming message journal module.",
     },
     "settings": {
         "title": "Settings",
@@ -116,8 +164,46 @@ def rmp_page(request: Request):
 
 
 @router.get("/training", response_class=HTMLResponse)
-def training_page(request: Request):
-    return render_placeholder(request, "training")
+def training_page(
+    request: Request,
+    employee_id: str | None = None,
+    db: Session = Depends(get_db),
+):
+    employees = crud.list_users(db)
+    selected_employee = next((row for row in employees if row.id == employee_id), None)
+    documents = [
+        document
+        for document in crud.list_attachments(db)
+        if (
+            selected_employee
+            and document.related_object_type == "Employee"
+            and document.related_object_id == selected_employee.id
+        )
+        or (
+            not selected_employee
+            and document.related_object_type == "Training"
+            and document.related_object_id == "registry"
+        )
+    ]
+    return templates.TemplateResponse(
+        request,
+        "training.html",
+        {
+            "request": request,
+            "active_page": "training",
+            "employees": employees,
+            "selected_employee": selected_employee,
+            "documents": documents,
+            "message": request.query_params.get("message"),
+            "error": request.query_params.get("error"),
+            "validation": request.query_params.get("validation"),
+        },
+    )
+
+
+@router.get("/message-journal", response_class=HTMLResponse)
+def message_journal_page(request: Request):
+    return render_placeholder(request, "message_journal")
 
 
 @router.get("/documents", response_class=HTMLResponse)
@@ -126,7 +212,15 @@ def documents_page(
     search: str | None = None,
     attachment_type: str | None = None,
     partner_id: str | None = None,
+    psmf_annex_code: str | None = None,
+    related_object_type: str | None = None,
+    related_object_id: str | None = None,
+    employee_id: str | None = None,
+    contract_id: str | None = None,
     product_id: str | None = None,
+    document_status: str | None = None,
+    expiry: str | None = None,
+    psmf_inclusion: str | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
     page: int = 1,
@@ -160,7 +254,27 @@ def documents_page(
             or document.attachment_type == attachment_type
         )
         and (not partner_id or document_partner_id(document) == partner_id)
+        and (not psmf_annex_code or document.psmf_annex_code == psmf_annex_code)
+        and (not related_object_type or document.related_object_type == related_object_type)
+        and (not related_object_id or document.related_object_id == related_object_id)
+        and (
+            not employee_id
+            or (
+                document.related_object_type == "Employee"
+                and document.related_object_id == employee_id
+            )
+        )
+        and (
+            not contract_id
+            or (
+                document.related_object_type == "Contract"
+                and document.related_object_id == contract_id
+            )
+        )
         and (not product_id or document_product_id(document) == product_id)
+        and (not document_status or document.status == document_status)
+        and matches_expiry(document.valid_until, expiry)
+        and matches_psmf_inclusion(document, psmf_inclusion)
         and in_date_range(
             document.document_date or document.uploaded_at or document.created_at,
             date_from,
@@ -171,14 +285,30 @@ def documents_page(
         "search": search or "",
         "attachment_type": attachment_type or "",
         "partner_id": partner_id or "",
+        "psmf_annex_code": psmf_annex_code or "",
+        "related_object_type": related_object_type or "",
+        "related_object_id": related_object_id or "",
+        "employee_id": employee_id or "",
+        "contract_id": contract_id or "",
         "product_id": product_id or "",
+        "document_status": document_status or "",
+        "expiry": expiry or "",
+        "psmf_inclusion": psmf_inclusion or "",
         "date_from": date_from or "",
         "date_to": date_to or "",
         "active": active_filters(
             search=search,
             attachment_type=attachment_type,
             partner_id=partner_id,
+            psmf_annex_code=psmf_annex_code,
+            related_object_type=related_object_type,
+            related_object_id=related_object_id,
+            employee_id=employee_id,
+            contract_id=contract_id,
             product_id=product_id,
+            document_status=document_status,
+            expiry=expiry,
+            psmf_inclusion=psmf_inclusion,
             date_from=date_from,
             date_to=date_to,
         ),
@@ -195,9 +325,12 @@ def documents_page(
             "reports": crud.list_safety_reports(db),
             "partners": crud.list_partners(db),
             "products": crud.list_products(db),
+            "contracts": crud.list_contracts(db),
+            "employees": crud.list_users(db),
             "type_options": DOCUMENT_TYPES,
             "status_options": DOCUMENT_STATUSES,
             "related_object_types": RELATED_OBJECT_TYPES,
+            "psmf_annex_codes": PSMF_ANNEX_CODES,
             "filters": filters,
             "total_count": len(all_documents),
             "filtered_count": len(documents),
@@ -213,6 +346,7 @@ def documents_page(
     "/documents",
     dependencies=[Depends(require_any_permission("upload", "create", "manage_document_versions"))],
 )
+@atomic_write
 def create_document_form(
     request: Request,
     document_file: UploadFile | None = File(None),
@@ -225,13 +359,53 @@ def create_document_form(
     file_url: str | None = Form(None),
     document_version: str | None = Form(None),
     document_date: str | None = Form(None),
+    valid_until: str | None = Form(None),
     document_status: str | None = Form("draft"),
+    is_signed: bool = Form(False),
+    page_count: str | None = Form(None),
+    scope: str = Form("GLOBAL"),
+    psmf_annex_code: str | None = Form(None),
+    include_in_psmf: bool = Form(False),
+    inclusion_order: str | None = Form(None),
     comment: str | None = Form(None),
     file_name: str | None = Form(None),
     case_id: str | None = Form(None),
     safety_report_id: str | None = Form(None),
+    return_to_case_id: str | None = Form(None),
+    return_to: str | None = Form(None),
+    expected_related_version: int | None = Form(None, gt=0),
+    expected_partner_version: int | None = Form(None, gt=0),
+    expected_product_version: int | None = Form(None, gt=0),
     db: Session = Depends(get_db),
 ):
+    parent_models = {'Case': models.Case, 'Partner': models.Partner,
+        'Contract': models.Contract, 'Product': models.Product, 'Employee': models.User,
+        'PartnerResponsiblePerson': models.ContractContact, 'SafetySource': models.SafetyReport,
+        'SafetyReport': models.SafetyReport, 'PSMFBlock': models.PSMFBlock,
+        'PSMFComponent': models.PSMFComponent, 'PSMFBuild': models.PSMFPartnerBuild, 'SOP': models.SOP}
+    targets = []
+    if related_object_type in parent_models and related_object_id:
+        targets.append((parent_models[related_object_type], related_object_id, expected_related_version))
+    if case_id:
+        targets.append((models.Case, case_id, expected_related_version))
+    if safety_report_id:
+        targets.append((models.SafetyReport, safety_report_id, expected_related_version))
+    if not targets:
+        if partner_id:
+            targets.append((models.Partner, partner_id, expected_partner_version))
+        if product_id:
+            targets.append((models.Product, product_id, expected_product_version))
+    for model, identifier, version in targets:
+        if version is None:
+            raise HTTPException(status_code=422, detail='Expected source version is required')
+        parent = protect_record(db, model, identifier, version)
+        if model is models.Case and crud.case_is_controlled(parent):
+            raise HTTPException(status_code=409, detail='Case is locked. Reload before saving.')
+    return_path = safe_document_return_url(return_to) or (
+        f"/cases/{return_to_case_id}?tab=documents"
+        if return_to_case_id and return_to_case_id == case_id
+        else "/documents"
+    )
     has_upload = bool(document_file and safe_display_name(document_file.filename))
     original_name = safe_display_name(document_file.filename if document_file else None)
     display_name = (
@@ -241,20 +415,27 @@ def create_document_form(
         or (file_url or "").strip()
     )
     if not display_name:
-        return redirect_with_message("/documents", validation="Document title or file is required.")
+        return redirect_with_message(return_path, validation="Document title or file is required.")
     if not has_upload and not (file_url or "").strip():
-        return redirect_with_message("/documents", validation="Upload a file or provide a file URL.")
+        return redirect_with_message(return_path, validation="Upload a file or provide a file URL.")
     if case_id and not crud.get_case(db, case_id):
-        return redirect_with_message("/documents", validation="Selected case was not found.")
+        return redirect_with_message(return_path, validation="Selected case was not found.")
     if safety_report_id and not crud.get_safety_report(db, safety_report_id):
         return redirect_with_message(
-            "/documents",
+            return_path,
             validation="Selected safety report was not found.",
         )
     if partner_id and not crud.get_partner(db, partner_id):
-        return redirect_with_message("/documents", validation="Selected partner was not found.")
+        return redirect_with_message(return_path, validation="Selected partner was not found.")
     if product_id and not crud.get_product(db, product_id):
-        return redirect_with_message("/documents", validation="Selected product was not found.")
+        return redirect_with_message(return_path, validation="Selected product was not found.")
+    try:
+        parsed_document_date = optional_date(document_date)
+        parsed_valid_until = optional_date(valid_until)
+        parsed_page_count = optional_int(page_count)
+        parsed_inclusion_order = optional_int(inclusion_order) or 0
+    except (TypeError, ValueError):
+        return redirect_with_message(return_path, validation="Check dates, page count and inclusion order.")
     stored_file = {
         "storage_path": None,
         "file_size_bytes": None,
@@ -265,12 +446,18 @@ def create_document_form(
         try:
             stored_file = store_document_file(document_file)
         except ValueError as exc:
-            return redirect_with_message("/documents", validation=str(exc))
+            return redirect_with_message(return_path, validation=str(exc))
         mime_type = document_file.content_type or "application/octet-stream"
+    if parsed_page_count is None:
+        parsed_page_count = pdf_page_count(
+            stored_file.get("storage_path"),
+            mime_type,
+            original_name,
+        )
     current_user = getattr(request.state, "current_user", None)
     crud.create_attachment(
         db,
-        file_name=display_name,
+        file_name=original_name or display_name,
         attachment_type=document_type,
         document_title=(document_title or "").strip() or display_name,
         document_type=document_type or "other",
@@ -285,13 +472,138 @@ def create_document_form(
         storage_path=stored_file["storage_path"],
         file_url=(file_url or "").strip() or None,
         document_version=(document_version or "").strip() or None,
-        document_date=optional_date(document_date),
+        document_date=parsed_document_date,
+        valid_until=parsed_valid_until,
         status=document_status or "draft",
+        is_signed=is_signed,
+        page_count=parsed_page_count,
+        scope=normalized_scope(scope, partner_id),
+        psmf_annex_code=normalize_annex_code(psmf_annex_code),
+        include_in_psmf=include_in_psmf,
+        inclusion_order=parsed_inclusion_order,
         comment=comment,
         checksum_sha256=stored_file["checksum_sha256"],
         uploaded_by_user_id=current_user.id if current_user else None,
     )
-    return redirect_with_message("/documents", message="Document saved.")
+    return redirect_with_message(return_path, message="Document saved.")
+
+
+@router.get(
+    "/documents/{document_id}/view",
+    dependencies=[Depends(require_permission("view"))],
+)
+def view_document(document_id: str, db: Session = Depends(get_db)):
+    document = crud.get_attachment(db, document_id)
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    file_path = resolve_document_path(document.storage_path)
+    if file_path and file_path.is_file():
+        return FileResponse(
+            file_path,
+            media_type=document.mime_type or "application/octet-stream",
+            headers={"Content-Disposition": "inline"},
+        )
+    if document.file_url:
+        return RedirectResponse(document.file_url, status_code=303)
+    raise HTTPException(status_code=404, detail="Document file not found")
+
+
+@router.post(
+    "/documents/{document_id}/versions",
+    dependencies=[Depends(require_any_permission("upload", "manage_document_versions"))],
+)
+def add_document_version(
+    document_id: str,
+    request: Request,
+    document_file: UploadFile = File(...),
+    document_version: str | None = Form(None),
+    document_date: str | None = Form(None),
+    valid_until: str | None = Form(None),
+    document_status: str | None = Form("active"),
+    is_signed: bool = Form(False),
+    page_count: str | None = Form(None),
+    change_reason: str | None = Form(None),
+    return_to: str | None = Form(None),
+    expected_version: int = Form(..., ge=1),
+    db: Session = Depends(get_db),
+):
+    return_path = safe_document_return_url(return_to) or "/documents"
+    document = crud.get_attachment(db, document_id)
+    if not document:
+        return redirect_with_message(return_path, error="Document not found.")
+    require_version(document, expected_version)
+    try:
+        parsed_document_date = optional_date(document_date)
+        parsed_valid_until = optional_date(valid_until)
+        parsed_page_count = optional_int(page_count)
+    except ValueError as exc:
+        return redirect_with_message(return_path, validation=str(exc))
+    try:
+        stored_file = store_document_file(document_file)
+        parsed_page_count = parsed_page_count or pdf_page_count(
+            stored_file.get("storage_path"),
+            document_file.content_type,
+            document_file.filename,
+        )
+    except ValueError as exc:
+        return redirect_with_message(return_path, validation=str(exc))
+    current_user = getattr(request.state, "current_user", None)
+    try:
+        crud.create_new_document_version(
+            db,
+            document,
+            file_name=safe_display_name(document_file.filename),
+            mime_type=document_file.content_type or "application/octet-stream",
+            file_size_bytes=stored_file["file_size_bytes"],
+            storage_path=stored_file["storage_path"],
+            checksum_sha256=stored_file["checksum_sha256"],
+            version_label=(document_version or "").strip() or None,
+            document_date=parsed_document_date,
+            valid_until=parsed_valid_until,
+            status=document_status,
+            is_signed=is_signed,
+            page_count=parsed_page_count,
+            change_reason=(change_reason or "").strip() or None,
+            actor_id=current_user.id if current_user else None,
+        )
+    except Exception:
+        db.rollback()
+        Path(str(stored_file["storage_path"])).unlink(missing_ok=True)
+        raise
+    return redirect_with_message(
+        return_path,
+        message="New immutable document version saved. Earlier PSMF builds were not changed.",
+    )
+
+
+@router.post(
+    "/documents/{document_id}/psmf-inclusion",
+    dependencies=[Depends(require_any_permission("edit", "manage_document_versions"))],
+)
+def set_document_psmf_inclusion(
+    document_id: str,
+    request: Request,
+    include_in_psmf: bool = Form(False),
+    return_to: str | None = Form(None),
+    expected_version: int = Form(..., ge=1),
+    db: Session = Depends(get_db),
+):
+    return_path = safe_document_return_url(return_to) or "/documents"
+    document = crud.get_attachment(db, document_id)
+    if not document:
+        return redirect_with_message(return_path, error="Document not found.")
+    require_version(document, expected_version)
+    current_user = getattr(request.state, "current_user", None)
+    crud.set_attachment_psmf_inclusion(
+        db,
+        document,
+        is_included=include_in_psmf,
+        actor_id=current_user.id if current_user else None,
+    )
+    return redirect_with_message(
+        return_path,
+        message="Document inclusion in PSMF was updated.",
+    )
 
 
 @router.get(
@@ -338,11 +650,13 @@ def delete_document_form(
     document_id: str,
     request: Request,
     delete_reason: str | None = Form(None),
+    expected_version: int = Form(..., ge=1),
     db: Session = Depends(get_db),
 ):
     document = crud.get_attachment(db, document_id)
     if not document:
         return redirect_with_message("/documents", error="Document not found.")
+    require_version(document, expected_version)
     current_user = getattr(request.state, "current_user", None)
     crud.delete_attachment(
         db,
@@ -478,7 +792,9 @@ def validate_upload_name(filename: str | None) -> str:
     return display_name
 
 
-def store_document_file(document_file: UploadFile) -> dict[str, object]:
+def store_document_file(
+    document_file: UploadFile, *, created_paths: list[Path] | None = None,
+) -> dict[str, object]:
     display_name = validate_upload_name(document_file.filename)
 
     UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
@@ -489,6 +805,9 @@ def store_document_file(document_file: UploadFile) -> dict[str, object]:
     checksum = hashlib.sha256()
     file_size = 0
     too_large = False
+    if created_paths is not None:
+        created_paths.append(target)
+    register_new_file(target)
     with target.open("wb") as output:
         while True:
             chunk = document_file.file.read(1024 * 1024)
@@ -510,9 +829,8 @@ def store_document_file(document_file: UploadFile) -> dict[str, object]:
         target.unlink(missing_ok=True)
         raise ValueError("Uploaded file is empty.")
 
-    relative_path = target.relative_to(Path.cwd().resolve()).as_posix()
     return {
-        "storage_path": relative_path,
+        "storage_path": target.as_posix(),
         "file_size_bytes": file_size,
         "checksum_sha256": checksum.hexdigest(),
     }
@@ -539,6 +857,74 @@ def optional_date(value: str | None) -> date | None:
     if not value:
         return None
     return date.fromisoformat(value)
+
+
+def optional_int(value: str | None) -> int | None:
+    value = (value or "").strip()
+    if not value:
+        return None
+    parsed = int(value)
+    if parsed < 0:
+        raise ValueError("Numeric values cannot be negative.")
+    return parsed
+
+
+def safe_document_return_url(value: str | None) -> str | None:
+    value = (value or "").strip()
+    if not value or not value.startswith("/") or value.startswith("//"):
+        return None
+    return value
+
+
+def normalize_annex_code(value: str | None) -> str | None:
+    value = (value or "").strip()
+    if not value:
+        return None
+    return value if value.startswith("Приложение ") else f"Приложение {value}"
+
+
+def normalized_scope(value: str | None, partner_id: str | None) -> str:
+    value = (value or "").strip().upper()
+    if value not in {"GLOBAL", "PARTNER_SPECIFIC"}:
+        value = "PARTNER_SPECIFIC" if partner_id else "GLOBAL"
+    return value
+
+
+def matches_expiry(valid_until: date | None, filter_value: str | None) -> bool:
+    today = date.today()
+    if filter_value == "expired":
+        return bool(valid_until and valid_until < today)
+    if filter_value == "valid":
+        return bool(not valid_until or valid_until >= today)
+    if filter_value == "no_expiry":
+        return valid_until is None
+    return True
+
+
+def matches_psmf_inclusion(document, filter_value: str | None) -> bool:
+    if filter_value == "included":
+        return bool(document.include_in_psmf)
+    if filter_value == "excluded":
+        return not document.include_in_psmf
+    if filter_value == "included_in_build":
+        return bool(document.build_inclusions)
+    return True
+
+
+def pdf_page_count(storage_path: object, mime_type: str | None, filename: str | None) -> int | None:
+    if not storage_path:
+        return None
+    if (mime_type or "").lower() != "application/pdf" and Path(filename or "").suffix.lower() != ".pdf":
+        return None
+    file_path = resolve_document_path(str(storage_path))
+    if not file_path:
+        return None
+    try:
+        from pypdf import PdfReader
+
+        return len(PdfReader(file_path).pages)
+    except Exception:
+        return None
 
 
 @router.get("/settings", response_class=HTMLResponse)
