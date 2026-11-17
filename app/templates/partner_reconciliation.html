@@ -1,164 +1,53 @@
 {% extends "base.html" %}
-{% block title %}{{ _('Partner Reconciliation') }} - {{ _('PV MVP') }}{% endblock %}
-{% set can_review_reconciliation = has_permission('edit') or has_permission('comment') %}
+{% block title %}{{ _('Partner Reconciliation') }} - {{ _('PV System') }}{% endblock %}
+{% set has_result = preview or reconciliation %}
+{% set selected_partner = reconciliation.partner if reconciliation else (preview.partner if preview else none) %}
+{% set selected_partner_name = selected_partner.partner_name if selected_partner else '' %}
+{% set selected_contact_name = reconciliation.contact_name if reconciliation else (preview.contact.last_name ~ ' ' ~ preview.contact.first_name if preview and preview.contact else '') %}
+{% set selected_contact_email = reconciliation.contact_email if reconciliation else (preview.contact.email if preview and preview.contact else '') %}
 
-{% macro status_select(name, selected) -%}
-<select class="form-select form-select-sm" name="{{ name }}">
-    {% for status in status_options %}
-    <option value="{{ status }}" {% if selected == status %}selected{% endif %}>{{ _(status) }}</option>
-    {% endfor %}
-</select>
-{%- endmacro %}
-
-{% macro review_controls(item, saved) -%}
-{% if saved and can_review_reconciliation %}
-<td>
-    <select class="form-select form-select-sm" name="reconciliation_status" form="item-form-{{ item.id }}">
-        {% for status in status_options %}
-        <option value="{{ status }}" {% if item.reconciliation_status == status %}selected{% endif %}>{{ _(status) }}</option>
-        {% endfor %}
-    </select>
-</td>
-<td><input class="form-control form-control-sm" name="reviewer_comment" value="{{ item.reviewer_comment or '' }}" form="item-form-{{ item.id }}"></td>
-<td>
-    <form id="item-form-{{ item.id }}" method="post" action="/partner-reconciliation/items/{{ item.id }}"></form>
-    {% if item.source_side == "partner" %}
-    <select class="form-select form-select-sm mb-1" name="internal_case_id" form="item-form-{{ item.id }}">
-        <option value="">{% if item.internal_case_id %}{{ _('Unlink') }}{% else %}{{ _('Link internal case') }}{% endif %}</option>
-        {% for case in cases %}
-        <option value="{{ case.id }}" {% if item.internal_case_id == case.id %}selected{% endif %}>{{ case.case_number }}</option>
-        {% endfor %}
-    </select>
-    {% else %}
-    <input type="hidden" name="internal_case_id" value="{{ item.internal_case_id or '' }}" form="item-form-{{ item.id }}">
-    {% endif %}
-    <button class="btn btn-outline-primary btn-sm icon-only" type="submit" title="{{ _('Save') }}" form="item-form-{{ item.id }}"><i data-lucide="save"></i></button>
-</td>
-{% else %}
-<td><span class="status-pill">{{ _(item.reconciliation_status) }}</span></td>
-<td>{{ item.reviewer_comment or "" }}</td>
-{% endif %}
-{%- endmacro %}
-
-{% macro item_table(items, side, saved) -%}
-<div class="table-responsive">
-    <table class="table table-sm table-hover align-middle">
-        <thead>
-        {% if side == "our_company" %}
-        <tr>
-            <th>{{ _('Case ID') }}</th>
-            <th>{{ _('Received by us') }}</th>
-            <th>{{ _('Transferred to partner') }}</th>
-            <th>{{ _('Partner') }}</th>
-            <th>{{ _('Product') }}</th>
-            <th>{{ _('Active substance') }}</th>
-            <th>{{ _('Patient') }}</th>
-            <th>{{ _('Country') }}</th>
-            <th>{{ _('Adverse event') }}</th>
-            <th>{{ _('Seriousness') }}</th>
-            <th>{{ _('Message type') }}</th>
-            <th>{{ _('Source') }}</th>
-            <th>{{ _('Short description') }}</th>
-            <th>{{ _('Reconciliation status') }}</th>
-            <th>{{ _('Comment') }}</th>
-            {% if saved and can_review_reconciliation %}<th>{{ _('Actions') }}</th>{% endif %}
-        </tr>
-        {% else %}
-        <tr>
-            <th>{{ _('Partner case ID') }}</th>
-            <th>{{ _('Internal case ID') }}</th>
-            <th>{{ _('Received by partner') }}</th>
-            <th>{{ _('Transferred to us') }}</th>
-            <th>{{ _('Partner') }}</th>
-            <th>{{ _('Product') }}</th>
-            <th>{{ _('Active substance') }}</th>
-            <th>{{ _('Patient') }}</th>
-            <th>{{ _('Country') }}</th>
-            <th>{{ _('Adverse event') }}</th>
-            <th>{{ _('Seriousness') }}</th>
-            <th>{{ _('Message type') }}</th>
-            <th>{{ _('Short description') }}</th>
-            <th>{{ _('Reconciliation status') }}</th>
-            <th>{{ _('Comment') }}</th>
-            {% if saved and can_review_reconciliation %}<th>{{ _('Actions') }}</th>{% endif %}
-        </tr>
-        {% endif %}
-        </thead>
-        <tbody>
-        {% for item in items %}
-        <tr>
-            {% if side == "our_company" %}
-            <td class="fw-medium">{{ item.internal_case_number or item.partner_case_number or "" }}</td>
-            <td>{{ item.receipt_date_our_company or "" }}</td>
-            <td>{{ item.transfer_date_our_company or "" }}</td>
-            <td>{{ item.partner_name or "" }}</td>
-            <td>{{ item.product_name or "" }}</td>
-            <td>{{ item.active_substance or "" }}</td>
-            <td>{{ item.patient or "" }}</td>
-            <td>{{ item.country or "" }}</td>
-            <td>{{ item.adverse_event or "" }}</td>
-            <td>{{ item.seriousness or "" }}</td>
-            <td>{{ _(item.case_type) }}</td>
-            <td>{{ _(item.source_type) }}</td>
-            <td>{{ item.short_description or "" }}</td>
-            {% else %}
-            <td class="fw-medium">{{ item.partner_case_number or item.partner_case_id or "" }}</td>
-            <td>{{ item.internal_case_number or "" }}</td>
-            <td>{{ item.receipt_date_partner or "" }}</td>
-            <td>{{ item.transfer_date_partner or "" }}</td>
-            <td>{{ item.partner_name or "" }}</td>
-            <td>{{ item.product_name or "" }}</td>
-            <td>{{ item.active_substance or "" }}</td>
-            <td>{{ item.patient or "" }}</td>
-            <td>{{ item.country or "" }}</td>
-            <td>{{ item.adverse_event or "" }}</td>
-            <td>{{ item.seriousness or "" }}</td>
-            <td>{{ _(item.case_type) }}</td>
-            <td>{{ item.short_description or "" }}</td>
-            {% endif %}
-            {{ review_controls(item, saved) }}
-        </tr>
-        {% else %}
-        <tr><td colspan="{% if saved and can_review_reconciliation %}16{% else %}15{% endif %}" class="text-secondary">{% if status_filter or search or product_filter %}{{ _('No records match the filters.') }}{% else %}{{ _('No records.') }}{% endif %}</td></tr>
-        {% endfor %}
-        </tbody>
-    </table>
+{% macro empty_panel(text, icon='inbox') -%}
+<div class="empty-state recon-empty">
+    <i data-lucide="{{ icon }}"></i>
+    <span>{{ text }}</span>
 </div>
 {%- endmacro %}
 
-{% macro discrepancy_table(items, saved) -%}
-<div class="table-responsive">
-    <table class="table table-sm table-hover align-middle">
+{% macro preview_table(items, side) -%}
+<div class="recon-table-wrap recon-preview-table-wrap">
+    <table class="table table-sm table-hover align-middle recon-preview-table">
         <thead>
         <tr>
-            <th>{{ _('Source side') }}</th>
-            <th>{{ _('Internal case ID') }}</th>
-            <th>{{ _('Partner case ID') }}</th>
-            <th>{{ _('Product') }}</th>
-            <th>{{ _('Active substance') }}</th>
-            <th>{{ _('Patient') }}</th>
-            <th>{{ _('Adverse event') }}</th>
-            <th>{{ _('Match method') }}</th>
-            <th>{{ _('Reconciliation status') }}</th>
-            <th>{{ _('Comment') }}</th>
-            {% if saved and can_review_reconciliation %}<th>{{ _('Actions') }}</th>{% endif %}
+            <th>Номер сообщения</th>
+            <th>Дата</th>
+            <th>Препарат</th>
+            <th>Нежелательная реакция</th>
         </tr>
         </thead>
         <tbody>
         {% for item in items %}
         <tr>
-            <td>{{ _(item.source_side) }}</td>
-            <td class="fw-medium">{{ item.internal_case_number or "" }}</td>
-            <td>{{ item.partner_case_number or item.partner_case_id or "" }}</td>
-            <td>{{ item.product_name or "" }}</td>
-            <td>{{ item.active_substance or "" }}</td>
-            <td>{{ item.patient or "" }}</td>
-            <td>{{ item.adverse_event or "" }}</td>
-            <td>{{ _(item.match_method) }}</td>
-            {{ review_controls(item, saved) }}
+            <td>
+                <div class="fw-semibold">{{ item.internal_case_number or item.partner_case_number or item.partner_case_id or '—' }}</div>
+                <div class="small text-secondary">{{ _(item.case_type) }}{% if item.country %} / {{ item.country }}{% endif %}</div>
+            </td>
+            <td>
+                {% if side == 'partner' %}
+                <div>{{ item.receipt_date_partner or item.transfer_date_partner or '—' }}</div>
+                {% elif side == 'needs_review' %}
+                <div>{{ item.receipt_date_our_company or item.receipt_date_partner or '—' }}</div>
+                {% else %}
+                <div>{{ item.receipt_date_our_company or item.transfer_date_our_company or '—' }}</div>
+                {% endif %}
+            </td>
+            <td>
+                <div class="fw-medium">{{ item.product_name or '—' }}</div>
+                {% if item.active_substance %}<div class="small text-secondary">{{ item.active_substance }}</div>{% endif %}
+            </td>
+            <td><div class="recon-description">{{ item.adverse_event or item.short_description or '—' }}</div></td>
         </tr>
         {% else %}
-        <tr><td colspan="{% if saved and can_review_reconciliation %}11{% else %}10{% endif %}" class="text-secondary">{% if status_filter or search or product_filter %}{{ _('No records match the filters.') }}{% else %}{{ _('No records.') }}{% endif %}</td></tr>
+        <tr><td colspan="4">{{ empty_panel('За выбранный период сообщений нет.', 'check-circle') }}</td></tr>
         {% endfor %}
         </tbody>
     </table>
@@ -166,349 +55,469 @@
 {%- endmacro %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
     <div>
-        <h1 class="h3 mb-1">{{ _('Partner Reconciliation') }}</h1>
-        <div class="text-secondary small">{{ _('Partner safety case reconciliation') }}</div>
+        <h1 class="h3 mb-1">Форма сверки с партнёром</h1>
+        <div class="text-secondary small">Выберите партнёра и период — препараты и контакт будут подставлены автоматически.</div>
     </div>
     {% if latest_reconciliation %}
-    <a class="btn btn-outline-primary icon-button" href="/partner-reconciliation?reconciliation_id={{ latest_reconciliation.id }}"><i data-lucide="skip-forward"></i><span>{{ _('Last record') }}</span></a>
+    <a class="btn btn-outline-secondary btn-sm icon-button" href="/partner-reconciliation?reconciliation_id={{ latest_reconciliation.id }}">
+        <i data-lucide="history"></i><span>Последняя сверка</span>
+    </a>
     {% endif %}
 </div>
 
-{% if message %}
-<div class="alert alert-success py-2" role="status">{{ _(message) }}</div>
+{% if message %}<div class="alert alert-success py-2" role="status">{{ _(message) }}</div>{% endif %}
+{% if error and not registration_error %}<div class="alert alert-danger py-2" role="alert">{{ _(error) }}</div>{% endif %}
+{% if validation %}<div class="alert alert-warning py-2" role="alert">{{ _(validation) }}</div>{% endif %}
+{% if registration_error %}
+<div class="alert alert-danger recon-registration-error" role="alert">
+    <div class="recon-registration-error-icon"><i data-lucide="triangle-alert"></i></div>
+    <div>
+        <strong>Не удалось определить актуальное РУ</strong>
+        <div>{{ registration_error }}</div>
+        {% if selected_partner_id %}
+        <a href="/products?partner_id={{ selected_partner_id }}">Открыть препараты партнёра</a>
+        {% endif %}
+    </div>
+</div>
 {% endif %}
-{% if error %}
-<div class="alert alert-danger py-2" role="alert">{{ _(error) }}</div>
+{% if existing_period_reconciliation %}
+<div class="alert alert-warning py-2" role="alert">
+    Сверка за этот период уже создана.
+    <a href="/partner-reconciliation?reconciliation_id={{ existing_period_reconciliation.id }}">Открыть</a>
+</div>
 {% endif %}
-{% if validation %}
-<div class="alert alert-warning py-2" role="alert">{{ _(validation) }}</div>
+{% if preview and preview.direction_review_items %}
+<div class="alert alert-warning py-2" role="alert">
+    У {{ preview.direction_review_items|length }} {{ 'сообщения' if preview.direction_review_items|length == 1 else 'сообщений' }} направление требует уточнения.
+    Откройте сообщения по безопасности и укажите направление перед формированием сверки.
+    <a href="/safety-reports?partner_id={{ selected_partner_id }}">Открыть сообщения</a>
+</div>
 {% endif %}
 
-<div class="row g-3">
-    <aside class="col-lg-2">
-        <section class="surface h-100">
-            <h2 class="h6 section-title">{{ _('Partners') }}</h2>
-            <div class="list-group list-group-flush">
-                {% for partner in partners %}
-                <a class="list-group-item list-group-item-action {% if selected_partner_id == partner.id %}active{% endif %}" href="/partner-reconciliation?partner_id={{ partner.id }}&period_start={{ period_start }}&period_end={{ period_end }}">{{ partner.partner_name }}</a>
+<div class="recon-builder">
+    <aside class="recon-builder-sidebar">
+        <section class="surface recon-builder-controls">
+        <div class="recon-builder-heading">
+            <div>
+                <h2 class="h6 mb-1">Партнёр и период</h2>
+                <div class="small text-secondary">В списке только партнёры с ежемесячной или ежеквартальной сверкой.</div>
+            </div>
+        </div>
+
+        {% if reconciliation %}
+        <div class="recon-selected-values">
+            <div>
+                <span>Партнёр</span>
+                <strong>{{ selected_partner_name }}</strong>
+                {% if selected_partner %}<small>{{ _(selected_partner.reconciliation_frequency) }}</small>{% endif %}
+            </div>
+            <div>
+                <span>Период сверки</span>
+                <strong>{{ period_start }} — {{ period_end }}</strong>
+            </div>
+        </div>
+        <a class="btn btn-outline-primary w-100 icon-button" href="/partner-reconciliation">
+            <i data-lucide="plus"></i><span>Новая сверка</span>
+        </a>
+        {% else %}
+        <form id="reconciliation-main-form" method="get" action="/partner-reconciliation">
+            <div class="mb-3">
+                <label class="form-label" for="reconciliation-partner">Партнёр</label>
+                <select class="form-select" id="reconciliation-partner" name="partner_id" required>
+                    <option value="" disabled {% if not selected_partner_id %}selected{% endif %}>Выберите партнёра</option>
+                    {% for partner in partners %}
+                    <option
+                        value="{{ partner.id }}"
+                        data-frequency="{{ partner.reconciliation_frequency }}"
+                        {% if selected_partner_id == partner.id %}selected{% endif %}
+                    >{{ partner.partner_name }} · {{ 'ежемесячно' if partner.reconciliation_frequency == 'monthly' else 'ежеквартально' }}</option>
+                    {% endfor %}
+                </select>
+                {% if not partners %}<div class="form-text text-warning">Нет партнёров с настроенной сверкой.</div>{% endif %}
+            </div>
+
+            <fieldset class="recon-period-fieldset mb-3">
+                <legend class="form-label">Период сверки</legend>
+                <div class="recon-period-fields">
+                    <div>
+                        <label class="small text-secondary" for="reconciliation-period-start">С</label>
+                        <input class="form-control" id="reconciliation-period-start" type="date" name="period_start" value="{{ period_start }}" required>
+                    </div>
+                    <div>
+                        <label class="small text-secondary" for="reconciliation-period-end">По</label>
+                        <input class="form-control" id="reconciliation-period-end" type="date" name="period_end" value="{{ period_end }}" required>
+                    </div>
+                </div>
+                <div class="recon-period-presets recon-quick-periods mt-2" role="group" aria-label="Быстрый выбор периода">
+                    {% for preset in period_presets %}
+                    <button
+                        class="btn btn-outline-secondary btn-sm recon-period-preset {% if preset.period_start == period_start and preset.period_end == period_end %}active{% endif %}"
+                        type="button"
+                        data-period-start="{{ preset.period_start }}"
+                        data-period-end="{{ preset.period_end }}"
+                    >
+                        {% if preset.key == 'current_month' %}Текущий месяц{% elif preset.key == 'previous_month' %}Прошлый месяц{% else %}Прошлый квартал{% endif %}
+                    </button>
+                    {% endfor %}
+                </div>
+            </fieldset>
+
+            <input id="reconciliation-language-main" type="hidden" name="language" value="{{ language if language in ['ru', 'en'] else 'ru' }}">
+            <input type="hidden" name="expected_preview_version" value="{{ preview_version or '' }}">
+            <input type="hidden" name="reconciliation_type" value="periodic">
+            <input type="hidden" name="document_format" value="pdf">
+            <input type="hidden" name="prepared_by" value="{{ prepared_by or '' }}">
+            <div class="recon-form-actions">
+                <button class="btn btn-outline-primary icon-button" type="submit" {% if not selected_partner_id %}disabled{% endif %}>
+                    <i data-lucide="refresh-cw"></i><span>Обновить предварительный просмотр</span>
+                </button>
+                <button class="btn btn-primary icon-button" type="submit" formaction="/partner-reconciliation/save" formmethod="post" {% if not preview or existing_period_reconciliation or preview.direction_review_items %}disabled{% endif %}>
+                    <i data-lucide="save"></i><span>Сохранить</span>
+                </button>
+            </div>
+        </form>
+        {% endif %}
+
+        </section>
+
+        <section class="surface recon-schedule-panel">
+            <div class="recon-schedule-heading">
+                <div>
+                    <h2 class="h6 mb-1">План сверок</h2>
+                    <div class="small text-secondary">Партнёры и периоды, которые нужно проверить.</div>
+                </div>
+                <span class="recon-schedule-count" title="Количество партнёров">{{ reconciliation_schedule|length }}</span>
+            </div>
+
+            <div class="recon-schedule-list">
+                {% for row in reconciliation_schedule %}
+                <a
+                    class="recon-schedule-item {{ 'is-completed' if row.completed else 'is-required' }}"
+                    href="{{ row.href }}"
+                    title="{{ 'Открыть проведённую сверку' if row.completed else 'Сформировать сверку' }}"
+                >
+                    <span class="recon-schedule-icon">
+                        <i data-lucide="{{ 'circle-check' if row.completed else 'clock-3' }}"></i>
+                    </span>
+                    <span class="recon-schedule-main">
+                        <strong>{{ row.partner.partner_name }}</strong>
+                        <small>{{ row.period_label }}</small>
+                    </span>
+                    <span class="recon-schedule-meta">
+                        <span class="recon-frequency-badge">{{ row.frequency_label }}</span>
+                        <span class="recon-schedule-status">{{ 'Проведена' if row.completed else 'Требуется сверка' }}</span>
+                    </span>
+                </a>
                 {% else %}
-                <span class="text-secondary small">{{ _('No partners yet.') }}</span>
+                <div class="recon-schedule-empty">
+                    <i data-lucide="calendar-check"></i>
+                    <span>Нет партнёров с запланированной сверкой.</span>
+                </div>
                 {% endfor %}
             </div>
         </section>
     </aside>
-    <div class="col-lg-10">
-        <section class="surface mb-3">
-            <h2 class="h6 section-title">{{ _('Filters') }}</h2>
-            <form class="row g-2 align-items-end" method="get" action="/partner-reconciliation">
-                {% if reconciliation %}
-                <input type="hidden" name="reconciliation_id" value="{{ reconciliation.id }}">
-                {% endif %}
-                <div class="col-md-3">
-                    <label class="form-label">{{ _('Partner') }}</label>
-                    <select class="form-select" name="partner_id" required {% if reconciliation %}disabled{% endif %}>
-                        <option value="" disabled {% if not selected_partner_id %}selected{% endif %}>{{ _('Select partner') }}</option>
-                        {% for partner in partners %}
-                        <option value="{{ partner.id }}" {% if selected_partner_id == partner.id %}selected{% endif %}>{{ partner.partner_name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="col-md-2">
-                    <label class="form-label">{{ _('Date from') }}</label>
-                    <input class="form-control" type="date" name="period_start" value="{{ period_start }}" {% if reconciliation %}disabled{% endif %}>
-                </div>
-                <div class="col-md-2">
-                    <label class="form-label">{{ _('Date to') }}</label>
-                    <input class="form-control" type="date" name="period_end" value="{{ period_end }}" {% if reconciliation %}disabled{% endif %}>
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">{{ _('Partner contact') }}</label>
-                    <select class="form-select" name="contact_id" {% if reconciliation %}disabled{% endif %}>
-                        <option value="">{{ _('None') }}</option>
-                        {% for contact in contacts %}
-                        {% if not selected_partner_id or contact.partner_id == selected_partner_id %}
-                        <option value="{{ contact.id }}" {% if selected_contact_id == contact.id %}selected{% endif %}>{{ contact.last_name }} {{ contact.first_name }}{% if contact.email %} / {{ contact.email }}{% endif %}</option>
-                        {% endif %}
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="col-md-2">
-                    <label class="form-label">{{ _('Prepared by') }}</label>
-                    <input class="form-control" name="prepared_by" value="{{ reconciliation.prepared_by if reconciliation else '' }}">
-                </div>
-                <div class="col-md-2">
-                    <label class="form-label">{{ _('Reconciliation type') }}</label>
-                    <select class="form-select" name="reconciliation_type" {% if reconciliation %}disabled{% endif %}>
-                        <option value="periodic" {% if reconciliation and reconciliation.reconciliation_type == 'periodic' %}selected{% endif %}>{{ _('Periodic') }}</option>
-                        <option value="ad_hoc" {% if reconciliation and reconciliation.reconciliation_type == 'ad_hoc' %}selected{% endif %}>{{ _('Ad hoc') }}</option>
-                    </select>
-                </div>
-                <div class="col-md-2">
-                    <label class="form-label">{{ _('Document format') }}</label>
-                    <select class="form-select" name="document_format" {% if reconciliation %}disabled{% endif %}>
-                        <option value="xlsx" {% if not reconciliation or reconciliation.document_format == 'xlsx' %}selected{% endif %}>XLSX</option>
-                        <option value="docx" {% if reconciliation and reconciliation.document_format == 'docx' %}selected{% endif %}>DOCX</option>
-                    </select>
-                </div>
-                <div class="col-md-2">
-                    <label class="form-label">{{ _('Status filter') }}</label>
-                    <select class="form-select" name="status_filter">
-                        <option value="">{{ _('All') }}</option>
-                        {% for status in status_options %}
-                        <option value="{{ status }}" {% if status_filter == status %}selected{% endif %}>{{ _(status) }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">{{ _('Product') }}</label>
-                    <select class="form-select" name="product_id">
-                        <option value="">{{ _('All') }}</option>
-                        {% for product in products %}
-                        <option value="{{ product.id }}" {% if product_filter == product.id %}selected{% endif %}>{{ product.product_name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">{{ _('Products in reconciliation') }}</label>
-                    <input class="form-control" name="products" value="{% if reconciliation %}{{ reconciliation.products or '' }}{% elif preview %}{{ preview.products|map(attribute='product_name')|join(', ') }}{% endif %}">
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">{{ _('Search') }}</label>
-                    <input class="form-control" name="search" value="{{ search }}">
-                </div>
-                {% if not reconciliation %}
-                <div class="col-md-6">
-                    <label class="form-label">{{ _('Comments') }}</label>
-                    <input class="form-control" name="comments">
-                </div>
-                {% endif %}
-                <div class="col-md-7 d-flex flex-wrap gap-2">
-                    <button class="btn btn-primary icon-button" type="submit" name="language" value="ru" {% if reconciliation %}disabled{% endif %}><i data-lucide="file-text"></i><span>{{ _('Generate reconciliation form') }}</span></button>
-                    <button class="btn btn-outline-primary icon-button" type="submit" name="language" value="en" {% if reconciliation %}disabled{% endif %}><i data-lucide="languages"></i><span>{{ _('Generate reconciliation form EN') }}</span></button>
-                    {% if has_permission('export') %}
-                    <button class="btn btn-outline-primary icon-button" type="submit" formaction="/partner-reconciliation/export" formmethod="get" name="language" value="{{ language }}"><i data-lucide="file-spreadsheet"></i><span>{{ _('Export to Excel') }}</span></button>
-                    {% endif %}
-                    {% if has_permission('create') and not reconciliation and preview %}
-                    <button class="btn btn-outline-primary icon-button" type="submit" formaction="/partner-reconciliation/save" formmethod="post" name="language" value="{{ language }}"><i data-lucide="save"></i><span>{{ _('Save reconciliation result') }}</span></button>
-                    {% endif %}
-                </div>
-            </form>
-            {% if reconciliation %}
-            {% if has_permission('approve') %}
-            <form class="row g-2 align-items-end mt-2" method="post" action="/partner-reconciliation/{{ reconciliation.id }}/confirm">
-                <div class="col-md-3">
-                    <label class="form-label">{{ _('Confirmed by') }}</label>
-                    <input class="form-control" name="confirmed_by_user" value="{{ reconciliation.confirmed_by_user or '' }}">
-                </div>
-                <div class="col-md-4">
-                    <button class="btn btn-primary icon-button" type="submit" {% if reconciliation.reconciliation_status == 'closed' %}disabled{% endif %}><i data-lucide="check-circle"></i><span>{{ _('Confirm and save reconciliation') }}</span></button>
-                </div>
-                <div class="col-md-5 text-secondary small">
-                    {{ _('Current status') }}: <span class="status-pill">{{ _(reconciliation.reconciliation_status) }}</span>
-                </div>
-            </form>
-            {% else %}
-            <div class="mt-2 text-secondary small">
-                {{ _('Current status') }}: <span class="status-pill">{{ _(reconciliation.reconciliation_status) }}</span>
-            </div>
-            {% endif %}
-            <div class="border-top mt-3 pt-3">
-                <form class="row g-2 align-items-end" method="post" action="/partner-reconciliation/{{ reconciliation.id }}/status">
-                    <div class="col-md-2">
-                        <label class="form-label">{{ _('Status') }}</label>
-                        <select class="form-select" name="reconciliation_status">
-                            {% for status in record_status_options %}
-                            <option value="{{ status }}" {% if reconciliation.reconciliation_status == status %}selected{% endif %}>{{ _(status) }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <div class="col-md-2">
-                        <label class="form-label">{{ _('Sent date') }}</label>
-                        <input class="form-control" type="date" name="sent_date" value="{{ reconciliation.sent_date or '' }}">
-                    </div>
-                    <div class="col-md-2">
-                        <label class="form-label">{{ _('Response date') }}</label>
-                        <input class="form-control" type="date" name="response_date" value="{{ reconciliation.response_date or '' }}">
-                    </div>
-                    <div class="col-md-3">
-                        <label class="form-label">{{ _('Products') }}</label>
-                        <input class="form-control" name="products" value="{{ reconciliation.products or '' }}">
-                    </div>
-                    <div class="col-md-3">
-                        <label class="form-label">{{ _('Discrepancy description') }}</label>
-                        <input class="form-control" name="discrepancy_description" value="{{ reconciliation.discrepancy_description or '' }}">
-                    </div>
-                    <div class="col-md-4">
-                        <label class="form-label">{{ _('Comments') }}</label>
-                        <input class="form-control" name="comments" value="{{ reconciliation.comments or '' }}">
-                    </div>
-                    <div class="col-md-2">
-                        <button class="btn btn-outline-primary w-100 icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Save') }}</span></button>
-                    </div>
-                </form>
-                <form class="row g-2 align-items-end mt-2" method="post" action="/partner-reconciliation/{{ reconciliation.id }}/generate-document">
-                    <div class="col-md-2">
-                        <label class="form-label">{{ _('Document format') }}</label>
-                        <select class="form-select" name="document_format">
-                            <option value="xlsx" {% if reconciliation.document_format == 'xlsx' %}selected{% endif %}>XLSX</option>
-                            <option value="docx" {% if reconciliation.document_format == 'docx' %}selected{% endif %}>DOCX</option>
-                        </select>
-                    </div>
-                    <div class="col-md-4 d-flex flex-wrap gap-2">
-                        <button class="btn btn-outline-primary icon-button" type="submit"><i data-lucide="file-check-2"></i><span>{{ _('Generate document') }}</span></button>
-                        {% if reconciliation.document_filename %}
-                        <a class="btn btn-outline-secondary icon-button" href="/partner-reconciliation/{{ reconciliation.id }}/document"><i data-lucide="download"></i><span>{{ reconciliation.document_filename }}</span></a>
-                        {% endif %}
-                    </div>
-                    <div class="col-md-6 text-secondary small">
-                        {{ _('Generated at') }}: {{ reconciliation.generated_at or '' }}
-                    </div>
-                </form>
-                <div class="row g-2 align-items-end mt-2">
-                    <div class="col-md-7">
-                        <form class="row g-2 align-items-end" method="post" action="/partner-reconciliation/{{ reconciliation.id }}/response" enctype="multipart/form-data">
-                            <div class="col-md-6">
-                                <label class="form-label">{{ _('Partner response file') }}</label>
-                                <input class="form-control" type="file" name="response_file" required>
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">{{ _('Discrepancy description') }}</label>
-                                <input class="form-control" name="discrepancy_description" value="{{ reconciliation.discrepancy_description or '' }}">
-                            </div>
-                            <div class="col-md-2">
-                                <button class="btn btn-outline-primary w-100 icon-only" type="submit" title="{{ _('Save') }}"><i data-lucide="upload"></i></button>
-                            </div>
-                        </form>
-                    </div>
-                    <div class="col-md-5">
-                        <form method="post" action="/partner-reconciliation/{{ reconciliation.id }}/task">
-                            <button class="btn btn-outline-secondary icon-button" type="submit" {% if not reconciliation.discrepancy_description and not reconciliation.discrepancy_count %}disabled{% endif %}><i data-lucide="list-plus"></i><span>{{ _('Create discrepancy task') }}</span></button>
-                            {% if reconciliation.response_document %}
-                            <a class="btn btn-outline-secondary icon-button" href="/documents/{{ reconciliation.response_document.id }}/download"><i data-lucide="download"></i><span>{{ _('Partner response') }}</span></a>
-                            {% endif %}
-                        </form>
-                    </div>
-                </div>
-            </div>
-            {% endif %}
-        </section>
 
-        {% if reconciliation and outlook_preview %}
-        <section class="surface mb-3">
-            <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+    <section class="surface recon-preview-window">
+        <div class="recon-builder-heading">
+            <div>
+                <h2 class="h6 mb-1">Предварительный просмотр</h2>
+                <div class="small text-secondary">Так будет выглядеть содержание формы сверки.</div>
+            </div>
+        </div>
+
+        {% if has_result %}
+        <article class="recon-preview-document">
+            <header class="recon-preview-document-header">
                 <div>
-                    <h2 class="h6 section-title mb-1">Outlook</h2>
-                    <div class="text-secondary small">{{ _('Status') }}: <span class="status-pill">{{ _(reconciliation.outlook_status or 'not_created') }}</span></div>
+                    <span class="recon-preview-kicker">Форма сверки сообщений по безопасности</span>
+                    <h3>{{ selected_partner_name }}</h3>
                 </div>
-                <div class="d-flex flex-wrap gap-2">
-                    <a class="btn btn-outline-secondary icon-button" href="/outlook/auth?reconciliation_id={{ reconciliation.id }}"><i data-lucide="key-round"></i><span>Microsoft 365</span></a>
-                    {% if reconciliation.outlook_draft_web_link %}
-                    <a class="btn btn-outline-primary icon-button" href="{{ reconciliation.outlook_draft_web_link }}" target="_blank" rel="noopener"><i data-lucide="external-link"></i><span>{{ _('Open draft in Outlook') }}</span></a>
-                    {% endif %}
-                </div>
-            </div>
-            {% if reconciliation.outlook_error %}
-            <div class="alert alert-warning py-2">{{ reconciliation.outlook_error }}</div>
-            {% endif %}
-            <div class="row g-3 mb-3">
-                <div class="col-md-3">
-                    <span class="text-secondary small">To</span>
-                    <div>{{ outlook_preview.email_to }}</div>
-                </div>
-                <div class="col-md-3">
-                    <span class="text-secondary small">Cc</span>
-                    <div>{{ outlook_preview.email_cc }}</div>
-                </div>
-                <div class="col-md-3">
-                    <span class="text-secondary small">{{ _('Attachment') }}</span>
-                    <div>{{ outlook_preview.attachment }}</div>
-                </div>
-                <div class="col-md-3">
-                    <span class="text-secondary small">Microsoft</span>
-                    <div>{% if outlook_preview.configured and outlook_preview.authorized %}{{ _('Ready') }}{% elif outlook_preview.configured %}{{ _('Authorization required') }}{% else %}{{ _('Not configured') }}{% endif %}</div>
-                </div>
-            </div>
-            <form class="row g-3" method="post" action="/partner-reconciliation/{{ reconciliation.id }}/outlook-draft">
-                <div class="col-md-12">
-                    <label class="form-label">{{ _('Email subject') }}</label>
-                    <input class="form-control" name="email_subject" value="{{ outlook_preview.subject }}" required>
-                </div>
-                <div class="col-md-12">
-                    <label class="form-label">{{ _('Email body') }}</label>
-                    <textarea class="form-control" name="email_body" rows="8" required>{{ outlook_preview.body }}</textarea>
-                </div>
-                <div class="col-md-12 d-flex flex-wrap gap-2">
-                    {% set draft_disabled = (not outlook_preview.has_document) or (not outlook_preview.has_to) or (not outlook_preview.configured) or (not outlook_preview.authorized) or reconciliation.reconciliation_status in ['sent', 'closed'] %}
-                    <button class="btn btn-primary icon-button" type="submit" {% if draft_disabled %}disabled{% endif %}><i data-lucide="mail-plus"></i><span>{% if reconciliation.outlook_status == 'error' %}{{ _('Retry') }}{% else %}{{ _('Create Outlook draft') }}{% endif %}</span></button>
-                    <button class="btn btn-outline-primary icon-button" type="submit" formaction="/partner-reconciliation/{{ reconciliation.id }}/outlook-send" onclick="return confirm('Письмо будет отправлено получателям из карточки партнёра. Продолжить?')" {% if reconciliation.reconciliation_status in ['sent', 'closed'] or not reconciliation.outlook_message_id or not outlook_preview.configured or not outlook_preview.authorized %}disabled{% endif %}><i data-lucide="send"></i><span>{{ _('Send via Outlook') }}</span></button>
-                </div>
-            </form>
-        </section>
-        {% endif %}
+                <div class="recon-preview-period">{{ period_start }} — {{ period_end }}</div>
+            </header>
 
-        <section class="surface mb-3">
-            <h2 class="h6 section-title">{{ _('Saved reconciliations') }}</h2>
-            <div class="table-responsive">
-                <table class="table table-sm table-hover align-middle">
-                    <thead>
-                    <tr>
-                        <th>{{ _('Partner') }}</th>
-                        <th>{{ _('Period') }}</th>
-                        <th>{{ _('Reconciliation status') }}</th>
-                        <th>{{ _('Prepared by') }}</th>
-                        <th>{{ _('Updated') }}</th>
-                        <th>{{ _('Actions') }}</th>
-                    </tr>
-                    </thead>
-                    <tbody>
-                    {% for item in reconciliations %}
-                    <tr>
-                        <td class="fw-medium">{{ item.partner.partner_name if item.partner else "" }}</td>
-                        <td>{{ item.period_start }} - {{ item.period_end }}</td>
-                        <td><span class="status-pill">{{ _(item.reconciliation_status) }}</span></td>
-                        <td>{{ item.prepared_by or "" }}</td>
-                        <td>{{ item.updated_at }}</td>
-                        <td><a class="btn btn-outline-primary btn-sm icon-button" href="/partner-reconciliation?reconciliation_id={{ item.id }}"><i data-lucide="eye"></i><span>{{ _('View') }}</span></a></td>
-                    </tr>
+            <div class="recon-preview-products">
+                <div class="recon-products-bar">
+                    <div class="recon-products-heading">
+                        <span class="recon-products-icon"><i data-lucide="pill"></i></span>
+                        <div>
+                            <strong>Препараты</strong>
+                            <span>Только с действующим РУ</span>
+                        </div>
+                    </div>
+                    <span class="recon-products-count">{{ products|length }}</span>
+                </div>
+                <div class="recon-product-list">
+                    {% for product in products %}
+                    <div class="recon-product-item" title="{{ product.product_name }}">
+                        <span class="recon-product-icon"><i data-lucide="package"></i></span>
+                        <div>
+                            <strong>{{ product.product_name }}</strong>
+                            <small>РУ № {{ product.reconciliation_registration.registration_number }}</small>
+                        </div>
+                    </div>
                     {% else %}
-                    <tr><td colspan="6" class="text-secondary">{{ _('No records.') }}</td></tr>
+                    <div class="recon-products-empty">Нет препаратов с действующим РУ.</div>
                     {% endfor %}
-                    </tbody>
-                </table>
+                </div>
             </div>
-        </section>
 
-        {% if preview or reconciliation %}
-        <section class="surface mb-3">
-            <div class="row g-3">
-                <div class="col-md-3"><span class="text-secondary small">{{ _('Partner') }}</span><div class="fw-semibold">{{ reconciliation.partner.partner_name if reconciliation else preview.partner.partner_name }}</div></div>
-                <div class="col-md-3"><span class="text-secondary small">{{ _('Period') }}</span><div>{{ period_start }} - {{ period_end }}</div></div>
-                <div class="col-md-3"><span class="text-secondary small">{{ _('Partner contact') }}</span><div>{{ reconciliation.contact_name if reconciliation else (preview.contact.last_name ~ ' ' ~ preview.contact.first_name if preview.contact else '') }}</div></div>
-                <div class="col-md-3"><span class="text-secondary small">Email</span><div>{{ reconciliation.contact_email if reconciliation else (preview.contact.email if preview.contact else '') }}</div></div>
-                <div class="col-md-3"><span class="text-secondary small">{{ _('Cases from our company') }}</span><div class="h5 mb-0">{{ summary.our_case_count or 0 }}</div></div>
-                <div class="col-md-3"><span class="text-secondary small">{{ _('Cases from partner') }}</span><div class="h5 mb-0">{{ summary.partner_case_count or 0 }}</div></div>
-                <div class="col-md-3"><span class="text-secondary small">{{ _('Matched cases') }}</span><div class="h5 mb-0">{{ summary.matched_count or 0 }}</div></div>
-                <div class="col-md-3"><span class="text-secondary small">{{ _('Discrepancies') }}</span><div class="h5 mb-0">{{ summary.discrepancy_count or 0 }}</div></div>
+            <ul class="nav nav-tabs recon-preview-tabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#recon-partner-items" type="button" role="tab">
+                        От партнёра
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#recon-our-items" type="button" role="tab">
+                        От нашей компании
+                    </button>
+                </li>
+                {% if direction_review_items %}
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link text-warning" data-bs-toggle="tab" data-bs-target="#recon-direction-review" type="button" role="tab">
+                        Направление требует уточнения
+                    </button>
+                </li>
+                {% endif %}
+            </ul>
+            <div class="tab-content recon-preview-tab-content">
+                <div class="tab-pane fade show active" id="recon-partner-items" role="tabpanel">
+                    {{ preview_table(partner_items, 'partner') }}
+                </div>
+                <div class="tab-pane fade" id="recon-our-items" role="tabpanel">
+                    {{ preview_table(our_items, 'our_company') }}
+                </div>
+                {% if direction_review_items %}
+                <div class="tab-pane fade" id="recon-direction-review" role="tabpanel">
+                    {{ preview_table(direction_review_items, 'needs_review') }}
+                </div>
+                {% endif %}
             </div>
-        </section>
+        </article>
+        {% else %}
+        <div class="recon-preview-empty">
+            {{ empty_panel('Выберите партнёра и период слева, чтобы увидеть форму сверки.', 'file-search') }}
+        </div>
+        {% endif %}
+    </section>
 
-        <section class="surface mb-3">
-            <h2 class="h6 section-title">{{ _('ICSR received by our company') }}</h2>
-            {{ item_table(our_items, "our_company", reconciliation is not none) }}
-        </section>
+    <section class="surface recon-compose-bar">
+        <div class="recon-contact-summary">
+            <div class="recon-contact-icon"><i data-lucide="user-round"></i></div>
+            <div>
+                <span>Контактное лицо партнёра</span>
+                {% if selected_contact_name %}
+                <strong>{{ selected_contact_name }}</strong>
+                <small>{{ selected_contact_email or 'Email не указан' }}</small>
+                {% else %}
+                <strong>Контакт не найден</strong>
+                <small>Добавьте активный контакт для сверки в карточке партнёра.</small>
+                {% endif %}
+            </div>
+        </div>
 
-        <section class="surface mb-3">
-            <h2 class="h6 section-title">{{ _('ICSR received from partner') }}</h2>
-            {{ item_table(partner_items, "partner", reconciliation is not none) }}
-        </section>
+        {% if preview and has_permission('create') %}
+        <form class="recon-language-form" method="post" action="/partner-reconciliation/save">
+            <input type="hidden" name="partner_id" value="{{ selected_partner_id }}">
+            <input type="hidden" name="period_start" value="{{ period_start }}">
+            <input type="hidden" name="period_end" value="{{ period_end }}">
+            <input type="hidden" name="expected_preview_version" value="{{ preview_version or '' }}">
+            <input type="hidden" name="reconciliation_type" value="periodic">
+            <input type="hidden" name="document_format" value="pdf">
+            <input type="hidden" name="prepared_by" value="{{ prepared_by or '' }}">
+            <label class="recon-language-label" for="reconciliation-language">Язык документа и письма</label>
+            <div class="recon-language-actions">
+                <select class="form-select" id="reconciliation-language" name="language" aria-label="Язык документа и письма">
+                    <option value="ru" {% if language != 'en' %}selected{% endif %}>Русский</option>
+                    <option value="en" {% if language == 'en' %}selected{% endif %}>English</option>
+                </select>
+                <button class="btn btn-primary icon-button" type="submit" {% if existing_period_reconciliation or preview.direction_review_items %}disabled{% endif %}>
+                    <i data-lucide="mail-plus"></i><span>Сформировать документ и письмо</span>
+                </button>
+            </div>
+        </form>
+        {% elif reconciliation and outlook_preview %}
+        <div class="recon-compose-actions">
+            <span class="recon-mail-ready"><i data-lucide="circle-check"></i> Письмо сформировано</span>
+            {% if reconciliation.document_filename and reconciliation.document_format in ['docx', 'pdf'] %}
+            <a class="btn btn-outline-secondary icon-button" href="/partner-reconciliation/{{ reconciliation.id }}/document/docx">
+                <i data-lucide="file-text"></i><span>Скачать DOCX</span>
+            </a>
+            <a class="btn btn-outline-secondary icon-button" href="/partner-reconciliation/{{ reconciliation.id }}/document/pdf">
+                <i data-lucide="file-down"></i><span>Скачать PDF</span>
+            </a>
+            {% elif reconciliation.document_filename %}
+            <a class="btn btn-outline-secondary icon-button" href="/partner-reconciliation/{{ reconciliation.id }}/document">
+                <i data-lucide="download"></i><span>Скачать форму</span>
+            </a>
+            {% endif %}
+        </div>
+        {% else %}
+        <button class="btn btn-primary btn-lg icon-button" type="button" disabled>
+            <i data-lucide="mail-plus"></i><span>Сформировать письмо партнёру</span>
+        </button>
+        {% endif %}
+    </section>
+</div>
 
-        <section class="surface">
-            <h2 class="h6 section-title">{{ _('Discrepancies') }}</h2>
-            {{ discrepancy_table(discrepancy_items, reconciliation is not none) }}
-        </section>
+{% if reconciliation and outlook_preview %}
+<details class="surface recon-email-preview mt-3" open>
+    <summary>
+        <span><i data-lucide="mail"></i> Готовое письмо партнёру</span>
+        <span class="text-secondary small">Проверить текст</span>
+    </summary>
+    <div class="recon-email-preview-body">
+        <div><span>Кому</span><strong>{{ outlook_preview.email_to or 'Получатель не указан' }}</strong></div>
+        {% if outlook_preview.email_cc %}<div><span>Копия</span><strong>{{ outlook_preview.email_cc }}</strong></div>{% endif %}
+        <div><span>Тема</span><strong>{{ outlook_preview.subject }}</strong></div>
+        <div><span>Текст письма</span><pre>{{ outlook_preview.body }}</pre></div>
+        {% if reconciliation.outlook_error %}<p class="text-danger">{{ reconciliation.outlook_error }}</p>{% endif %}
+        {% if has_permission('manage_system_settings') and reconciliation.outlook_status in ['draft_pending', 'send_pending', 'draft_created'] and reconciliation.reconciliation_status not in ['sent', 'closed', 'confirmed', 'discrepancy'] %}
+        <details class="mt-3">
+            <summary>Согласовать результат Outlook</summary>
+            <p>Сначала остановите и дождитесь завершения всех операций с этим письмом, сохраните резервную копию. В правильном почтовом аккаунте проверьте черновики и отправленные по времени, теме, адресатам и вложению. Если результат неоднозначен, оставьте блокировку.</p>
+            <form method="post" action="/partner-reconciliation/{{ reconciliation.id }}/outlook-recover">
+                <input type="hidden" name="csrf" value="{{ csrf_token(request) }}">
+                <input type="hidden" name="expected_version" value="{{ reconciliation.version }}">
+                <label class="form-label d-block">Проверенный почтовый аккаунт<input class="form-control" name="mailbox" required maxlength="320"></label>
+                <label class="form-label d-block">Результат<select class="form-select" name="outcome" required><option value="">Выберите подтверждённый результат</option><option value="sent">Отправка подтверждена</option><option value="cancelled">Отправки не было, все связанные черновики удалены</option></select></label>
+                <label class="form-label d-block">ID отправленного сообщения (только для отправки)<input class="form-control" name="verified_message_id" maxlength="255"></label>
+                <label class="form-label d-block">Время отправки с часовым поясом (например, 2026-10-05T10:30:00+03:00)<input class="form-control" name="verified_sent_at"></label>
+                <label class="form-label d-block">Основание: что, когда и как проверено<textarea class="form-control" name="evidence" required minlength="20" maxlength="4000"></textarea></label>
+                <label class="d-block"><input type="checkbox" name="operations_stopped" value="yes" required> Конкурирующие операции завершены, резервная копия сохранена</label>
+                <label class="d-block"><input type="checkbox" name="result_verified" value="yes" required> Внешний результат однозначно проверен; при отмене подтверждены отсутствие отправки и удаление всех связанных черновиков</label>
+                <button class="btn btn-outline-primary mt-2" type="submit">Записать согласованный результат</button>
+            </form>
+        </details>
+        {% endif %}
+        {% if has_permission('edit') or has_permission('export') %}
+        <form method="post" action="/partner-reconciliation/{{ reconciliation.id }}/outlook-draft">
+            <input type="hidden" name="expected_version" value="{{ reconciliation.version }}">
+            <input type="hidden" name="expected_mail_version" value="{{ outlook_preview.mail_version }}">
+            <label class="form-label d-block">Тема<input class="form-control" name="email_subject" value="{{ outlook_preview.subject }}" required></label>
+            <label class="form-label d-block">Текст письма<textarea class="form-control" name="email_body" required>{{ outlook_preview.body }}</textarea></label>
+            <button class="btn btn-outline-primary" type="submit">Создать черновик Outlook</button>
+        </form>
+        {% endif %}
+        {% if has_permission('approve') or has_permission('edit') %}
+        <form class="mt-3" method="post" action="/partner-reconciliation/{{ reconciliation.id }}/outlook-send">
+            <input type="hidden" name="expected_version" value="{{ reconciliation.version }}">
+            <input type="hidden" name="expected_mail_version" value="{{ outlook_preview.mail_version }}">
+            <button class="btn btn-primary" type="submit">Отправить черновик Outlook</button>
+        </form>
         {% endif %}
     </div>
-</div>
+</details>
+{% endif %}
+
+{% if reconciliation %}
+<details class="surface mt-3 p-3">
+    <summary>Результат сверки — {{ _(reconciliation.reconciliation_status) }}</summary>
+    {% if has_permission('edit') or has_permission('export') %}
+    <form class="mt-3" method="post" action="/partner-reconciliation/{{ reconciliation.id }}/generate-document">
+        <input type="hidden" name="expected_version" value="{{ reconciliation.version }}">
+        <select class="form-select" name="document_format"><option value="pdf">PDF</option><option value="docx">DOCX</option><option value="xlsx">XLSX</option></select>
+        <button class="btn btn-outline-primary" type="submit">Сформировать документ</button>
+    </form>
+    {% endif %}
+    {% if has_permission('upload') or has_permission('edit') %}
+    <form class="mt-3" method="post" action="/partner-reconciliation/{{ reconciliation.id }}/response" enctype="multipart/form-data">
+        <input type="hidden" name="expected_version" value="{{ reconciliation.version }}">
+        <input class="form-control" type="file" name="response_file" required><label class="form-label d-block">Расхождения<textarea class="form-control" name="discrepancy_description"></textarea></label>
+        <button class="btn btn-outline-primary" type="submit">Загрузить ответ</button>
+    </form>
+    {% endif %}
+    {% if has_permission('create') or has_permission('create_related_requests') or has_permission('comment') %}
+    <form class="mt-3" method="post" action="/partner-reconciliation/{{ reconciliation.id }}/task">
+        <input type="hidden" name="expected_version" value="{{ reconciliation.version }}">
+
+        <button class="btn btn-outline-primary" type="submit">Создать задачу по расхождениям</button>
+    </form>
+    {% endif %}
+    {% if has_permission('approve') %}
+    <form class="mt-3" method="post" action="/partner-reconciliation/{{ reconciliation.id }}/confirm">
+        <input type="hidden" name="expected_version" value="{{ reconciliation.version }}">
+        <label class="form-label">Подтвердил
+            <input class="form-control" name="confirmed_by_user" value="{{ reconciliation.confirmed_by_user or prepared_by or '' }}">
+        </label>
+        <button class="btn btn-primary" type="submit">Подтвердить сверку</button>
+    </form>
+    {% endif %}
+    {% if has_permission('edit') or has_permission('comment') %}
+    <form class="mt-3" method="post" action="/partner-reconciliation/{{ reconciliation.id }}/status">
+        <input type="hidden" name="expected_version" value="{{ reconciliation.version }}">
+        <input type="hidden" name="products" value="{{ reconciliation.products or '' }}">
+        <label class="form-label">Статус
+            <select class="form-select" name="reconciliation_status">
+                {% for status in record_status_options %}<option value="{{ status }}" {% if status == reconciliation.reconciliation_status %}selected{% endif %}>{{ _(status) }}</option>{% endfor %}
+            </select>
+        </label>
+        <label class="form-label">Дата отправки <input class="form-control" type="date" name="sent_date" value="{{ reconciliation.sent_date or '' }}"></label>
+        <label class="form-label">Дата ответа <input class="form-control" type="date" name="response_date" value="{{ reconciliation.response_date or '' }}"></label>
+        <label class="form-label d-block">Расхождения <textarea class="form-control" name="discrepancy_description">{{ reconciliation.discrepancy_description or '' }}</textarea></label>
+        <label class="form-label d-block">Комментарий <textarea class="form-control" name="comments">{{ reconciliation.comments or '' }}</textarea></label>
+        <button class="btn btn-primary" type="submit">Сохранить статус</button>
+    </form>
+    {% for item in reconciliation.items if not item.is_deleted %}
+    <form class="mt-3 border-top pt-3" method="post" action="/partner-reconciliation/items/{{ item.id }}">
+        <input type="hidden" name="reconciliation_id" value="{{ reconciliation.id }}">
+        <input type="hidden" name="expected_version" value="{{ reconciliation.version }}">
+        <input type="hidden" name="expected_item_version" value="{{ item.version }}">
+        <input type="hidden" name="internal_case_id" value="{{ item.internal_case_id or '' }}">
+        <input type="hidden" name="confirmed_by_user" value="{{ item.confirmed_by_user or '' }}">
+        <div>{{ item.internal_case_number or item.partner_case_number or item.partner_case_id or '—' }}</div>
+        <label class="form-label">Результат строки
+            <select class="form-select" name="reconciliation_status">
+                {% for status in status_options %}<option value="{{ status }}" {% if status == item.reconciliation_status %}selected{% endif %}>{{ _(status) }}</option>{% endfor %}
+            </select>
+        </label>
+        <label class="form-label d-block">Комментарий <textarea class="form-control" name="reviewer_comment">{{ item.reviewer_comment or '' }}</textarea></label>
+        <button class="btn btn-outline-primary" type="submit">Сохранить строку</button>
+    </form>
+    {% endfor %}
+    {% endif %}
+</details>
+{% endif %}
+
+<script>
+    (() => {
+        const form = document.getElementById("reconciliation-main-form");
+        const partner = document.getElementById("reconciliation-partner");
+        if (!form || !partner) {
+            return;
+        }
+        partner.addEventListener("change", () => {
+            if (form.reportValidity()) {
+                form.submit();
+            }
+        });
+        const periodStart = document.getElementById("reconciliation-period-start");
+        const periodEnd = document.getElementById("reconciliation-period-end");
+        form.querySelectorAll(".recon-period-preset").forEach((button) => {
+            button.addEventListener("click", () => {
+                if (!periodStart || !periodEnd) {
+                    return;
+                }
+                periodStart.value = button.dataset.periodStart;
+                periodEnd.value = button.dataset.periodEnd;
+                form.querySelectorAll(".recon-period-preset").forEach((item) => {
+                    item.classList.toggle("active", item === button);
+                });
+                if (partner.value) {
+                    form.submit();
+                }
+            });
+        });
+        const languageSelect = document.getElementById("reconciliation-language");
+        const languageInput = document.getElementById("reconciliation-language-main");
+        if (languageSelect && languageInput) {
+            languageSelect.addEventListener("change", () => {
+                languageInput.value = languageSelect.value;
+            });
+        }
+    })();
+</script>
 {% endblock %}

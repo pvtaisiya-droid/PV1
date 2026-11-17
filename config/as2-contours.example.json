@@ -1,0 +1,5 @@
+{
+  "local_stand": {"enabled": true, "setup": "tools/as2_stand.py prepare --root <isolated-short-path>", "synthetic_only": true},
+  "rzn_test": {"enabled": false, "reason": "Requires separately approved current configuration", "as2_from": null, "as2_to": null, "url": null, "mdn_url": null, "ack_url": null, "certificates": null, "algorithms": null},
+  "rzn_prod": {"enabled": false, "reason": "Not implemented or authorized for connection", "as2_from": null, "as2_to": null, "url": null, "mdn_url": null, "ack_url": null, "certificates": null, "algorithms": null}
+}

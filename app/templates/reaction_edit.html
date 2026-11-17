@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Реакция: проверка и исправление{% endblock %}
+{% block content %}
+<h1 class="h3">Реакция: проверка и исправление</h1>
+<a href="/cases/{{ case.id }}?tab=reactions">Вернуться к случаю</a>
+{% if validation %}<div class="alert alert-warning">{{ validation }}</div>{% endif %}
+<p>Происхождение: {{ reaction.reaction_provenance.profile }}. Исторические значения без исходника не считаются проверенными. Словарная проверка MedDRA и соответствие LLT → PT не выполнялись.</p>
+<p>Исходная общая оценка хранится отдельно от вычисленной. Правка текущих полей не меняет XML и сохранённые исходные факты. Отправка этой формы подтверждает вводимые значения; основание попадёт в аудит.</p>
+{% for warning in reaction.reaction_provenance.warnings %}<p class="text-warning">{{ warning }}</p>{% endfor %}
+<form method="post" action="/cases/{{ case.id }}/reactions/{{ reaction.id }}/edit" class="row g-3">
+<input type="hidden" name="csrf" value="{{ csrf_token(request) }}">
+<input type="hidden" name="expected_version" value="{{ case.version }}">
+<input type="hidden" name="expected_reaction_version" value="{{ reaction.version }}">
+{% for field,label in [('reported_term','Текст реакции'),('verbatim_term','Дословный текст'),('meddra_llt_code','LLT код'),('meddra_llt_name','LLT название'),('meddra_pt_code','PT код (отдельный ручной ввод)'),('meddra_pt_name','PT название'),('meddra_version','Версия MedDRA'),('outcome','Исход реакции')] %}
+<div class="col-md-6"><label class="form-label">{{ label }}<input class="form-control" name="{{ field }}" value="{{ reaction|attr(field) or '' }}" {% if field == 'reported_term' %}required{% endif %}></label></div>
+{% endfor %}
+{% set labels = {'is_serious':'Общая оценка из источника / ручная оценка','seriousness_death':'Смерть','seriousness_life_threatening':'Угроза жизни','seriousness_hospitalization':'Госпитализация','seriousness_disability':'Инвалидизация','seriousness_congenital_anomaly':'Врождённая аномалия','seriousness_other_medically_important':'Другое медицински важное состояние'} %}
+{% for field in ['is_serious'] + criteria %}
+{% set value = reaction.reported_seriousness if field == 'is_serious' else reaction|attr(field) %}
+<div class="col-md-6"><label class="form-label">{{ labels[field] }}<select class="form-select" name="{{ field }}">
+<option value="" {% if value is none %}selected{% endif %}>Неизвестно / не указано</option>
+<option value="true" {% if value is sameas true %}selected{% endif %}>Да</option>
+<option value="false" {% if value is sameas false %}selected{% endif %}>Нет</option></select></label></div>
+{% endfor %}
+<div class="col-12"><label>Основание правки<textarea class="form-control" name="change_reason" required minlength="10" maxlength="2000"></textarea></label></div>
+<div class="col-12"><button class="btn btn-primary" type="submit">Сохранить с аудитом</button></div>
+</form>
+<details class="mt-3"><summary>Сохранённый источник и состояния значений</summary><pre class="text-wrap">{{ reaction.reaction_provenance | tojson(indent=2) }}</pre></details>
+{% endblock %}

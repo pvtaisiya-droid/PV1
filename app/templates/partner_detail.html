@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_immutable_documents.html" import immutable_documents_block with context %}
 {% block title %}{{ partner.partner_name }} - {{ _('Partners') }}{% endblock %}
 
 {% macro empty_state(text, href, label) -%}
@@ -8,20 +9,57 @@
 </div>
 {%- endmacro %}
 
+{% macro attention_card(warnings) -%}
+<div class="pv-attention-card">
+    <div class="pv-card-heading"><span>Требует внимания</span><i data-lucide="triangle-alert"></i></div>
+    {% if warnings %}
+    <ul class="pv-compact-list">
+        {% for warning in warnings %}
+        <li><i data-lucide="circle-alert"></i><span>{{ warning }}</span></li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <div class="text-secondary small">Критичных пробелов по карточке не найдено.</div>
+    {% endif %}
+</div>
+{%- endmacro %}
+
+{% macro next_actions_card(actions) -%}
+<div class="pv-next-card">
+    <div class="pv-card-heading"><span>Следующее действие</span><i data-lucide="arrow-right-circle"></i></div>
+    {% if actions %}
+    <div class="pv-action-list">
+        {% for action in actions %}
+        <a class="btn btn-outline-primary btn-sm icon-button" href="{{ action.href }}"><i data-lucide="arrow-right"></i><span>{{ action.label }}</span></a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="text-secondary small">Следующее действие не требуется.</div>
+    {% endif %}
+</div>
+{%- endmacro %}
+
 {% block content %}
+{% set partner_quality = pv_partner_quality(partner, contacts, contracts) %}
+{% set partner_warnings = pv_partner_attention(partner, contacts, contracts) %}
+{% set partner_actions = pv_partner_next_actions(partner, contacts, contracts) %}
+{% set partner_primary_action = partner_actions[0] if partner_actions else none %}
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
     <div>
-        <div class="text-secondary small">{{ _('Partner card') }}</div>
+        <div class="text-secondary small">Карточка партнёра</div>
         <h1 class="h3 mb-1">{{ partner.partner_name }}</h1>
         <div class="d-flex flex-wrap gap-2">
             <span class="status-pill">{{ partner.partner_code }}</span>
-            <span class="badge text-bg-light">{{ _(partner.partner_type) }}</span>
-            <span class="badge text-bg-light">{{ _(partner.reconciliation_frequency) }}</span>
+            <span class="status-pill {{ pv_status_class(partner.partner_type) }}">{{ _(partner.partner_type) }}</span>
+            <span class="status-pill {% if partner_warnings %}pv-status-warning{% else %}pv-status-success{% endif %}">{{ partner_quality.state }}</span>
         </div>
+        <div class="text-secondary small mt-1">{% if partner_warnings %}Есть сведения, которые нужно дополнить или проверить.{% else %}Основные сведения и связи заполнены.{% endif %}</div>
     </div>
     <div class="d-flex flex-wrap gap-2">
         <a class="btn btn-outline-secondary btn-sm icon-button" href="/partners"><i data-lucide="arrow-left"></i><span>{{ _('Partners') }}</span></a>
-        <a class="btn btn-primary btn-sm icon-button" href="/partner-reconciliation?partner_id={{ partner.id }}"><i data-lucide="git-compare-arrows"></i><span>{{ _('Reconciliation') }}</span></a>
+        {% if partner_primary_action %}
+        <a class="btn btn-primary btn-sm icon-button" href="{{ partner_primary_action.href }}"><i data-lucide="arrow-right"></i><span>{{ partner_primary_action.label }}</span></a>
+        {% endif %}
     </div>
 </div>
 
@@ -35,11 +73,56 @@
 <div class="alert alert-warning py-2" role="alert">{{ _(validation) }}</div>
 {% endif %}
 
+<section class="surface mb-3">
+    <div class="pv-summary-strip">
+        <div class="pv-summary-tile"><span>Контакты</span><strong>{{ contacts|length }}</strong></div>
+        <div class="pv-summary-tile"><span>Договоры и ДС</span><strong>{{ contracts|length }}</strong></div>
+        <div class="pv-summary-tile"><span>Препараты</span><strong>{{ products|length }}</strong></div>
+    </div>
+    <div class="pv-card-grid">
+        <div class="pv-related-card">
+            <div class="pv-card-heading"><span>Связанные записи</span><i data-lucide="network"></i></div>
+            <div class="pv-related-grid">
+                <div class="pv-related-item"><strong>{{ contracts|length }}</strong><span>договоры и ДС</span></div>
+                <div class="pv-related-item"><strong>{{ products|length }}</strong><span>препараты</span></div>
+                <div class="pv-related-item"><strong>{{ contacts|length }}</strong><span>контакты</span></div>
+                <div class="pv-related-item"><strong>{{ reconciliations|length }}</strong><span>сверки</span></div>
+                <div class="pv-related-item"><strong>{{ accounting_periods|length }}</strong><span>квартальные услуги</span></div>
+                <div class="pv-related-item"><strong>{{ documents|length }}</strong><span>документы</span></div>
+            </div>
+        </div>
+        {{ attention_card(partner_warnings) }}
+    </div>
+</section>
+
+{% if onboarding_wizard %}
+<section class="surface mb-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <div>
+            <h2 class="h6 section-title mb-1">Состояние подключения</h2>
+            <div class="text-secondary small">Рассчитано по сохранённым данным партнёра</div>
+        </div>
+        {% if onboarding_wizard.status != 'completed' %}
+        <a class="btn btn-outline-primary btn-sm icon-button" href="/partner-onboarding/{{ onboarding_wizard.id }}"><i data-lucide="arrow-right"></i><span>Продолжить</span></a>
+        {% endif %}
+    </div>
+    <div class="pv-onboarding-status-grid">
+        {% for row in onboarding_status_rows %}
+        <div class="pv-onboarding-status-row">
+            <span>{{ row.label }}</span>
+            <strong>{{ row.status }}</strong>
+        </div>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+
 <ul class="nav nav-tabs mb-3" role="tablist">
     <li class="nav-item" role="presentation"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#general" type="button" role="tab">{{ _('General information') }}</button></li>
     <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#contacts" type="button" role="tab">{{ _('Contacts') }}</button></li>
     <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#products" type="button" role="tab">{{ _('Related products') }}</button></li>
     <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#agreements" type="button" role="tab">{{ _('PV agreements') }}</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#accounting" type="button" role="tab">Данные для бухгалтерии</button></li>
     <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#reconciliations" type="button" role="tab">{{ _('Reconciliations') }}</button></li>
     <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#documents" type="button" role="tab">{{ _('Documents') }}</button></li>
     <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tasks" type="button" role="tab">{{ _('Tasks') }}</button></li>
@@ -51,17 +134,106 @@
 <div class="tab-content">
     <div class="tab-pane fade show active" id="general" role="tabpanel" tabindex="0">
         <section class="surface">
-            <div class="row g-3">
+            {% if has_permission('edit') or has_permission('manage_reference_data') %}
+            <div class="d-flex justify-content-end mb-3" data-partner-view>
+                <button class="btn btn-outline-primary btn-sm icon-button" type="button" data-partner-edit-toggle aria-controls="partner-detail-edit" aria-expanded="false">
+                    <i data-lucide="pencil"></i><span>{{ _('Edit') }}</span>
+                </button>
+            </div>
+            <div id="partner-detail-edit" hidden>
+                <form class="row g-3 align-items-end mb-4" method="post" action="/partners/{{ partner.id }}/edit">
+                    <input type="hidden" name="expected_version" value="{{ partner.version }}">
+                    <input type="hidden" name="return_to" value="/partners/{{ partner.id }}">
+                    <input type="hidden" name="detail_form" value="true">
+                    <div class="col-md-3">
+                        <label class="form-label">{{ _('Partner code') }}</label>
+                        <input class="form-control" name="partner_code" value="{{ partner.partner_code }}" required>
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label">{{ _('Name') }}</label>
+                        <input class="form-control" name="partner_name" value="{{ partner.partner_name }}" required>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">{{ _('Status') }}</label>
+                        <select class="form-select" name="partner_type">
+                            {% for status in ['archive', 'fn', 'registration_in_progress'] %}
+                            <option value="{{ status }}" {% if partner.partner_type == status %}selected{% endif %}>{{ _(status) }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">{{ _('Reconciliation frequency') }}</label>
+                        <select class="form-select" name="reconciliation_frequency">
+                            {% for frequency in ['monthly', 'quarterly', 'not_conducted'] %}
+                            <option value="{{ frequency }}" {% if partner.reconciliation_frequency == frequency %}selected{% endif %}>{{ _(frequency) }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-10">
+                        <label class="form-label">{{ _('Address') }}</label>
+                        <input class="form-control" name="address" value="{{ partner.address or '' }}">
+                    </div>
+                    <div class="col-md-2 d-flex gap-2">
+                        <button class="btn btn-primary icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Save') }}</span></button>
+                        <button class="btn btn-outline-secondary icon-only" type="button" data-partner-edit-toggle title="{{ _('Cancel') }}"><i data-lucide="x"></i></button>
+                    </div>
+                </form>
+            </div>
+            {% endif %}
+            <div class="row g-3" data-partner-view>
                 <div class="col-md-3"><span class="text-secondary small">{{ _('Partner code') }}</span><div class="fw-semibold">{{ partner.partner_code }}</div></div>
                 <div class="col-md-3"><span class="text-secondary small">{{ _('Status') }}</span><div>{{ _(partner.partner_type) }}</div></div>
-                <div class="col-md-3"><span class="text-secondary small">{{ _('Country') }}</span><div>{{ partner.country_code or "" }}</div></div>
-                <div class="col-md-3"><span class="text-secondary small">{{ _('Region') }}</span><div>{{ partner.region or "" }}</div></div>
-                <div class="col-md-3"><span class="text-secondary small">{{ _('Email') }}</span><div>{{ partner.email or "" }}</div></div>
-                <div class="col-md-3"><span class="text-secondary small">{{ _('Phone') }}</span><div>{{ partner.phone or "" }}</div></div>
-                <div class="col-md-3"><span class="text-secondary small">{{ _('PV responsible') }}</span><div>{{ partner.pv_responsible_person or "" }}</div></div>
-                <div class="col-md-3"><span class="text-secondary small">{{ _('SDEA required') }}</span><div>{% if partner.sdea_required %}{{ _('Yes') }}{% else %}{{ _('No') }}{% endif %}</div></div>
                 <div class="col-12"><span class="text-secondary small">{{ _('Address') }}</span><div>{{ partner.address or "" }}</div></div>
             </div>
+        </section>
+        <section class="surface mt-3">
+            <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
+                <h2 class="h6 section-title mb-0">Информация для бухгалтерии</h2>
+                <a class="btn btn-outline-primary btn-sm icon-button" href="/accounting-data?partner_id={{ partner.id }}"><i data-lucide="calculator"></i><span>Расшифровки</span></a>
+            </div>
+            {% if has_permission('edit') or has_permission('manage_reference_data') %}
+            <form class="row g-3 align-items-end" method="post" action="/partners/{{ partner.id }}/accounting-info">
+                <input type="hidden" name="expected_version" value="{{ partner.version }}">
+                <input type="hidden" name="expected_info_version" value="{{ accounting_info.version if accounting_info else 0 }}">
+                <input type="hidden" name="expected_contact_versions" value='{{ accounting_contact_versions|tojson }}'>
+                <div class="col-md-4">
+                    <label class="form-label">Юрлицо для счета</label>
+                    <input class="form-control" name="legal_entity_name" value="{{ (accounting_info.legal_entity_name or '') if accounting_info else '' }}">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">ИНН</label>
+                    <input class="form-control" name="inn" value="{{ (accounting_info.inn or '') if accounting_info else '' }}">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">КПП</label>
+                    <input class="form-control" name="kpp" value="{{ (accounting_info.kpp or '') if accounting_info else '' }}">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Контакт для счетов</label>
+                    <input class="form-control" name="billing_contact_name" value="{{ (accounting_info.billing_contact_name or '') if accounting_info else '' }}">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">E-mail для счетов</label>
+                    <input class="form-control" type="email" name="billing_email" value="{{ (accounting_info.billing_email or '') if accounting_info else '' }}">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Комментарий</label>
+                    <input class="form-control" name="comment" value="{{ (accounting_info.comment or '') if accounting_info else '' }}">
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-primary icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Save') }}</span></button>
+                </div>
+            </form>
+            {% else %}
+            <div class="row g-3">
+                <div class="col-md-4"><span class="text-secondary small">Юрлицо для счета</span><div>{{ accounting_info.legal_entity_name if accounting_info else "" }}</div></div>
+                <div class="col-md-2"><span class="text-secondary small">ИНН</span><div>{{ accounting_info.inn if accounting_info else "" }}</div></div>
+                <div class="col-md-2"><span class="text-secondary small">КПП</span><div>{{ accounting_info.kpp if accounting_info else "" }}</div></div>
+                <div class="col-md-4"><span class="text-secondary small">Контакт для счетов</span><div>{{ accounting_info.billing_contact_name if accounting_info else "" }}</div></div>
+                <div class="col-md-4"><span class="text-secondary small">E-mail для счетов</span><div>{{ accounting_info.billing_email if accounting_info else "" }}</div></div>
+                <div class="col-md-8"><span class="text-secondary small">Комментарий</span><div>{{ accounting_info.comment if accounting_info else "" }}</div></div>
+            </div>
+            {% endif %}
         </section>
     </div>
 
@@ -69,16 +241,16 @@
         <section class="surface">
             <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
                 <h2 class="h6 section-title mb-0">{{ _('Contacts') }}</h2>
-                <a class="btn btn-outline-primary btn-sm icon-button" href="/contract-contacts"><i data-lucide="plus"></i><span>{{ _('Add') }}</span></a>
+                <a class="btn btn-outline-primary btn-sm icon-button" href="/contract-contacts?partner_id={{ partner.id }}"><i data-lucide="plus"></i><span>{{ _('Add') }}</span></a>
             </div>
             <div class="table-responsive">
                 <table class="table table-hover align-middle">
-                    <thead><tr><th>{{ _('Name') }}</th><th>{{ _('Email') }}</th><th>{{ _('Position') }}</th><th>{{ _('Current?') }}</th></tr></thead>
+                    <thead><tr><th>{{ _('Name') }}</th><th>{{ _('Email') }}</th><th>{{ _('Position') }}</th><th>Назначения</th><th>{{ _('Current?') }}</th></tr></thead>
                     <tbody>
                     {% for contact in contacts %}
-                    <tr><td class="fw-medium">{{ contact.last_name }} {{ contact.first_name }} {{ contact.patronymic or "" }}</td><td><a href="mailto:{{ contact.email }}">{{ contact.email }}</a></td><td>{{ contact.position }}</td><td>{% if contact.is_current %}<span class="badge text-bg-success">{{ _('Yes') }}</span>{% else %}<span class="badge text-bg-secondary">{{ _('No') }}</span>{% endif %}</td></tr>
+                    <tr><td class="fw-medium">{{ contact.last_name }} {{ contact.first_name }} {{ contact.patronymic or "" }}</td><td><a href="mailto:{{ contact.email }}">{{ contact.email }}</a></td><td>{{ contact.position }}</td><td>{% if contact.is_pv_contact %}<span class="badge text-bg-primary">Фармаконадзор</span>{% endif %}{% if contact.is_billing_contact %}<span class="badge text-bg-info ms-1">Бухгалтерия</span>{% endif %}{% if not contact.is_pv_contact and not contact.is_billing_contact %}<span class="text-secondary">{{ contact.contact_type or 'Другой' }}</span>{% endif %}</td><td>{% if contact.is_current %}<span class="badge text-bg-success">{{ _('Yes') }}</span>{% else %}<span class="badge text-bg-secondary">{{ _('No') }}</span>{% endif %}</td></tr>
                     {% else %}
-                    <tr><td colspan="4">{{ empty_state('No contacts yet.', '/contract-contacts', 'Add contact') }}</td></tr>
+                    <tr><td colspan="5">{{ empty_state('No contacts yet.', '/contract-contacts?partner_id=' ~ partner.id, 'Add contact') }}</td></tr>
                     {% endfor %}
                     </tbody>
                 </table>
@@ -90,7 +262,7 @@
         <section class="surface">
             <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
                 <h2 class="h6 section-title mb-0">{{ _('Related products') }}</h2>
-                <a class="btn btn-outline-primary btn-sm icon-button" href="/products"><i data-lucide="plus"></i><span>{{ _('Add') }}</span></a>
+                <a class="btn btn-outline-primary btn-sm icon-button" href="/products?partner_id={{ partner.id }}"><i data-lucide="plus"></i><span>{{ _('Add') }}</span></a>
             </div>
             <div class="table-responsive">
                 <table class="table table-hover align-middle">
@@ -99,7 +271,7 @@
                     {% for product in products %}
                     <tr><td class="fw-medium">{{ product.product_code }}</td><td>{{ product.product_name }}</td><td>{% for link in product.substance_links %}<span class="badge text-bg-light">{{ link.substance.substance_name }}</span>{% endfor %}</td><td><span class="status-pill">{{ _(product.authorization_status) if product.authorization_status else _('None') }}</span></td></tr>
                     {% else %}
-                    <tr><td colspan="4">{{ empty_state('No related products yet.', '/products', 'Add Product') }}</td></tr>
+                    <tr><td colspan="4">{{ empty_state('No related products yet.', '/products?partner_id=' ~ partner.id, 'Add Product') }}</td></tr>
                     {% endfor %}
                     </tbody>
                 </table>
@@ -111,16 +283,48 @@
         <section class="surface">
             <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
                 <h2 class="h6 section-title mb-0">{{ _('PV agreements') }}</h2>
-                <a class="btn btn-outline-primary btn-sm icon-button" href="/contracts"><i data-lucide="plus"></i><span>{{ _('Add') }}</span></a>
+                <a class="btn btn-outline-primary btn-sm icon-button" href="/contracts?partner_id={{ partner.id }}"><i data-lucide="plus"></i><span>{{ _('Add') }}</span></a>
             </div>
             <div class="table-responsive">
                 <table class="table table-hover align-middle">
                     <thead><tr><th>{{ _('Product') }}</th><th>{{ _('Type') }}</th><th>{{ _('Contract number') }}</th><th>{{ _('Dates') }}</th><th>{{ _('Valid now?') }}</th></tr></thead>
                     <tbody>
                     {% for contract in contracts %}
-                    <tr><td>{{ contract.product.product_name if contract.product else "" }}</td><td>{{ _(contract.contract_type) }}</td><td class="fw-medium">{{ contract.contract_number }}</td><td>{{ contract.contract_date }} - {{ contract.valid_until }}</td><td>{% if contract.is_current %}<span class="badge text-bg-success">{{ _('Yes') }}</span>{% else %}<span class="badge text-bg-secondary">{{ _('No') }}</span>{% endif %}</td></tr>
+                    <tr><td>{% for product in contract.linked_products %}<span class="status-pill me-1 mb-1">{{ product.product_name }}</span>{% else %}<span class="text-secondary">-</span>{% endfor %}</td><td>{{ _(contract.contract_type) }}</td><td class="fw-medium">{{ contract.contract_number }}</td><td>{{ contract.contract_date }} - {{ contract.valid_until }}</td><td>{% if contract.is_current %}<span class="badge text-bg-success">{{ _('Yes') }}</span>{% else %}<span class="badge text-bg-secondary">{{ _('No') }}</span>{% endif %}</td></tr>
                     {% else %}
-                    <tr><td colspan="5">{{ empty_state('No contracts yet.', '/contracts', 'Add Contract') }}</td></tr>
+                    <tr><td colspan="5">{{ empty_state('No contracts yet.', '/contracts?partner_id=' ~ partner.id, 'Add Contract') }}</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <div class="tab-pane fade" id="accounting" role="tabpanel" tabindex="0">
+        <section class="surface">
+            <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
+                <h2 class="h6 section-title mb-0">Данные для бухгалтерии</h2>
+                <div class="d-flex gap-2">
+                    <a class="btn btn-outline-primary btn-sm icon-button" href="/accounting-data?partner_id={{ partner.id }}"><i data-lucide="list"></i><span>Открыть общий реестр</span></a>
+                    <a class="btn btn-primary btn-sm icon-button" href="/accounting-data?partner_id={{ partner.id }}"><i data-lucide="plus"></i><span>Создать расшифровку</span></a>
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead><tr><th>Год</th><th>Квартал</th><th>Договор</th><th>Количество услуг</th><th>Сумма по договору</th><th>Статус</th><th>Действия</th></tr></thead>
+                    <tbody>
+                    {% for period in accounting_periods %}
+                    <tr>
+                        <td>{{ period.year }}</td>
+                        <td>{{ period.quarter }}</td>
+                        <td>{{ period.contract.contract_number if period.contract else "" }}</td>
+                        <td>{{ period.lines|rejectattr('is_deleted')|list|length }}</td>
+                        <td>{{ "%.2f"|format(period.total_contract_amount or 0) }}</td>
+                        <td><span class="status-pill">{{ period.status }}</span></td>
+                        <td><a class="btn btn-outline-primary btn-sm icon-button" href="/accounting-data/{{ period.id }}"><i data-lucide="eye"></i><span>Открыть</span></a></td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="7" class="empty-state-cell"><div class="empty-state text-secondary"><i data-lucide="calculator"></i><span>По партнеру пока нет квартальных услуг.</span><a class="btn btn-outline-primary btn-sm icon-button" href="/accounting-data?partner_id={{ partner.id }}"><i data-lucide="plus"></i><span>Добавить услугу</span></a></div></td></tr>
                     {% endfor %}
                     </tbody>
                 </table>
@@ -150,24 +354,7 @@
     </div>
 
     <div class="tab-pane fade" id="documents" role="tabpanel" tabindex="0">
-        <section class="surface">
-            <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
-                <h2 class="h6 section-title mb-0">{{ _('Documents') }}</h2>
-                <a class="btn btn-outline-primary btn-sm icon-button" href="/documents"><i data-lucide="plus"></i><span>{{ _('Add') }}</span></a>
-            </div>
-            <div class="table-responsive">
-                <table class="table table-hover align-middle">
-                    <thead><tr><th>{{ _('Title') }}</th><th>{{ _('Type') }}</th><th>{{ _('Version') }}</th><th>{{ _('Status') }}</th><th>{{ _('Date') }}</th></tr></thead>
-                    <tbody>
-                    {% for document in documents %}
-                    <tr><td class="fw-medium">{{ document.document_title or document.file_name }}</td><td>{{ _(document.document_type or document.attachment_type) }}</td><td>{{ document.document_version or document.version }}</td><td><span class="status-pill">{{ _(document.status) }}</span></td><td>{{ document.document_date or document.uploaded_at or document.created_at }}</td></tr>
-                    {% else %}
-                    <tr><td colspan="5">{{ empty_state('No documents yet.', '/documents', 'Add document') }}</td></tr>
-                    {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </section>
+        {{ immutable_documents_block(documents, 'Partner', partner.id, partner.id, 'Приложение Б-1.1', 'PARTNER_SPECIFIC', '/partners/' ~ partner.id ~ '?tab=documents', 'Нередактируемые документы партнера', context_version=partner.version) }}
     </div>
 
     <div class="tab-pane fade" id="tasks" role="tabpanel" tabindex="0">
@@ -211,4 +398,25 @@
     </div>
     {% endif %}
 </div>
+<script>
+document.querySelectorAll("[data-partner-edit-toggle]").forEach((button) => {
+    button.addEventListener("click", () => {
+        const panel = document.getElementById("partner-detail-edit");
+        if (!panel) {
+            return;
+        }
+        const willOpen = panel.hidden;
+        panel.hidden = !willOpen;
+        document.querySelectorAll("[data-partner-view]").forEach((viewElement) => {
+            viewElement.hidden = willOpen;
+        });
+        document.querySelectorAll("[data-partner-edit-toggle][aria-controls='partner-detail-edit']").forEach((toggle) => {
+            toggle.setAttribute("aria-expanded", willOpen ? "true" : "false");
+        });
+        if (willOpen) {
+            panel.querySelector("input, select, textarea")?.focus();
+        }
+    });
+});
+</script>
 {% endblock %}

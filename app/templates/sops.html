@@ -1,8 +1,9 @@
 {% extends "base.html" %}
-{% block title %}{{ _('SOPs and Instructions') }} - {{ _('PV MVP') }}{% endblock %}
+{% block title %}{{ _('SOPs and Instructions') }} - {{ _('PV System') }}{% endblock %}
 
 {% macro sop_form(action, sop=None) -%}
 <form class="row g-3" method="post" action="{{ action }}" enctype="multipart/form-data">
+    {% if sop %}<input type="hidden" name="expected_version" value="{{ sop.row_version }}">{% endif %}
     <div class="col-md-2">
         <label class="form-label">{{ _('SOP code') }}</label>
         <input class="form-control" name="sop_code" value="{{ sop.sop_code if sop else '' }}" required>

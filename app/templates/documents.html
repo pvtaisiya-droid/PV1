@@ -1,283 +1,71 @@
 {% extends "base.html" %}
-{% block title %}{{ _('Documents') }} - {{ _('PV MVP') }}{% endblock %}
+{% from "_immutable_documents.html" import immutable_documents_block with context %}
+{% block title %}Нередактируемые документы - {{ _('PV System') }}{% endblock %}
 
 {% block content %}
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-    <div>
-        <h1 class="h3 mb-1">{{ _('Documents') }}</h1>
-        <div class="text-secondary small">{{ filtered_count|default(documents|length) }} {{ _('records') }}</div>
-    </div>
+    <div><h1 class="h3 mb-1">Нередактируемые документы</h1><div class="text-secondary small">Единый реестр файлов, версий, связей с объектами базы и включений в МФСФ.</div></div>
+    {% if has_permission('upload') or has_permission('create') or has_permission('manage_document_versions') %}<a class="btn btn-primary icon-button" href="#upload-document"><i data-lucide="upload"></i><span>Загрузить нередактируемый документ</span></a>{% endif %}
 </div>
-
-{% if message %}
-<div class="alert alert-success py-2" role="status">{{ _(message) }}</div>
-{% endif %}
-{% if error %}
-<div class="alert alert-danger py-2" role="alert">{{ _(error) }}</div>
-{% endif %}
-{% if validation %}
-<div class="alert alert-warning py-2" role="alert">{{ _(validation) }}</div>
-{% endif %}
+{% if message %}<div class="alert alert-success py-2" role="status">{{ _(message) }}</div>{% endif %}
+{% if error %}<div class="alert alert-danger py-2" role="alert">{{ _(error) }}</div>{% endif %}
+{% if validation %}<div class="alert alert-warning py-2" role="alert">{{ _(validation) }}</div>{% endif %}
 
 <section class="surface mb-4">
-    <h2 class="h6 section-title">{{ _('Filters') }}</h2>
+    <h2 class="h6 section-title">Фильтры реестра</h2>
     <form class="row g-2 align-items-end" method="get" action="/documents">
-        <div class="col-md-3">
-            <label class="form-label">{{ _('Search') }}</label>
-            <input class="form-control" name="search" value="{{ filters.search }}" placeholder="{{ _('File name') }} / {{ _('Case') }}">
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">{{ _('Type') }}</label>
-            <select class="form-select" name="attachment_type">
-                <option value="">{{ _('All') }}</option>
-                {% for type in type_options %}
-                <option value="{{ type }}" {% if filters.attachment_type == type %}selected{% endif %}>{{ _(type) }}</option>
-                {% endfor %}
-            </select>
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">{{ _('Partner') }}</label>
-            <select class="form-select" name="partner_id">
-                <option value="">{{ _('All') }}</option>
-                {% for partner in partners %}
-                <option value="{{ partner.id }}" {% if filters.partner_id == partner.id %}selected{% endif %}>{{ partner.partner_name }}</option>
-                {% endfor %}
-            </select>
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">{{ _('Product') }}</label>
-            <select class="form-select" name="product_id">
-                <option value="">{{ _('All') }}</option>
-                {% for product in products %}
-                <option value="{{ product.id }}" {% if filters.product_id == product.id %}selected{% endif %}>{{ product.product_name }}</option>
-                {% endfor %}
-            </select>
-        </div>
-        <div class="col-md-1">
-            <label class="form-label">{{ _('Date from') }}</label>
-            <input class="form-control" type="date" name="date_from" value="{{ filters.date_from }}">
-        </div>
-        <div class="col-md-1">
-            <label class="form-label">{{ _('Date to') }}</label>
-            <input class="form-control" type="date" name="date_to" value="{{ filters.date_to }}">
-        </div>
-        <div class="col-md-1 d-flex gap-2">
-            <button class="btn btn-primary icon-only" type="submit" title="{{ _('Search') }}"><i data-lucide="search"></i></button>
-            <a class="btn btn-outline-secondary icon-only" href="/documents" title="{{ _('Cancel') }}"><i data-lucide="x"></i></a>
-        </div>
+        <div class="col-lg-3"><label class="form-label">Поиск</label><input class="form-control form-control-sm" name="search" value="{{ filters.search }}" placeholder="Название, файл, объект"></div>
+        <div class="col-lg-2"><label class="form-label">Партнер</label><select class="form-select form-select-sm" name="partner_id" data-version-field="expected_partner_version"><option value="">Все</option>{% for partner in partners %}<option data-version="{{ partner.version }}" value="{{ partner.id }}" {% if filters.partner_id == partner.id %}selected{% endif %}>{{ partner.partner_name }}</option>{% endfor %}</select></div>
+        <div class="col-lg-2"><label class="form-label">Приложение МФСФ</label><select class="form-select form-select-sm" name="psmf_annex_code"><option value="">Все</option>{% for code in psmf_annex_codes %}<option value="{{ code }}" {% if filters.psmf_annex_code == code %}selected{% endif %}>{{ code }}</option>{% endfor %}</select></div>
+        <div class="col-lg-2"><label class="form-label">Связанный объект</label><input type="hidden" name="related_object_type" value=""></div>
+        <div class="col-lg-3"><label class="form-label">ID связанного объекта</label><select class="form-select form-select-sm" name="related_object_id" data-version-field="expected_related_version" data-type-field="related_object_type">
+<option value="">Нет</option>
+{% for kind, records, label in [('Case', cases, 'case_number'), ('Partner', partners, 'partner_name'), ('Product', products, 'product_name'), ('Contract', contracts, 'contract_number'), ('Employee', employees, 'full_name')] %}
+{% for row in records %}<option value="{{ row.id }}" data-type="{{ kind }}" data-version="{{ row.version }}">{{ kind }}: {{ row[label] or row.id }}</option>{% endfor %}
+{% endfor %}</select></div>
+        <div class="col-lg-2"><label class="form-label">Вид документа</label><select class="form-select form-select-sm" name="attachment_type"><option value="">Все</option>{% for type in type_options %}<option value="{{ type }}" {% if filters.attachment_type == type %}selected{% endif %}>{{ _(type) }}</option>{% endfor %}</select></div>
+        <div class="col-lg-2"><label class="form-label">Сотрудник</label><select class="form-select form-select-sm" name="employee_id"><option value="">Все</option>{% for employee in employees %}<option value="{{ employee.id }}" {% if filters.employee_id == employee.id %}selected{% endif %}>{{ employee.full_name or employee.login or employee.email }}</option>{% endfor %}</select></div>
+        <div class="col-lg-2"><label class="form-label">Договор</label><select class="form-select form-select-sm" name="contract_id"><option value="">Все</option>{% for contract in contracts %}<option value="{{ contract.id }}" {% if filters.contract_id == contract.id %}selected{% endif %}>{{ contract.contract_number }}</option>{% endfor %}</select></div>
+        <div class="col-lg-2"><label class="form-label">Препарат</label><select class="form-select form-select-sm" name="product_id" data-version-field="expected_product_version"><option value="">Все</option>{% for product in products %}<option data-version="{{ product.version }}" value="{{ product.id }}" {% if filters.product_id == product.id %}selected{% endif %}>{{ product.product_name }}</option>{% endfor %}</select></div>
+        <div class="col-lg-2"><label class="form-label">Статус</label><select class="form-select form-select-sm" name="document_status"><option value="">Все</option>{% for status in status_options %}<option value="{{ status }}" {% if filters.document_status == status %}selected{% endif %}>{{ _(status) }}</option>{% endfor %}</select></div>
+        <div class="col-lg-2"><label class="form-label">Срок действия</label><select class="form-select form-select-sm" name="expiry"><option value="">Все</option><option value="valid" {% if filters.expiry == 'valid' %}selected{% endif %}>Действующие</option><option value="expired" {% if filters.expiry == 'expired' %}selected{% endif %}>Истекшие</option><option value="no_expiry" {% if filters.expiry == 'no_expiry' %}selected{% endif %}>Бессрочные</option></select></div>
+        <div class="col-lg-2"><label class="form-label">Включение в МФСФ</label><select class="form-select form-select-sm" name="psmf_inclusion"><option value="">Все</option><option value="included" {% if filters.psmf_inclusion == 'included' %}selected{% endif %}>Включать</option><option value="excluded" {% if filters.psmf_inclusion == 'excluded' %}selected{% endif %}>Исключены</option><option value="included_in_build" {% if filters.psmf_inclusion == 'included_in_build' %}selected{% endif %}>Есть в сборках</option></select></div>
+        <div class="col-lg-2"><label class="form-label">Дата от</label><input class="form-control form-control-sm" type="date" name="date_from" value="{{ filters.date_from }}"></div>
+        <div class="col-lg-2"><label class="form-label">Дата до</label><input class="form-control form-control-sm" type="date" name="date_to" value="{{ filters.date_to }}"></div>
+        <div class="col-lg-2 d-flex gap-2"><button class="btn btn-primary btn-sm" type="submit">Применить</button><a class="btn btn-outline-secondary btn-sm" href="/documents">Сбросить</a></div>
     </form>
 </section>
 
 {% if has_permission('upload') or has_permission('create') or has_permission('manage_document_versions') %}
-<section class="surface mb-4">
-    <h2 class="h6 section-title">{{ _('Add document') }}</h2>
-    <form class="row g-3" method="post" action="/documents" enctype="multipart/form-data">
-        <div class="col-md-3">
-            <label class="form-label">{{ _('Document title') }}</label>
-            <input class="form-control" name="document_title" required>
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">{{ _('Type') }}</label>
-            <select class="form-select" name="document_type">
-                {% for type in type_options %}
-                <option value="{{ type }}" {% if type == 'other' %}selected{% endif %}>{{ _(type) }}</option>
-                {% endfor %}
-            </select>
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">{{ _('Partner') }}</label>
-            <select class="form-select" name="partner_id">
-                <option value="">{{ _('None') }}</option>
-                {% for partner in partners %}
-                <option value="{{ partner.id }}">{{ partner.partner_name }}</option>
-                {% endfor %}
-            </select>
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">{{ _('Product') }}</label>
-            <select class="form-select" name="product_id">
-                <option value="">{{ _('None') }}</option>
-                {% for product in products %}
-                <option value="{{ product.id }}">{{ product.product_name }}</option>
-                {% endfor %}
-            </select>
-        </div>
-        <div class="col-md-1">
-            <label class="form-label">{{ _('Version') }}</label>
-            <input class="form-control" name="document_version" placeholder="1.0">
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">{{ _('Status') }}</label>
-            <select class="form-select" name="document_status">
-                {% for status in status_options %}
-                <option value="{{ status }}" {% if status == 'draft' %}selected{% endif %}>{{ _(status) }}</option>
-                {% endfor %}
-            </select>
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">{{ _('Related object type') }}</label>
-            <select class="form-select" name="related_object_type">
-                <option value="">{{ _('None') }}</option>
-                {% for type in related_object_types %}
-                <option value="{{ type }}">{{ _(type) }}</option>
-                {% endfor %}
-            </select>
-        </div>
-        <div class="col-md-3">
-            <label class="form-label">{{ _('Related object ID') }}</label>
-            <input class="form-control" name="related_object_id">
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">{{ _('Document date') }}</label>
-            <input class="form-control" type="date" name="document_date">
-        </div>
-        <div class="col-md-3">
-            <label class="form-label">{{ _('Upload file') }}</label>
-            <input class="form-control" type="file" name="document_file">
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">{{ _('File URL') }}</label>
-            <input class="form-control" name="file_url" placeholder="https://...">
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">{{ _('Case') }}</label>
-            <select class="form-select" name="case_id">
-                <option value="">{{ _('None') }}</option>
-                {% for case in cases %}
-                <option value="{{ case.id }}">{{ case.case_number }}</option>
-                {% endfor %}
-            </select>
-        </div>
-        <div class="col-md-2">
-            <label class="form-label">{{ _('Safety report') }}</label>
-            <select class="form-select" name="safety_report_id">
-                <option value="">{{ _('None') }}</option>
-                {% for report in reports %}
-                <option value="{{ report.id }}">{{ report.safety_report_number }}</option>
-                {% endfor %}
-            </select>
-        </div>
-        <div class="col-md-3">
-            <label class="form-label">{{ _('Comment') }}</label>
-            <input class="form-control" name="comment">
-        </div>
-        <div class="col-md-1 d-flex align-items-end">
-            <button class="btn btn-primary w-100 icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Save') }}</span></button>
-        </div>
+<section class="surface mb-4" id="upload-document">
+    <h2 class="h6 section-title">Загрузить нередактируемый документ</h2>
+    <form class="row g-2 align-items-end" method="post" action="/documents" enctype="multipart/form-data">
+        <input type="hidden" name="return_to" value="/documents">
+        <div class="col-lg-3"><label class="form-label">Наименование *</label><input class="form-control form-control-sm" name="document_title" required></div>
+        <div class="col-lg-2"><label class="form-label">Вид</label><select class="form-select form-select-sm" name="document_type">{% for type in type_options %}<option value="{{ type }}">{{ _(type) }}</option>{% endfor %}</select></div>
+        <div class="col-lg-2"><label class="form-label">Партнер</label><select class="form-select form-select-sm" name="partner_id" data-version-field="expected_partner_version"><option value="">Нет</option>{% for partner in partners %}<option data-version="{{ partner.version }}" value="{{ partner.id }}">{{ partner.partner_name }}</option>{% endfor %}</select></div>
+        <div class="col-lg-2"><label class="form-label">Препарат</label><select class="form-select form-select-sm" name="product_id" data-version-field="expected_product_version"><option value="">Нет</option>{% for product in products %}<option data-version="{{ product.version }}" value="{{ product.id }}">{{ product.product_name }}</option>{% endfor %}</select></div>
+        <div class="col-lg-2"><label class="form-label">Тип объекта</label><input type="hidden" name="related_object_type" value=""></div>
+        <div class="col-lg-2"><label class="form-label">ID объекта</label><select class="form-select form-select-sm" name="related_object_id" data-version-field="expected_related_version" data-type-field="related_object_type">
+<option value="">Нет</option>
+{% for kind, records, label in [('Case', cases, 'case_number'), ('Partner', partners, 'partner_name'), ('Product', products, 'product_name'), ('Contract', contracts, 'contract_number'), ('Employee', employees, 'full_name')] %}
+{% for row in records %}<option value="{{ row.id }}" data-type="{{ kind }}" data-version="{{ row.version }}">{{ kind }}: {{ row[label] or row.id }}</option>{% endfor %}
+{% endfor %}</select></div>
+        <div class="col-lg-2"><label class="form-label">Приложение МФСФ</label><select class="form-select form-select-sm" name="psmf_annex_code"><option value="">Не выбрано</option>{% for code in psmf_annex_codes %}<option value="{{ code }}">{{ code }}</option>{% endfor %}</select></div>
+        <div class="col-lg-1"><label class="form-label">Версия</label><input class="form-control form-control-sm" name="document_version" value="1.0"></div>
+        <div class="col-lg-2"><label class="form-label">Дата</label><input class="form-control form-control-sm" type="date" name="document_date"></div>
+        <div class="col-lg-2"><label class="form-label">Срок действия</label><input class="form-control form-control-sm" type="date" name="valid_until"></div>
+        <div class="col-lg-2"><label class="form-label">Статус</label><select class="form-select form-select-sm" name="document_status">{% for status in status_options %}<option value="{{ status }}" {% if status == 'active' %}selected{% endif %}>{{ _(status) }}</option>{% endfor %}</select></div>
+        <div class="col-lg-2"><label class="form-label">Область действия</label><select class="form-select form-select-sm" name="scope"><option value="GLOBAL">Общая</option><option value="PARTNER_SPECIFIC">Конкретный партнер</option></select></div>
+        <div class="col-lg-1"><label class="form-label">Страниц</label><input class="form-control form-control-sm" type="number" min="1" name="page_count"></div>
+        <div class="col-lg-1"><label class="form-label">Порядок</label><input class="form-control form-control-sm" type="number" min="0" name="inclusion_order" value="0"></div>
+        <div class="col-lg-3"><label class="form-label">Файл *</label><input class="form-control form-control-sm" type="file" name="document_file" required></div>
+        <div class="col-lg-3 d-flex gap-3 pb-1"><label class="form-check"><input class="form-check-input" type="checkbox" name="is_signed" value="true"><span class="form-check-label">Подписан</span></label><label class="form-check"><input class="form-check-input" type="checkbox" name="include_in_psmf" value="true"><span class="form-check-label">Включать в МФСФ</span></label></div>
+        <div class="col-lg-2"><button class="btn btn-primary btn-sm icon-button" type="submit"><i data-lucide="upload"></i><span>Загрузить</span></button></div>
     </form>
 </section>
 {% endif %}
 
-<section class="surface">
-    <div class="table-responsive">
-        <table class="table table-hover align-middle">
-            <thead>
-            <tr>
-                <th>{{ _('Title') }}</th>
-                <th>{{ _('Type') }}</th>
-                <th>{{ _('Partner') }}</th>
-                <th>{{ _('Product') }}</th>
-                <th>{{ _('Related object') }}</th>
-                <th>{{ _('Version') }}</th>
-                <th>{{ _('Status') }}</th>
-                <th>{{ _('Document date') }}</th>
-                <th>{{ _('Actions') }}</th>
-            </tr>
-            </thead>
-            <tbody>
-            {% for document in documents %}
-            <tr>
-                <td class="fw-medium">{{ document.document_title or document.file_name }}</td>
-                <td>{{ _(document.document_type or document.attachment_type) }}</td>
-                <td>
-                    {% if document.partner %}{{ document.partner.partner_name }}{% elif document.case and document.case.partner %}{{ document.case.partner.partner_name }}{% elif document.safety_report and document.safety_report.partner %}{{ document.safety_report.partner.partner_name }}{% endif %}
-                </td>
-                <td>
-                    {% if document.product %}
-                    {{ document.product.product_name }}
-                    {% elif document.case %}
-                    {% for row in document.case.case_products %}
-                    <span class="badge text-bg-light">{{ row.product.product_name if row.product else row.reported_product_name }}</span>
-                    {% endfor %}
-                    {% endif %}
-                </td>
-                <td>
-                    {% if document.related_object_type %}
-                    <span class="badge text-bg-light">{{ _(document.related_object_type) }}</span>
-                    <div class="text-secondary small text-break">{{ document.related_object_id or "" }}</div>
-                    {% elif document.case %}
-                    <span class="badge text-bg-light">{{ _('Case') }}</span>
-                    <div class="text-secondary small">{{ document.case.case_number }}</div>
-                    {% elif document.safety_report %}
-                    <span class="badge text-bg-light">{{ _('SafetyReport') }}</span>
-                    <div class="text-secondary small">{{ document.safety_report.safety_report_number }}</div>
-                    {% endif %}
-                </td>
-                <td>{{ document.document_version or document.version }}</td>
-                <td><span class="status-pill">{{ _(document.status) }}</span></td>
-                <td>{{ document.document_date or document.uploaded_at or document.created_at }}</td>
-                <td>
-                    <div class="d-flex flex-wrap gap-1">
-                        {% if document.storage_path %}
-                        <a class="btn btn-outline-primary btn-sm icon-only" href="/documents/{{ document.id }}/download" title="{{ _('Download') }}"><i data-lucide="download"></i></a>
-                        {% elif document.file_url %}
-                        <a class="btn btn-outline-primary btn-sm icon-only" href="{{ document.file_url }}" title="{{ _('Open') }}"><i data-lucide="external-link"></i></a>
-                        {% endif %}
-                        {% if document.case %}
-                        <a class="btn btn-outline-primary btn-sm icon-only" href="/cases/{{ document.case_id }}" title="{{ _('View') }}"><i data-lucide="eye"></i></a>
-                        {% elif document.safety_report %}
-                        <a class="btn btn-outline-primary btn-sm icon-only" href="/safety-reports/{{ document.safety_report_id }}" title="{{ _('View') }}"><i data-lucide="eye"></i></a>
-                        {% endif %}
-                        <button class="btn btn-outline-secondary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#document-view-{{ document.id }}" title="{{ _('Details') }}"><i data-lucide="list"></i></button>
-                        {% if has_permission('soft_delete') %}
-                        <form method="post" action="/documents/{{ document.id }}/delete">
-                            <button class="btn btn-outline-danger btn-sm icon-only" type="submit" title="{{ _('Delete') }}"><i data-lucide="trash-2"></i></button>
-                        </form>
-                        {% endif %}
-                    </div>
-                </td>
-            </tr>
-            <tr class="collapse" id="document-view-{{ document.id }}">
-                <td colspan="9">
-                    <div class="row g-2 small">
-                        <div class="col-md-3"><span class="text-secondary">{{ _('File name') }}</span><div>{{ document.file_name or "" }}</div></div>
-                        <div class="col-md-3"><span class="text-secondary">{{ _('File URL') }}</span><div class="text-break">{{ document.file_url or "" }}</div></div>
-                        <div class="col-md-3"><span class="text-secondary">{{ _('Comment') }}</span><div>{{ document.comment or "" }}</div></div>
-                        <div class="col-md-3"><span class="text-secondary">{{ _('Uploaded') }}</span><div>{{ document.uploaded_at or document.created_at }}</div></div>
-                        <div class="col-md-4"><span class="text-secondary">{{ _('Storage path') }}</span><div>{{ document.storage_path or "" }}</div></div>
-                        <div class="col-md-2"><span class="text-secondary">{{ _('MIME type') }}</span><div>{{ document.mime_type or "" }}</div></div>
-                        <div class="col-md-2"><span class="text-secondary">{{ _('Size') }}</span><div>{{ document.file_size_bytes or "" }}</div></div>
-                        <div class="col-md-4"><span class="text-secondary">{{ _('Checksum') }}</span><div class="text-break">{{ document.checksum_sha256 or "" }}</div></div>
-                        <div class="col-md-4"><span class="text-secondary">{{ _('Uploaded by') }}</span><div>{{ document.uploaded_by.email if document.uploaded_by else "" }}</div></div>
-                        <div class="col-12">
-                            <div class="table-responsive mt-2">
-                                <table class="table table-sm align-middle mb-0">
-                                    <thead><tr><th>{{ _('Version') }}</th><th>{{ _('Status') }}</th><th>{{ _('File name') }}</th><th>{{ _('Reason') }}</th><th>{{ _('Created by') }}</th></tr></thead>
-                                    <tbody>
-                                    {% for version in document.versions %}
-                                    <tr>
-                                        <td class="fw-semibold">{{ version.version_label }}</td>
-                                        <td><span class="status-pill">{{ _(version.status) }}</span></td>
-                                        <td>{{ version.file_name }}</td>
-                                        <td>{{ version.change_reason or "" }}</td>
-                                        <td>{{ version.creator.email if version.creator else "" }}</td>
-                                    </tr>
-                                    {% else %}
-                                    <tr><td colspan="5" class="text-secondary">{{ _('No versions yet.') }}</td></tr>
-                                    {% endfor %}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                </td>
-            </tr>
-            {% else %}
-            <tr><td colspan="9" class="text-secondary">{% if filters.active and total_count %}{{ _('No records match the filters.') }}{% else %}{{ _('No documents yet.') }}{% endif %}</td></tr>
-            {% endfor %}
-            </tbody>
-        </table>
-    </div>
-    {% include "_pagination.html" %}
-</section>
+{{ immutable_documents_block(documents, 'Registry', 'all', return_to='/documents', title='Документы реестра', show_upload=False) }}
+{% include "_pagination.html" %}
 {% endblock %}

@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import secrets
+from datetime import timedelta
 import os
 import time
 from pathlib import Path
 from urllib.parse import urlencode
 
 import httpx
+from app.database import SessionLocal
+from app.models import AuthSession, OutlookOAuthRequest, utcnow
 
 
 GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0"
@@ -73,17 +78,43 @@ def require_configured() -> dict[str, str]:
     return config
 
 
-def get_auth_url(state: str | None = None) -> str:
+def _session(db, user_key: str, session_token: str | None):
+    if not session_token:
+        raise OutlookAuthorizationError("An active application session is required.")
+    session = db.query(AuthSession).filter(
+        AuthSession.token_hash == hashlib.sha256(session_token.encode()).hexdigest(),
+        AuthSession.user_id == user_key,
+        AuthSession.is_active.is_(True), AuthSession.is_deleted.is_(False),
+        AuthSession.expires_at > utcnow(),
+    ).first()
+    if not session:
+        raise OutlookAuthorizationError("An active application session is required.")
+    return session
+
+
+def get_auth_url(*, user_key: str, session_token: str, reconciliation_id: str | None = None) -> str:
     config = require_configured()
+    state = secrets.token_urlsafe(32)
+    verifier = secrets.token_urlsafe(64)
+    with SessionLocal() as db:
+        session = _session(db, user_key, session_token)
+        db.query(OutlookOAuthRequest).filter(OutlookOAuthRequest.expires_at <= utcnow()).delete()
+        db.add(OutlookOAuthRequest(
+            state_hash=hashlib.sha256(state.encode()).hexdigest(), session_id=session.id,
+            user_id=user_key, verifier=verifier, expires_at=utcnow() + timedelta(minutes=10),
+            reconciliation_id=reconciliation_id,
+        ))
+        db.commit()
     params = {
         "client_id": config["client_id"],
         "response_type": "code",
         "redirect_uri": config["redirect_uri"],
         "response_mode": "query",
         "scope": config["scopes"],
+        "state": state,
+        "code_challenge": base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode(),
+        "code_challenge_method": "S256",
     }
-    if state:
-        params["state"] = state
     return (
         f"https://login.microsoftonline.com/{config['tenant_id']}/oauth2/v2.0/authorize?"
         + urlencode(params)
@@ -92,25 +123,56 @@ def get_auth_url(state: str | None = None) -> str:
 
 def handle_callback(
     *,
-    code: str,
+    code: str | None,
     state: str | None = None,
     user_key: str = "default",
+    session_token: str | None = None,
+    error: str | None = None,
 ) -> dict:
+    if not state:
+        raise OutlookAuthorizationError("Missing OAuth state. Start authorization again.")
+    with SessionLocal() as db:
+        session = _session(db, user_key, session_token)
+        query = db.query(OutlookOAuthRequest).filter(
+            OutlookOAuthRequest.state_hash == hashlib.sha256(state.encode()).hexdigest(),
+            OutlookOAuthRequest.session_id == session.id,
+            OutlookOAuthRequest.user_id == user_key,
+            OutlookOAuthRequest.expires_at > utcnow(),
+        )
+        pending = query.first()
+        if not pending:
+            raise OutlookAuthorizationError("Invalid or expired OAuth state. Start authorization again.")
+        verifier, reconciliation_id = pending.verifier, pending.reconciliation_id
+        # Atomic consumption precedes all network calls and rejects replay.
+        if query.delete(synchronize_session=False) != 1:
+            db.rollback()
+            raise OutlookAuthorizationError("OAuth state was already used.")
+        db.commit()
+    if error or not code:
+        raise OutlookAuthorizationError(error or "Microsoft authorization code was not returned.")
     config = require_configured()
-    response = httpx.post(
-        token_url(config),
-        data={
-            "client_id": config["client_id"],
-            "client_secret": config["client_secret"],
-            "grant_type": "authorization_code",
-            "code": code,
-            "redirect_uri": config["redirect_uri"],
-            "scope": config["scopes"],
-        },
-        timeout=30,
-    )
+    try:
+        response = httpx.post(
+            token_url(config),
+            data={
+                "client_id": config["client_id"],
+                "client_secret": config["client_secret"],
+                "grant_type": "authorization_code",
+                "code": code,
+                "code_verifier": verifier,
+                "redirect_uri": config["redirect_uri"],
+                "scope": config["scopes"],
+            },
+            timeout=30,
+        )
+    except httpx.RequestError as exc:
+        # The state is already consumed. A fresh authorization is required;
+        # transport details may contain credentials and must not reach the UI.
+        raise OutlookAuthorizationError(
+            "Microsoft token exchange failed. Start authorization again."
+        ) from exc
     token_data = parse_token_response(response)
-    token_data["state"] = state
+    token_data["reconciliation_id"] = reconciliation_id
     _TOKEN_CACHE[user_key] = token_data
     return token_data
 
@@ -189,7 +251,7 @@ def add_attachment_to_draft(
     size = path.stat().st_size
     if size > OUTLOOK_ATTACHMENT_SIMPLE_LIMIT_BYTES:
         raise OutlookAttachmentTooLargeError(
-            "Файл сверки больше 3 МБ. Для MVP поддерживаются вложения до 3 МБ."
+            "Файл сверки больше 3 МБ. Поддерживаются вложения до 3 МБ."
         )
     access_token = get_access_token(user_key=user_key)
     payload = {

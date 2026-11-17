@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ _('Literature Monitoring') }} - {{ _('PV MVP') }}{% endblock %}
+{% block title %}{{ _('Literature Monitoring') }} - {{ _('PV System') }}{% endblock %}
 
 {% macro product_select(selected_ids) -%}
 <select class="form-select" name="product_ids" multiple size="4">
@@ -12,6 +12,7 @@
 {% macro plan_form(action, plan=None) -%}
 {% set selected_product_ids = plan.products|map(attribute='product_id')|list if plan else [] %}
 <form class="row g-3" method="post" action="{{ action }}">
+{% if plan %}<input type="hidden" name="expected_version" value="{{ plan.version }}">{% endif %}
     <div class="col-md-3">
         <label class="form-label">{{ _('Partner') }}</label>
         <select class="form-select" name="partner_id" required>
@@ -97,12 +98,13 @@
 {% macro log_form(action, log=None) -%}
 {% set selected_product_ids = log.products|map(attribute='product_id')|list if log else [] %}
 <form class="row g-3" method="post" action="{{ action }}">
+{% if log %}<input type="hidden" name="expected_version" value="{{ log.version }}">{% endif %}
     <div class="col-md-3">
         <label class="form-label">{{ _('Monitoring plan') }}</label>
-        <select class="form-select" name="plan_id" required>
+        <select class="form-select" name="plan_id" required data-version-field="expected_plan_version">
             <option value="">{{ _('Select plan') }}</option>
             {% for plan in plans_all %}
-            <option value="{{ plan.id }}" {% if log and log.plan_id == plan.id %}selected{% endif %}>{{ plan.partner.partner_name if plan.partner else '' }} / {{ product_names(plan.products) if product_names is defined else '' }} / {{ plan.start_date }}</option>
+            <option data-version="{{ plan.version }}" value="{{ plan.id }}" {% if log and log.plan_id == plan.id %}selected{% endif %}>{{ plan.partner.partner_name if plan.partner else '' }} / {{ product_names(plan.products) if product_names is defined else '' }} / {{ plan.start_date }}</option>
             {% endfor %}
         </select>
     </div>
@@ -200,6 +202,7 @@
 {% set prefill_log_id = request.query_params.get('log_id', '') if not result else '' %}
 {% set prefill_plan_id = request.query_params.get('plan_id', '') if not result else '' %}
 <form class="row g-3" method="post" action="{{ action }}" enctype="multipart/form-data">
+{% if result %}<input type="hidden" name="expected_version" value="{{ result.version }}">{% endif %}
     <div class="col-md-3">
         <label class="form-label">{{ _('Search log') }}</label>
         <select class="form-select" name="search_log_id">
@@ -211,10 +214,10 @@
     </div>
     <div class="col-md-3">
         <label class="form-label">{{ _('Monitoring plan') }}</label>
-        <select class="form-select" name="plan_id" required>
+        <select class="form-select" name="plan_id" required data-version-field="expected_plan_version">
             <option value="">{{ _('Select plan') }}</option>
             {% for plan in plans_all %}
-            <option value="{{ plan.id }}" {% if (result and result.plan_id == plan.id) or (not result and prefill_plan_id == plan.id) %}selected{% endif %}>{{ plan.partner.partner_name if plan.partner else '' }} / {{ plan.start_date }}</option>
+            <option data-version="{{ plan.version }}" value="{{ plan.id }}" {% if (result and result.plan_id == plan.id) or (not result and prefill_plan_id == plan.id) %}selected{% endif %}>{{ plan.partner.partner_name if plan.partner else '' }} / {{ plan.start_date }}</option>
             {% endfor %}
         </select>
     </div>
@@ -447,6 +450,7 @@
                         {% endif %}
                         {% if has_permission('edit') or has_permission('soft_delete') %}
                         <form method="post" action="/literature-monitoring/plans/{{ plan.id }}/archive">
+<input type="hidden" name="expected_version" value="{{ plan.version }}">
                             <button class="btn btn-outline-danger btn-sm icon-only" type="submit" title="{{ _('Archive') }}"><i data-lucide="archive"></i></button>
                         </form>
                         {% endif %}
@@ -587,6 +591,8 @@
                         {% endif %}
                         {% if has_permission('create') or has_permission('icsr_workflow') %}
                         <form method="post" action="/literature-monitoring/results/{{ result.id }}/create-icsr">
+<input type="hidden" name="expected_inputs" value="{{ input_snapshot }}">
+<input type="hidden" name="expected_version" value="{{ result.version }}">
                             <button class="btn btn-outline-primary btn-sm icon-only" type="submit" title="{{ _('Create ICSR') }}"><i data-lucide="folder-plus"></i></button>
                         </form>
                         {% endif %}
@@ -609,6 +615,7 @@
                     </div>
                     {% if has_permission('upload') or has_permission('edit') %}
                     <form class="row g-2 align-items-end mt-3" method="post" action="/literature-monitoring/results/{{ result.id }}/documents" enctype="multipart/form-data">
+<input type="hidden" name="expected_version" value="{{ result.version }}">
                         <div class="col-md-3"><label class="form-label">{{ _('Article PDF') }}</label><input class="form-control" type="file" name="article_pdf"></div>
                         <div class="col-md-3"><label class="form-label">{{ _('Search screenshot') }}</label><input class="form-control" type="file" name="search_screenshot"></div>
                         <div class="col-md-2"><button class="btn btn-outline-primary w-100 icon-button" type="submit"><i data-lucide="upload"></i><span>{{ _('Upload') }}</span></button></div>
@@ -618,11 +625,13 @@
                     <div class="row g-2 align-items-end mt-2">
                         <div class="col-md-4">
                             <form class="d-flex gap-2" method="post" action="/literature-monitoring/results/{{ result.id }}/link">
+<input type="hidden" name="expected_inputs" value="{{ input_snapshot }}">
+<input type="hidden" name="expected_version" value="{{ result.version }}">
                                 <input type="hidden" name="target" value="psur">
                                 <select class="form-select" name="target_id">
                                     <option value="">{{ _('PSUR/PBRER Local') }}</option>
                                     {% for plan in psur_plans %}
-                                    <option value="{{ plan.id }}">{{ plan.psur_type }} / {{ plan.reporting_period_start }} - {{ plan.reporting_period_end }}</option>
+                                    <option data-version="{{ plan.version }}" value="{{ plan.id }}">{{ plan.psur_type }} / {{ plan.reporting_period_start }} - {{ plan.reporting_period_end }}</option>
                                     {% endfor %}
                                 </select>
                                 <button class="btn btn-outline-primary icon-only" type="submit" title="{{ _('Link') }}"><i data-lucide="link"></i></button>
@@ -630,6 +639,8 @@
                         </div>
                         <div class="col-md-4">
                             <form class="d-flex gap-2" method="post" action="/literature-monitoring/results/{{ result.id }}/link">
+<input type="hidden" name="expected_inputs" value="{{ input_snapshot }}">
+<input type="hidden" name="expected_version" value="{{ result.version }}">
                                 <input type="hidden" name="target" value="psmf">
                                 <select class="form-select" name="target_id">
                                     <option value="">{{ _('PSMF') }}</option>
@@ -642,6 +653,8 @@
                         </div>
                         <div class="col-md-4">
                             <form class="d-flex gap-2" method="post" action="/literature-monitoring/results/{{ result.id }}/link">
+<input type="hidden" name="expected_inputs" value="{{ input_snapshot }}">
+<input type="hidden" name="expected_version" value="{{ result.version }}">
                                 <input type="hidden" name="target" value="rmp">
                                 <input class="form-control" name="target_id" value="{{ result.rmp_reference or '' }}" placeholder="{{ _('RMP reference') }}">
                                 <button class="btn btn-outline-primary icon-only" type="submit" title="{{ _('Link') }}"><i data-lucide="link"></i></button>
@@ -649,6 +662,7 @@
                         </div>
                     </div>
                     <form class="row g-2 align-items-end mt-2" method="post" action="/literature-monitoring/results/{{ result.id }}/close">
+<input type="hidden" name="expected_version" value="{{ result.version }}">
                         <div class="col-md-10"><label class="form-label">{{ _('Comment') }}</label><input class="form-control" name="close_comment"></div>
                         <div class="col-md-2"><button class="btn btn-outline-secondary w-100 icon-button" type="submit"><i data-lucide="check-circle"></i><span>{{ _('Close result') }}</span></button></div>
                     </form>

@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Разбор идентификаторов — PV1{% endblock %}
+{% block content %}
+<h1 class="h3">Разбор исторических идентификаторов</h1>
+<a href="/safety-reports/e2b-imports/{{ batch.id }}">Вернуться / оставить вопрос нерешённым</a>
+<p>Решение подтверждает назначение ID конкретного случая по ранее связанному исходнику. Оно не объединяет случаи и не подтверждает импорт.</p>
+{% if validation %}<div class="alert alert-warning">{{ validation }}</div>{% endif %}
+{% if review.blocking %}<div class="alert alert-warning">{{ review.blocking }}</div>{% else %}<p>При текущем сопоставлении конфликт не обнаружен.</p>{% endif %}
+{% for error in review.source_errors %}<div class="alert alert-warning">{{ error }}</div>{% endfor %}
+<h2 class="h5">Входящий источник</h2>
+{% for message in review.messages %}
+<dl><dt>C.1.8.1 — worldwide ID</dt><dd>{{ message.worldwide_case_id }}</dd>
+<dt>C.1.1 — ID случая у отправителя</dt><dd>{{ message.local_sender_case_id }}</dd>
+<dt>Пространство отправителя (root, extension)</dt><dd>{{ message.sender_scope }}</dd></dl>
+{% endfor %}
+{% for entry in review.candidates %}{% set case = entry.case %}
+<section class="surface mb-4">
+<h2 class="h5"><a href="/cases/{{ case.id }}">{{ case.case_number }}</a></h2>
+<p>Текущая версия: {{ case.version }}. Происхождение: {{ case.e2b_identity_profile or 'Историческое назначение ID не проверено' }}.</p>
+<dl><dt>Сохранённый worldwide ID</dt><dd>{{ case.worldwide_case_id or 'Не задан' }}</dd>
+<dt>Сохранённый ID отправителя</dt><dd>{{ case.local_sender_case_id or 'Не задан' }}</dd>
+<dt>Пространство отправителя</dt><dd>{{ case.e2b_sender_scope or 'Не установлено' }}</dd></dl>
+{% for source in entry.sources %}
+{% if source.error %}<p class="text-warning">{{ source.error }}</p>{% else %}
+<div class="border rounded p-3 mb-3">
+<a href="/safety-reports/e2b-imports/{{ batch.id }}/identity-review/sources/{{ source.tx.id }}">Скачать связанный исходный R3</a>
+<p class="small">SHA-256: {{ source.checksum }}</p>
+<dl><dt>C.1.8.1 — worldwide ID</dt><dd>{{ source.confirmed.worldwide_case_id }}</dd>
+<dt>C.1.1 — ID отправителя</dt><dd>{{ source.confirmed.local_sender_case_id }}</dd>
+<dt>Пространство</dt><dd>{{ source.confirmed.e2b_sender_scope }}</dd></dl>
+{% if case.e2b_identity_profile in [none, 'manual-r3-identity-v1'] and batch.status not in ['imported', 'cancelled', 'not_pv_ars'] %}
+<form method="post" action="/safety-reports/e2b-imports/{{ batch.id }}/identity-review">
+<input type="hidden" name="csrf" value="{{ csrf_token(request) }}">
+<input type="hidden" name="case_id" value="{{ case.id }}">
+<input type="hidden" name="transmission_id" value="{{ source.tx.id }}">
+<input type="hidden" name="expected_case_version" value="{{ case.version }}">
+<input type="hidden" name="expected_batch_version" value="{{ batch.version }}">
+<input type="hidden" name="expected_snapshot" value="{{ input_snapshot }}">
+<input type="hidden" name="supersedes_id" value="{{ entry.history[0].id if entry.history else '' }}">
+<label class="form-label">Основание: объясните соответствие исторических ID этому исходнику.
+<textarea class="form-control" name="reason" required minlength="20" maxlength="4000"></textarea></label>
+{% if entry.history %}<p>Новое решение явно заменит {{ entry.history[0].id }}. Подтверждённые ID менять здесь нельзя; можно уточнить основание или источник при той же идентичности.</p>{% endif %}
+<button class="btn btn-primary" type="submit">Подтвердить показанную интерпретацию</button>
+</form>{% endif %}</div>{% endif %}
+{% else %}<p>Нет исходного R3, уже связанного с этим случаем. Свободный комментарий не заменяет доказательство; требуется отдельное расследование.</p>{% endfor %}
+<h3 class="h6">Неизменяемая история решений</h3>
+{% for decision in entry.history %}
+<details><summary>{{ decision.decided_at }} — {{ decision.id }}</summary>
+<p>Автор: {{ decision.author_id }}; версия случая до решения: {{ decision.case_version_before }}; заменяет: {{ decision.supersedes_id or 'нет' }}.</p>
+<p>{{ decision.reason }}</p><p>До: {{ decision.before_json }}</p><p>Подтверждено: {{ decision.confirmed_json }}</p>
+<p>Источник: {{ decision.evidence_transmission_id }}; SHA-256: {{ decision.evidence_checksum }}</p>
+<p>Область и происхождение: {{ decision.evidence_json }}</p></details>
+{% else %}<p>Решений нет.</p>{% endfor %}
+</section>{% else %}<p>Нет связанных кандидатов для этого источника. Ручное назначение произвольного случая запрещено.</p>{% endfor %}
+{% endblock %}

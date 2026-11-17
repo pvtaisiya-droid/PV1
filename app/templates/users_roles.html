@@ -1,5 +1,6 @@
 {% extends "base.html" %}
-{% block title %}{{ _('Users & Roles') }} · {{ _('PV MVP') }}{% endblock %}
+{% from "_immutable_documents.html" import immutable_documents_block with context %}
+{% block title %}{{ _('Users & Roles') }} · {{ _('PV System') }}{% endblock %}
 {% block content %}
 <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
     <div>
@@ -19,17 +20,22 @@
 {% endif %}
 
 <section class="surface mb-4">
-    <h2 class="h6 section-title">{{ _('Create user') }}</h2>
+    <h2 class="h6 section-title">{{ _('Register user') }}</h2>
     <form class="row g-3" method="post" action="/users-roles/users">
-        <div class="col-md-3">
-            <label class="form-label">{{ _('Email') }}</label>
-            <input class="form-control" type="email" name="email" required>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Login') }}</label>
+            <input class="form-control" name="login" minlength="3" maxlength="64" autocomplete="off" required>
         </div>
-        <div class="col-md-3">
+        <div class="col-md-2">
             <label class="form-label">{{ _('Full name') }}</label>
             <input class="form-control" name="full_name">
         </div>
-        <div class="col-md-4">
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Password') }}</label>
+            <input class="form-control" type="password" name="password" minlength="12" maxlength="128" autocomplete="new-password" required>
+            <div class="form-text">{{ _('At least 12 characters.') }}</div>
+        </div>
+        <div class="col-md-3">
             <label class="form-label">{{ _('Assigned roles') }}</label>
             <select class="form-select" name="role_ids" multiple size="3">
                 {% for role in roles %}
@@ -48,7 +54,7 @@
     <form class="row g-2 align-items-end" method="get" action="/users-roles">
         <div class="col-md-4">
             <label class="form-label">{{ _('Search') }}</label>
-            <input class="form-control" name="search" value="{{ filters.search }}" placeholder="{{ _('Email') }} / {{ _('Full name') }} / {{ _('Role') }}">
+            <input class="form-control" name="search" value="{{ filters.search }}" placeholder="{{ _('Login') }} / {{ _('Full name') }} / {{ _('Role') }}">
         </div>
         <div class="col-md-3">
             <label class="form-label">{{ _('Role') }}</label>
@@ -92,13 +98,14 @@
             {% set assigned_role_ids = user.user_roles|rejectattr('is_deleted')|map(attribute='role_id')|list %}
             <tr>
                 <td>
-                    <div class="fw-semibold">{{ user.full_name or user.email }}</div>
-                    <div class="text-secondary small">{{ user.email }}</div>
+                    <div class="fw-semibold">{{ user.full_name or user.login }}</div>
+                    <div class="text-secondary small">{{ user.login }}</div>
                 </td>
                 <td>
                     <div class="d-flex flex-wrap gap-1">
                         {% for user_role in user.user_roles if not user_role.is_deleted and user_role.role %}
                         <form method="post" action="/users-roles/users/{{ user.id }}/roles/{{ user_role.role_id }}/remove" class="d-inline-flex">
+<input type="hidden" name="expected_version" value="{{ user.version }}">
                             <span class="badge text-bg-light role-badge">
                                 {{ _(user_role.role.role_name) }}
                                 <button class="badge-action" type="submit" title="{{ _('Remove role') }}" aria-label="{{ _('Remove role') }}">
@@ -113,6 +120,7 @@
                 </td>
                 <td>
                     <form class="d-flex gap-2" method="post" action="/users-roles/users/{{ user.id }}/roles">
+<input type="hidden" name="expected_version" value="{{ user.version }}">
                         <select class="form-select form-select-sm" name="role_id" aria-label="{{ _('Role') }}">
                             {% for role in roles %}
                             <option value="{{ role.id }}" {% if role.id in assigned_role_ids %}disabled{% endif %}>{{ _(role.role_name) }}</option>
@@ -125,6 +133,7 @@
                     <button class="btn btn-outline-primary btn-sm icon-only me-1" type="button" data-bs-toggle="collapse" data-bs-target="#user-edit-{{ user.id }}" title="{{ _('Edit') }}"><i data-lucide="pencil"></i></button>
                     {% if has_permission('soft_delete') and current_user() and user.id != current_user().id %}
                     <form class="d-flex gap-2" method="post" action="/users-roles/users/{{ user.id }}/archive">
+<input type="hidden" name="expected_version" value="{{ user.version }}">
                         <input class="form-control form-control-sm" name="delete_reason" placeholder="{{ _('Delete reason') }}">
                         <button class="btn btn-outline-danger btn-sm icon-only" type="submit" title="{{ _('Archive user') }}"><i data-lucide="archive"></i></button>
                     </form>
@@ -136,9 +145,10 @@
             <tr class="collapse" id="user-edit-{{ user.id }}">
                 <td colspan="4">
                     <form class="row g-2 align-items-end" method="post" action="/users-roles/users/{{ user.id }}/edit">
+<input type="hidden" name="expected_version" value="{{ user.version }}">
                         <div class="col-md-4">
-                            <label class="form-label">{{ _('Email') }}</label>
-                            <input class="form-control form-control-sm" type="email" name="email" value="{{ user.email }}" required>
+                            <label class="form-label">{{ _('Login') }}</label>
+                            <input class="form-control form-control-sm" name="login" value="{{ user.login }}" minlength="3" maxlength="64" required>
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">{{ _('Full name') }}</label>
@@ -149,6 +159,17 @@
                             <button class="btn btn-outline-secondary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#user-edit-{{ user.id }}" title="{{ _('Cancel') }}"><i data-lucide="x"></i></button>
                         </div>
                     </form>
+                    <form class="row g-2 align-items-end mt-2" method="post" action="/users-roles/users/{{ user.id }}/password">
+<input type="hidden" name="expected_version" value="{{ user.version }}">
+                        <div class="col-md-4">
+                            <label class="form-label">{{ _('New password') }}</label>
+                            <input class="form-control form-control-sm" type="password" name="password" minlength="12" maxlength="128" autocomplete="new-password" required>
+                        </div>
+                        <div class="col-md-4">
+                            <button class="btn btn-outline-primary btn-sm icon-button" type="submit"><i data-lucide="key-round"></i><span>{{ _('Reset password') }}</span></button>
+                        </div>
+                    </form>
+                    {{ immutable_documents_block(documents_by_user.get(user.id, []), 'Employee', user.id, '', 'Приложение А-1', 'GLOBAL', '/users-roles', 'Нередактируемые документы сотрудника / УЛФ', context_version=user.version) }}
                 </td>
             </tr>
             {% else %}
@@ -179,7 +200,8 @@
                 <td>
                     <div class="fw-semibold">{{ _(role.role_name) }}</div>
                     <div class="text-secondary small">{{ role.role_code }}</div>
-                    <form id="role-permissions-{{ role.id }}" method="post" action="/users-roles/roles/{{ role.id }}/permissions"></form>
+                    <form id="role-permissions-{{ role.id }}" method="post" action="/users-roles/roles/{{ role.id }}/permissions">
+<input type="hidden" name="expected_version" value="{{ role.version }}"></form>
                 </td>
                 {% for permission in permissions %}
                 <td class="text-center">

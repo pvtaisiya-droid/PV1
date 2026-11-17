@@ -1,0 +1,586 @@
+{% extends "base.html" %}
+{% block title %}Импорт договоров - {{ _('PV System') }}{% endblock %}
+
+{% macro status_badge(status) -%}
+    {% if status == 'unique_match' %}
+    <span class="status-pill pv-status-success">Найдено одно совпадение</span>
+    {% elif status == 'multiple_candidates' %}
+    <span class="status-pill pv-status-warning">Несколько кандидатов</span>
+    {% elif status == 'not_found' %}
+    <span class="status-pill pv-status-neutral">Не найдено</span>
+    {% else %}
+    <span class="status-pill">{{ status or 'Не проверено' }}</span>
+    {% endif %}
+{%- endmacro %}
+
+{% macro candidate_list(candidates) -%}
+    {% if candidates %}
+    <ul class="list-unstyled mb-0 small">
+        {% for candidate in candidates %}
+        <li class="mb-1">
+            <span class="fw-semibold">{{ candidate.label }}</span>
+            <span class="text-secondary">({{ candidate.reason }})</span>
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <span class="text-secondary small">Кандидатов нет</span>
+    {% endif %}
+{%- endmacro %}
+
+{% macro source_cell(source) -%}
+    {% if source %}
+    <div class="small">
+        {% if source.page %}<span class="text-secondary">стр.</span> {{ source.page }}{% endif %}
+        {% if source.clause %}<span class="text-secondary ms-2">п.</span> {{ source.clause }}{% endif %}
+        {% if source.confidence is not none %}<span class="text-secondary ms-2">conf.</span> {{ '%.2f'|format(source.confidence) }}{% endif %}
+    </div>
+    {% if source.quote %}
+    <div class="small text-secondary text-break">{{ source.quote }}</div>
+    {% endif %}
+    {% else %}
+    <span class="text-secondary small">-</span>
+    {% endif %}
+{%- endmacro %}
+
+{% macro sourced_value(row) -%}
+    {% if row is mapping and 'value' in row %}
+        {{ row.value if row.value is not none else '' }}
+    {% else %}
+        {{ row if row is not none else '' }}
+    {% endif %}
+{%- endmacro %}
+
+{% macro change_badge(status) -%}
+    {% if status == 'duplicate' %}
+    <span class="badge text-bg-secondary">Уже есть</span>
+    {% elif status == 'update' %}
+    <span class="badge text-bg-success">Будет обновлено</span>
+    {% elif status == 'new' %}
+    <span class="badge text-bg-success">Новое</span>
+    {% endif %}
+{%- endmacro %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+        <h1 class="h3 mb-1">Импорт договоров</h1>
+        <div class="text-secondary small">Загрузка JSON, проверка, выбор данных и подтвержденное сохранение в PV1.</div>
+    </div>
+    <a class="btn btn-outline-secondary btn-sm icon-button" href="/contracts"><i data-lucide="arrow-left"></i><span>К договорам</span></a>
+</div>
+
+<section class="surface mb-4">
+    <h2 class="h6 section-title">Загрузка файла</h2>
+    <form method="post" action="/contract-imports/preview" enctype="multipart/form-data" class="row g-3 align-items-end">
+        <div class="col-lg-7">
+            <label class="form-label" for="import_file">Импортный JSON</label>
+            <input class="form-control" id="import_file" name="import_file" type="file" accept="application/json,.json" required>
+            {% if uploaded_filename %}
+            <div class="form-text">Загружен: {{ uploaded_filename }}</div>
+            {% endif %}
+        </div>
+        <div class="col-lg-5">
+            <div class="d-flex flex-wrap gap-2">
+                <button class="btn btn-primary icon-button" type="submit"><i data-lucide="upload"></i><span>Загрузить и проверить</span></button>
+                <a class="btn btn-success icon-button" href="/contract-imports/gpt-package"><i data-lucide="archive"></i><span>Скачать пакет для GPT</span></a>
+                <button class="btn btn-outline-secondary icon-button" type="button" id="copyGptPrompt"><i data-lucide="clipboard-copy"></i><span>Скопировать промпт для GPT</span></button>
+            </div>
+            <div class="form-text" id="copyPromptStatus" aria-live="polite">Архив загрузите в GPT вместе с договором.</div>
+        </div>
+    </form>
+    <textarea class="visually-hidden" id="gptPromptText">{{ prompt_text }}</textarea>
+</section>
+
+{% if accounting_result %}
+<section class="surface mb-4">
+    <div class="alert alert-success mb-3" role="alert">
+        <div class="fw-semibold">Информация для бухгалтерии сохранена отдельно.</div>
+        Партнер: {{ accounting_result.partner_name }}.
+    </div>
+    {% if accounting_result.updated_messages %}
+    <div class="alert alert-success py-2">
+        <div class="fw-semibold mb-1">Добавлено или обновлено</div>
+        <ul class="mb-0">{% for message in accounting_result.updated_messages %}<li>{{ message }}</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+    {% if accounting_result.duplicate_messages %}
+    <div class="alert alert-secondary py-2">
+        <div class="fw-semibold mb-1">Обнаружены дубли</div>
+        <ul class="mb-0">{% for message in accounting_result.duplicate_messages %}<li>{{ message }}</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+    <div class="d-flex flex-wrap gap-2">
+        <a class="btn btn-primary" href="/partners/{{ accounting_result.partner_id }}">Открыть партнера</a>
+        <a class="btn btn-outline-secondary" href="/contract-imports">Новый импорт</a>
+    </div>
+</section>
+{% endif %}
+
+{% if import_result %}
+<section class="surface mb-4">
+    <div class="alert alert-success mb-3" role="alert">
+        <div class="fw-semibold">Импорт завершен.</div>
+        Партнер: {{ 'создан' if import_result.partner_action == 'created' else 'сопоставлен' }}.
+        Договор: {{ 'создан' if import_result.contract_action == 'created' else 'уже существовал' }}.
+    </div>
+    <div class="row g-3 mb-3">
+        <div class="col-md-4"><span class="text-secondary small">Партнер</span><div class="fw-semibold">{{ import_result.partner_name }}</div></div>
+        <div class="col-md-4"><span class="text-secondary small">Договор</span><div class="fw-semibold">{{ import_result.contract_number }}</div></div>
+        <div class="col-md-4"><span class="text-secondary small">Дополнительно</span><div>Контактов создано: {{ import_result.created_contacts }}; существующих контактов: {{ import_result.linked_contacts }}{% if import_result.skipped_contacts_without_email %}; контактов без e-mail пропущено: {{ import_result.skipped_contacts_without_email }}{% endif %}; препаратов создано: {{ import_result.created_products }}; существующих препаратов: {{ import_result.linked_products }}; тарифов: {{ import_result.created_tariffs }}{% if import_result.skipped_duplicate_tariffs %}; вариантов тарифов пропущено: {{ import_result.skipped_duplicate_tariffs }}{% endif %}</div></div>
+    </div>
+    {% if import_result.updated_messages %}
+    <div class="alert alert-success py-2">
+        <div class="fw-semibold mb-1">Добавлено или обновлено</div>
+        <ul class="mb-0">{% for message in import_result.updated_messages %}<li>{{ message }}</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+    {% if import_result.duplicate_messages %}
+    <div class="alert alert-secondary py-2">
+        <div class="fw-semibold mb-1">Обнаружены дубли</div>
+        <ul class="mb-0">{% for message in import_result.duplicate_messages %}<li>{{ message }}</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+    <div class="d-flex flex-wrap gap-2">
+        <a class="btn btn-primary" href="/partners/{{ import_result.partner_id }}">Открыть партнера</a>
+        <a class="btn btn-outline-primary" href="/contracts/{{ import_result.contract_id }}/edit">Открыть договор</a>
+        <a class="btn btn-outline-secondary" href="/contract-imports">Новый импорт</a>
+    </div>
+</section>
+{% endif %}
+
+{% if parse_error %}
+<div class="alert alert-danger" role="alert">{{ parse_error }}</div>
+{% endif %}
+
+{% if validation_errors %}
+<section class="surface mb-4">
+    <h2 class="h6 section-title">Ошибки JSON Schema</h2>
+    <div class="alert alert-danger py-2">Файл не готов к импорту. Исправьте JSON в ChatGPT или вручную и загрузите снова.</div>
+    <ul class="mb-0">
+        {% for error in validation_errors %}
+        <li><code>{{ error }}</code></li>
+        {% endfor %}
+    </ul>
+</section>
+{% endif %}
+
+{% if preview %}
+<section class="surface mb-4">
+    <h2 class="h6 section-title">Итог проверки</h2>
+    <div class="row g-3">
+        <div class="col-6 col-lg-2"><span class="text-secondary small">Версия</span><div class="fw-semibold">{{ preview.schema_name }} / {{ preview.schema_version }}</div></div>
+        <div class="col-6 col-lg-2"><span class="text-secondary small">Ошибки схемы</span><div class="h4 mb-0">{{ preview.summary.validation_errors }}</div></div>
+        <div class="col-6 col-lg-2"><span class="text-secondary small">Контакты</span><div class="h4 mb-0">{{ preview.summary.contacts }}</div></div>
+        <div class="col-6 col-lg-2"><span class="text-secondary small">Препараты</span><div class="h4 mb-0">{{ preview.summary.products }}</div></div>
+        <div class="col-6 col-lg-2"><span class="text-secondary small">Услуги</span><div class="h4 mb-0">{{ preview.summary.services }}</div></div>
+        <div class="col-6 col-lg-2"><span class="text-secondary small">Совпадения и дубли</span><div class="h4 mb-0">{{ preview.summary.duplicates }}</div></div>
+        <div class="col-6 col-lg-2"><span class="text-secondary small">Ручная проверка</span><div class="h4 mb-0">{{ preview.summary.manual_review }}</div></div>
+        <div class="col-12"><span class="text-secondary small">Исходный документ</span><div class="fw-semibold">{{ preview.source_document.file_name or '-' }}</div></div>
+    </div>
+    <div class="alert alert-info py-2 mt-3 mb-0">Это предварительный просмотр. Запись в БД будет доступна только после отдельного подтверждения и повторной проверки.</div>
+</section>
+
+{% if preview.warnings %}
+<section class="surface mb-4">
+    <h2 class="h6 section-title">Предупреждения</h2>
+    <ul class="mb-0">
+        {% for warning in preview.warnings %}
+        <li>{{ warning }}</li>
+        {% endfor %}
+    </ul>
+</section>
+{% endif %}
+
+{% if preview.duplicate_messages %}
+<section class="surface mb-4 border border-secondary-subtle">
+    <h2 class="h6 section-title">Совпадения и возможные дубли</h2>
+    <div class="alert alert-secondary py-2">Проверьте найденные совпадения до сохранения. Одинаковые записи повторно созданы не будут.</div>
+    <ul class="mb-0">
+        {% for message in preview.duplicate_messages %}
+        <li>{{ message }}</li>
+        {% endfor %}
+    </ul>
+</section>
+{% endif %}
+
+{% if not preview.blocking_errors %}
+<section class="surface mb-4 border border-primary-subtle">
+    <h2 class="h6 section-title">Подтверждение и сохранение</h2>
+    <div class="alert alert-warning py-2">
+        Проверьте ключевые поля. Контакты, препараты и тарифы сохраняются только при установленных флажках.
+    </div>
+    <form method="post" action="/contract-imports/confirm">
+<input type="hidden" name="expected_snapshot" value="{{ expected_snapshot }}">
+        <input type="hidden" name="payload_json" value="{{ payload_json|e }}">
+        <div class="row g-3 mb-4">
+            <div class="col-lg-4">
+                <label class="form-label" for="partner_id">Партнер в PV1 {{ change_badge('duplicate' if preview.partner.candidates else 'new') }}</label>
+                <select class="form-select {% if preview.partner.candidates %}bg-secondary-subtle{% else %}bg-success-subtle border-success{% endif %}" id="partner_id" name="partner_id">
+                    {% if not preview.partner.candidates %}<option value="">Создать нового партнера</option>{% endif %}
+                    {% for candidate in preview.partner.candidates %}
+                    <option value="{{ candidate.id }}" {% if preview.partner.candidates|length == 1 %}selected{% endif %}>Использовать: {{ candidate.label }}</option>
+                    {% endfor %}
+                    {% if preview.partner.candidates %}<option value="">Создать нового партнера</option>{% endif %}
+                </select>
+            </div>
+            {% if preview.partner.candidates %}
+            <div class="col-12" id="existingPartnerConfirmation">
+                <div class="form-check border border-warning-subtle rounded p-3 ps-5 bg-warning-subtle">
+                    <input class="form-check-input" type="checkbox" value="yes" name="confirm_existing_partner" id="confirm_existing_partner">
+                    <label class="form-check-label fw-semibold" for="confirm_existing_partner">
+                        Я подтверждаю, что выбранный существующий партнер — именно тот, к которому относится импортируемый договор.
+                    </label>
+                    <div class="form-text" id="selectedExistingPartnerLabel"></div>
+                </div>
+            </div>
+            {% endif %}
+            <div class="col-lg-5">
+                <label class="form-label" for="partner_name">Наименование партнера</label>
+                <input class="form-control {% if preview.partner.candidates %}bg-secondary-subtle{% else %}bg-success-subtle border-success{% endif %}" id="partner_name" name="partner_name" value="{{ preview.partner.input.partner_name or '' }}" required>
+            </div>
+            <div class="col-lg-3">
+                <label class="form-label" for="partner_code">Код нового партнера</label>
+                <input class="form-control" id="partner_code" name="partner_code" value="{{ preview.partner.input.partner_code or ('FN-' ~ preview.partner.input.inn if preview.partner.input.inn else 'FN-IMPORT') }}">
+            </div>
+            <div class="col-md-3"><label class="form-label" for="partner_type">Статус</label><select class="form-select" id="partner_type" name="partner_type">{% for value, label in [('fn', 'Действующий'), ('registration_in_progress', 'Подключение'), ('archive', 'Архив')] %}<option value="{{ value }}" {% if preview.partner.input.partner_type == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+            <div class="col-md-3"><label class="form-label" for="reconciliation_frequency">Частота сверки</label><select class="form-select" id="reconciliation_frequency" name="reconciliation_frequency">{% for value, label in [('not_conducted', 'Не проводится'), ('monthly', 'Ежемесячно'), ('quarterly', 'Ежеквартально')] %}<option value="{{ value }}" {% if preview.partner.input.reconciliation_frequency == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+            <div class="col-md-3"><label class="form-label" for="contract_type">Тип договора</label><select class="form-select" id="contract_type" name="contract_type"><option value="pharmacovigilance_agreement" {% if preview.contract.input.contract_type == 'pharmacovigilance_agreement' %}selected{% endif %}>Договор по фармаконадзору</option><option value="additional_agreement" {% if preview.contract.input.contract_type == 'additional_agreement' %}selected{% endif %}>Дополнительное соглашение</option></select></div>
+            <div class="col-md-3"><label class="form-label" for="parent_contract_number">Основной договор</label><input class="form-control" id="parent_contract_number" name="parent_contract_number" value="{{ preview.contract.input.parent_contract_number or '' }}"></div>
+            <div class="col-md-4">
+                <label class="form-label" for="contract_number">Номер договора {{ change_badge('duplicate' if preview.contract.candidates else 'new') }}</label>
+                <input class="form-control {% if preview.contract.candidates %}bg-secondary-subtle{% else %}bg-success-subtle border-success{% endif %}" id="contract_number" name="contract_number" value="{{ preview.contract.input.contract_number or '' }}" required>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label" for="contract_date">Дата договора</label>
+                <input class="form-control {% if preview.contract.candidates %}bg-secondary-subtle{% else %}bg-success-subtle border-success{% endif %}" id="contract_date" name="contract_date" type="date" value="{{ preview.contract.input.contract_date or '' }}" required>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label" for="valid_until">Действует до</label>
+                <input class="form-control {% if preview.contract.candidates %}bg-secondary-subtle{% else %}bg-success-subtle border-success{% endif %}" id="valid_until" name="valid_until" type="date" value="{{ preview.contract.input.valid_until or '' }}" required>
+            </div>
+        </div>
+
+        <div class="row g-4 mb-4">
+            <div class="col-xl-3 col-md-6">
+                <h3 class="h6">Информация для бухгалтерии</h3>
+                <div class="border rounded p-2 mb-2">
+                    <div class="row g-2">
+                        {% set accounting_fields = preview.partner.accounting_comparison.fields %}
+                        <div class="col-12">
+                            <input class="form-control form-control-sm {% if accounting_fields.legal_entity_name.status == 'duplicate' %}bg-secondary-subtle{% elif accounting_fields.legal_entity_name.status in ['new', 'update'] %}bg-success-subtle border-success{% endif %}" id="accounting_legal_entity_name" name="accounting_legal_entity_name" value="{{ preview.partner.input.legal_entity_name or '' }}" aria-label="Юрлицо для счета" placeholder="Юрлицо для счета">
+                            <div class="mt-1">{{ change_badge(accounting_fields.legal_entity_name.status) }}</div>
+                        </div>
+                        <div class="col-6">
+                            <input class="form-control form-control-sm {% if accounting_fields.inn.status == 'duplicate' %}bg-secondary-subtle{% elif accounting_fields.inn.status in ['new', 'update'] %}bg-success-subtle border-success{% endif %}" id="accounting_inn" name="accounting_inn" value="{{ preview.partner.input.inn or '' }}" inputmode="numeric" maxlength="12" aria-label="ИНН" placeholder="ИНН">
+                            <div class="mt-1">{{ change_badge(accounting_fields.inn.status) }}</div>
+                        </div>
+                        <div class="col-6">
+                            <input class="form-control form-control-sm {% if accounting_fields.kpp.status == 'duplicate' %}bg-secondary-subtle{% elif accounting_fields.kpp.status in ['new', 'update'] %}bg-success-subtle border-success{% endif %}" id="accounting_kpp" name="accounting_kpp" value="{{ preview.partner.input.kpp or '' }}" inputmode="numeric" maxlength="9" aria-label="КПП" placeholder="КПП">
+                            <div class="mt-1">{{ change_badge(accounting_fields.kpp.status) }}</div>
+                        </div>
+                        <div class="col-12">
+                            <input class="form-control form-control-sm {% if accounting_fields.billing_contact_name.status == 'duplicate' %}bg-secondary-subtle{% elif accounting_fields.billing_contact_name.status in ['new', 'update'] %}bg-success-subtle border-success{% endif %}" id="accounting_billing_contact_name" name="accounting_billing_contact_name" value="{{ preview.partner.input.billing_contact_name or '' }}" aria-label="Контакт для счетов" placeholder="Контакт для счетов">
+                            <div class="mt-1">{{ change_badge(accounting_fields.billing_contact_name.status) }}</div>
+                        </div>
+                        <div class="col-12">
+                            <input class="form-control form-control-sm {% if accounting_fields.billing_email.status == 'duplicate' %}bg-secondary-subtle{% elif accounting_fields.billing_email.status in ['new', 'update'] %}bg-success-subtle border-success{% endif %}" id="accounting_billing_email" name="accounting_billing_email" type="email" value="{{ preview.partner.input.billing_email or '' }}" aria-label="E-mail для счетов" placeholder="E-mail для счетов">
+                            <div class="mt-1">{{ change_badge(accounting_fields.billing_email.status) }}</div>
+                        </div>
+                        <div class="col-12">
+                            <textarea class="form-control form-control-sm {% if accounting_fields.comment.status == 'duplicate' %}bg-secondary-subtle{% elif accounting_fields.comment.status in ['new', 'update'] %}bg-success-subtle border-success{% endif %}" id="accounting_comment" name="accounting_comment" rows="3" aria-label="Комментарий" placeholder="Комментарий">{{ preview.partner.input.accounting_comment or '' }}</textarea>
+                            <div class="mt-1">{{ change_badge(accounting_fields.comment.status) }}</div>
+                        </div>
+                    </div>
+                    {% set billing_match = preview.partner.accounting_comparison.billing_contact %}
+                    {% if billing_match.status == 'duplicate' %}
+                    <div class="small text-secondary mt-2"><span class="badge text-bg-secondary">Контакт уже есть</span> {{ billing_match.label }}</div>
+                    {% elif billing_match.status == 'new' %}
+                    <div class="small text-success mt-2"><span class="badge text-bg-success">Новый контакт</span></div>
+                    {% endif %}
+                    {% if billing_match.assignment_status == 'new' and billing_match.status == 'duplicate' %}
+                    <div class="small text-success mt-1"><span class="badge text-bg-success">Новое назначение</span> Будет добавлена «Бухгалтерия».</div>
+                    {% elif billing_match.assignment_status == 'duplicate' %}
+                    <div class="small text-secondary mt-1"><span class="badge text-bg-secondary">Назначение уже есть</span> Бухгалтерия.</div>
+                    {% endif %}
+                    {% if preview.partner.candidates %}
+                    <button class="btn btn-outline-primary btn-sm icon-button mt-2" type="submit" formaction="/contract-imports/confirm-accounting" formnovalidate>
+                        <i data-lucide="save"></i><span>Сохранить бухгалтерию</span>
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="col-xl-3 col-md-6">
+                <h3 class="h6">Контакты партнера</h3>
+                <div class="form-text mb-2">Контакты ООО «АРС» исключаются автоматически. Для сохранения контакта партнёра нужен e-mail.</div>
+                {% for contact in preview.contacts %}
+                <div class="border rounded p-2 mb-2 {% if contact.candidates %}bg-secondary-subtle border-secondary{% else %}bg-success-subtle border-success{% endif %}">
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" value="yes" name="include_contact_{{ loop.index0 }}" id="include_contact_{{ loop.index0 }}">
+                        <label class="form-check-label fw-semibold" for="include_contact_{{ loop.index0 }}">Сохранить этот контакт</label>
+                        <span class="ms-1">{{ change_badge('duplicate' if contact.candidates else 'new') }}</span>
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-4"><input class="form-control form-control-sm" name="contact_last_name_{{ loop.index0 }}" value="{{ contact.input.last_name or '' }}" aria-label="Фамилия" placeholder="Фамилия"></div>
+                        <div class="col-4"><input class="form-control form-control-sm" name="contact_first_name_{{ loop.index0 }}" value="{{ contact.input.first_name or '' }}" aria-label="Имя" placeholder="Имя"></div>
+                        <div class="col-4"><input class="form-control form-control-sm" name="contact_patronymic_{{ loop.index0 }}" value="{{ contact.input.patronymic or '' }}" aria-label="Отчество" placeholder="Отчество"></div>
+                        <div class="col-12"><input class="form-control form-control-sm" name="contact_position_{{ loop.index0 }}" value="{{ contact.input.position or '' }}" aria-label="Должность" placeholder="Должность"></div>
+                        <div class="col-6"><select class="form-select form-select-sm" name="contact_type_{{ loop.index0 }}" aria-label="Тип контакта">{% for value, label in [('pv','Фармаконадзор'),('quality','Качество'),('regulatory','Регуляторный'),('medical_information','Медицинская информация'),('legal_contracts','Договоры'),('administrative','Административный'),('accounting','Бухгалтерия'),('other','Другой')] %}<option value="{{ value }}" {% if contact.input.contact_type == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+                        <div class="col-6"><select class="form-select form-select-sm" name="contact_status_{{ loop.index0 }}" aria-label="Статус контакта"><option value="current" {% if contact.input.contact_status != 'inactive' %}selected{% endif %}>Действующий</option><option value="inactive" {% if contact.input.contact_status == 'inactive' %}selected{% endif %}>Неактивный</option></select></div>
+                        <div class="col-6"><select class="form-select form-select-sm" name="contact_is_current_{{ loop.index0 }}" aria-label="Актуальный"><option value="yes" {% if contact.input.is_current %}selected{% endif %}>Актуальный: да</option><option value="no" {% if not contact.input.is_current %}selected{% endif %}>Актуальный: нет</option></select></div>
+                        <div class="col-6"><select class="form-select form-select-sm" name="contact_reconciliation_{{ loop.index0 }}" aria-label="Участие в сверке"><option value="primary" {% if contact.input.reconciliation_participation == 'primary' %}selected{% endif %}>Основной для сверки</option><option value="cc" {% if contact.input.reconciliation_participation == 'cc' %}selected{% endif %}>Копия при сверке</option><option value="none" {% if contact.input.reconciliation_participation == 'none' %}selected{% endif %}>Не участвует</option></select></div>
+                        <div class="col-12"><input class="form-control form-control-sm" type="email" name="contact_email_{{ loop.index0 }}" value="{{ contact.input.email or '' }}" aria-label="Email" placeholder="Email"></div>
+                        <div class="col-4"><input class="form-control form-control-sm" name="contact_phone_{{ loop.index0 }}" value="{{ contact.input.mobile_phone or '' }}" aria-label="Мобильный телефон" placeholder="Мобильный телефон"></div>
+                        <div class="col-4"><input class="form-control form-control-sm" name="contact_work_phone_{{ loop.index0 }}" value="{{ contact.input.work_phone or '' }}" aria-label="Рабочий телефон" placeholder="Рабочий телефон"></div>
+                        <div class="col-4"><input class="form-control form-control-sm" name="contact_extension_{{ loop.index0 }}" value="{{ contact.input.extension_phone or '' }}" aria-label="Добавочный номер" placeholder="Добавочный номер"></div>
+                        <div class="col-6"><input class="form-control form-control-sm" name="contact_website_{{ loop.index0 }}" value="{{ contact.input.company_website or '' }}" aria-label="Сайт компании" placeholder="Сайт компании"></div>
+                        <div class="col-6"><input class="form-control form-control-sm" name="contact_address_{{ loop.index0 }}" value="{{ contact.input.address or '' }}" aria-label="Адрес" placeholder="Адрес"></div>
+                        <div class="col-12"><textarea class="form-control form-control-sm" name="contact_comments_{{ loop.index0 }}" rows="2" aria-label="Комментарии" placeholder="Комментарии">{{ contact.input.comments or '' }}</textarea></div>
+                    </div>
+                </div>
+                {% else %}<div class="text-secondary small">Нет контактов.</div>{% endfor %}
+            </div>
+            <div class="col-xl-3 col-md-6">
+                <h3 class="h6">Препараты договора</h3>
+                {% for product in preview.products %}
+                <div class="border rounded p-2 mb-2 {% if product.candidates %}bg-secondary-subtle border-secondary{% else %}bg-success-subtle border-success{% endif %}">
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" value="yes" name="include_product_{{ loop.index0 }}" id="include_product_{{ loop.index0 }}">
+                        <label class="form-check-label fw-semibold" for="include_product_{{ loop.index0 }}">{{ 'Сопоставить существующий' if product.candidates|length == 1 else 'Создать препарат' }}</label>
+                        <span class="ms-1">{{ change_badge('duplicate' if product.candidates else 'new') }}</span>
+                    </div>
+                    <input class="form-control form-control-sm mb-2" name="product_name_{{ loop.index0 }}" value="{{ product.input.product_name or '' }}" aria-label="Препарат" placeholder="Наименование препарата">
+                    <div class="row g-2">
+                        <div class="col-12"><select class="form-select form-select-sm" name="product_substance_id_{{ loop.index0 }}" aria-label="Действующее вещество"><option value="">Создать новое / не выбрано</option>{% for substance in substances %}<option value="{{ substance.id }}" {% if product.input.substance_reference_name == substance.substance_name %}selected{% endif %}>{{ substance.substance_name }}{% if substance.inn_name %} / {{ substance.inn_name }}{% endif %}</option>{% endfor %}</select></div>
+                        <div class="col-4"><input class="form-control form-control-sm" name="product_substance_name_ru_{{ loop.index0 }}" value="{{ product.input.substance_name_ru or '' }}" aria-label="Наименование вещества RU" placeholder="Вещество RU"></div>
+                        <div class="col-4"><input class="form-control form-control-sm" name="product_substance_name_en_{{ loop.index0 }}" value="{{ product.input.substance_name_en or '' }}" aria-label="Наименование вещества EN" placeholder="Вещество EN"></div>
+                        <div class="col-4"><input class="form-control form-control-sm" name="product_substance_atc_{{ loop.index0 }}" value="{{ product.input.substance_atc_code or '' }}" aria-label="ATC-код" placeholder="ATC-код"></div>
+                        <div class="col-12"><select class="form-select form-select-sm" name="product_dosage_form_id_{{ loop.index0 }}" aria-label="Лекарственная форма"><option value="">Создать новую / не выбрано</option>{% for form in dosage_forms %}<option value="{{ form.id }}" {% if product.input.dosage_form_code == 'dosage_form_' ~ form.id %}selected{% endif %}>{{ form.name_ru }}</option>{% endfor %}</select></div>
+                        <div class="col-6"><input class="form-control form-control-sm" name="product_dosage_form_name_ru_{{ loop.index0 }}" value="{{ product.input.dosage_form_name_ru or '' }}" aria-label="ЛФ на русском" placeholder="ЛФ на русском"></div>
+                        <div class="col-6"><input class="form-control form-control-sm" name="product_dosage_form_name_en_{{ loop.index0 }}" value="{{ product.input.dosage_form_name_en or '' }}" aria-label="ЛФ на английском" placeholder="ЛФ на английском"></div>
+                        <div class="col-6"><input class="form-control form-control-sm" name="product_dosage_form_group_ru_{{ loop.index0 }}" value="{{ product.input.dosage_form_group_ru or '' }}" aria-label="Группа ЛФ на русском" placeholder="Группа на русском"></div>
+                        <div class="col-6"><input class="form-control form-control-sm" name="product_dosage_form_group_en_{{ loop.index0 }}" value="{{ product.input.dosage_form_group_en or '' }}" aria-label="Группа ЛФ на английском" placeholder="Группа на английском"></div>
+                        <div class="col-4"><input class="form-control form-control-sm" name="product_strength_{{ loop.index0 }}" value="{{ product.input.strength or '' }}" aria-label="Дозировка" placeholder="Дозировка"></div>
+                        <div class="col-8"><input class="form-control form-control-sm" name="product_comment_{{ loop.index0 }}" value="{{ product.input.comment or '' }}" aria-label="Комментарий" placeholder="Комментарий"></div>
+                    </div>
+                </div>
+                {% else %}<div class="text-secondary small">Нет препаратов.</div>{% endfor %}
+            </div>
+            <div class="col-xl-3 col-md-6">
+                <h3 class="h6">Тарифы</h3>
+                <div class="form-text mb-2">Если месячный и квартальный варианты относятся к одной услуге, PV1 сохранит первый выбранный вариант.</div>
+                {% for service in preview.services %}
+                <div class="border rounded p-2 mb-2 {% if service.tariff_status == 'duplicate' %}bg-secondary-subtle border-secondary{% elif service.tariff_status == 'new' %}bg-success-subtle border-success{% endif %}">
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" value="yes" name="include_service_{{ loop.index0 }}" id="include_service_{{ loop.index0 }}" {% if service.candidates|length != 1 %}disabled{% endif %}>
+                        <label class="form-check-label" for="include_service_{{ loop.index0 }}">{{ service.input.service_name or service.input.service_code }}</label>
+                        <span class="ms-1">{{ change_badge(service.tariff_status) }}</span>
+                    </div>
+                    <div class="row g-2"><div class="col-5"><input class="form-control form-control-sm" name="service_unit_{{ loop.index0 }}" value="{{ service.input.unit or '' }}" aria-label="Единица" placeholder="Ед." {% if service.candidates|length != 1 %}disabled{% endif %}></div><div class="col-7"><input class="form-control form-control-sm" name="service_amount_{{ loop.index0 }}" value="{{ service.input.amount if service.input.amount is not none else '' }}" aria-label="Цена" placeholder="Цена" {% if service.candidates|length != 1 %}disabled{% endif %}></div><div class="col-12"><input class="form-control form-control-sm" name="service_comment_{{ loop.index0 }}" value="{{ service.input.comment or '' }}" aria-label="Комментарий к услуге" placeholder="Комментарий к услуге" {% if service.candidates|length != 1 %}disabled{% endif %}></div></div>
+                </div>
+                {% else %}<div class="text-secondary small">Нет услуг.</div>{% endfor %}
+            </div>
+        </div>
+
+        <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" value="yes" name="confirm_review" id="confirm_review" required>
+            <label class="form-check-label" for="confirm_review">Я просмотрела пункты ручной проверки и подтверждаю выбранные данные.</label>
+        </div>
+        <button class="btn btn-success icon-button" type="submit"><i data-lucide="check-circle"></i><span>Подтвердить и сохранить в PV1</span></button>
+    </form>
+</section>
+{% endif %}
+
+<section class="surface mb-4">
+    <h2 class="h6 section-title">Партнер и договор</h2>
+    <div class="table-responsive">
+        <table class="table table-sm align-middle">
+            <thead><tr><th>Объект</th><th>Данные из JSON</th><th>Статус</th><th>Кандидаты в БД</th><th>Операция preview</th></tr></thead>
+            <tbody>
+                <tr>
+                    <td>Партнер</td>
+                    <td>
+                        <div>{{ preview.partner.input.partner_name or '-' }}</div>
+                        <div class="small text-secondary">Код: {{ preview.partner.input.partner_code or '-' }}</div>
+                        <div class="small text-secondary">Статус: {{ preview.partner.input.partner_type or '-' }}</div>
+                        <div class="small text-secondary">Сверка: {{ preview.partner.input.reconciliation_frequency or '-' }}</div>
+                        <div class="small text-secondary">Юрлицо для счета: {{ preview.partner.input.legal_entity_name or '-' }}</div>
+                        <div class="small text-secondary">ИНН / КПП: {{ preview.partner.input.inn or '-' }} / {{ preview.partner.input.kpp or '-' }}</div>
+                        <div class="small text-secondary">Контакт для счетов: {{ preview.partner.input.billing_contact_name or '-' }}</div>
+                        <div class="small text-secondary">E-mail для счетов: {{ preview.partner.input.billing_email or '-' }}</div>
+                        <div class="small text-secondary">Порядок направления счетов: {{ preview.partner.input.accounting_comment or '-' }}</div>
+                    </td>
+                    <td>{{ status_badge(preview.partner.status) }}</td>
+                    <td>{{ candidate_list(preview.partner.candidates) }}</td>
+                    <td><code>{{ preview.partner.resolved_operation }}</code></td>
+                </tr>
+                <tr>
+                    <td>Договор</td>
+                    <td>
+                        <div>{{ preview.contract.input.contract_number or '-' }} от {{ preview.contract.input.contract_date or '-' }}</div>
+                        <div class="small text-secondary">{{ preview.contract.input.contract_type or '-' }}</div>
+                        <div class="small text-secondary">Действует до: {{ preview.contract.input.valid_until or '-' }}</div>
+                    </td>
+                    <td>{{ status_badge(preview.contract.status) }}</td>
+                    <td>{{ candidate_list(preview.contract.candidates) }}</td>
+                    <td><code>{{ preview.contract.resolved_operation }}</code></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="surface mb-4">
+    <h2 class="h6 section-title">Контакты</h2>
+    <div class="table-responsive">
+        <table class="table table-sm align-middle">
+            <thead><tr><th>ФИО</th><th>Контактные данные</th><th>Тип</th><th>Сверка</th><th>Статус</th><th>Кандидаты</th><th>Операция preview</th></tr></thead>
+            <tbody>
+            {% for contact in preview.contacts %}
+            <tr>
+                <td>{{ contact.input.full_name or '-' }}<div class="small text-secondary">{{ contact.input.position or '' }}</div></td>
+                <td>
+                    <div>{{ contact.input.email or '-' }}</div>
+                    {% if contact.input.mobile_phone %}<div class="small"><span class="text-secondary">Мобильный:</span> {{ contact.input.mobile_phone }}</div>{% endif %}
+                    {% if contact.input.work_phone %}<div class="small"><span class="text-secondary">Рабочий:</span> {{ contact.input.work_phone }}</div>{% endif %}
+                    {% if contact.input.extension_phone %}<div class="small"><span class="text-secondary">Добавочный:</span> {{ contact.input.extension_phone }}</div>{% endif %}
+                    {% if contact.input.company_website %}<div class="small"><span class="text-secondary">Сайт:</span> {{ contact.input.company_website }}</div>{% endif %}
+                    {% if contact.input.address %}<div class="small"><span class="text-secondary">Адрес:</span> {{ contact.input.address }}</div>{% endif %}
+                </td>
+                <td>{{ contact.input.contact_type or '-' }}</td>
+                <td>{{ contact.input.reconciliation_participation or '-' }}</td>
+                <td>{{ status_badge(contact.status) }}</td>
+                <td>{{ candidate_list(contact.candidates) }}</td>
+                <td><code>{{ contact.resolved_operation }}</code></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="text-secondary">Контакты не найдены в JSON.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="surface mb-4">
+    <h2 class="h6 section-title">Препараты и РУ</h2>
+    <div class="table-responsive">
+        <table class="table table-sm align-middle">
+            <thead><tr><th>Препарат</th><th>Действующее вещество</th><th>Форма / дозировка</th><th>Статус</th><th>Кандидаты</th><th>Операция preview</th></tr></thead>
+            <tbody>
+            {% for product in preview.products %}
+            <tr>
+                <td>{{ product.input.product_name or '-' }}</td>
+                <td>{{ product.input.substance_name_ru or '-' }}{% if product.input.substance_name_en %} / {{ product.input.substance_name_en }}{% endif %}</td>
+                <td>{{ product.input.dosage_form_name_ru or product.input.dosage_form_code or '-' }} / {{ product.input.strength or '-' }}</td>
+                <td>{{ status_badge(product.status) }}</td>
+                <td>{{ candidate_list(product.candidates) }}</td>
+                <td><code>{{ product.resolved_operation }}</code></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" class="text-secondary">Препараты не найдены в JSON.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="surface mb-4">
+    <h2 class="h6 section-title">Услуги и цены</h2>
+    <div class="table-responsive">
+        <table class="table table-sm align-middle">
+            <thead><tr><th>Договор</th><th>Услуга</th><th>Ед.</th><th>Цена</th><th>Комментарий</th><th>Статус</th><th>Кандидаты</th></tr></thead>
+            <tbody>
+            {% for service in preview.services %}
+            <tr>
+                <td>{{ service.input.contract_number or preview.contract.input.contract_number or '-' }}</td>
+                <td>{{ service.input.service_name or service.input.service_code or '-' }}</td>
+                <td>{{ service.input.unit or '-' }}</td>
+                <td>{{ service.input.amount if service.input.amount is not none else '-' }}</td>
+                <td>{{ service.input.comment or '-' }}</td>
+                <td>{{ status_badge(service.status) }}</td>
+                <td>{{ candidate_list(service.candidates) }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="text-secondary">Услуги не найдены в JSON.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="surface mb-4">
+    <h2 class="h6 section-title">Ручная проверка из JSON</h2>
+    <div class="table-responsive">
+        <table class="table table-sm align-middle">
+            <thead><tr><th>Категория</th><th>Описание</th><th>Варианты</th><th>Рекомендация</th><th>Источник</th></tr></thead>
+            <tbody>
+            {% for item in preview.manual_review %}
+            <tr>
+                <td><code>{{ item.category }}</code></td>
+                <td>{{ item.description }}</td>
+                <td>{{ item.possible_values|join(', ') if item.possible_values else '-' }}</td>
+                <td>{{ item.recommended_action }}</td>
+                <td>{{ source_cell(item.source) }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="text-secondary">Нет пунктов ручной проверки.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+{% endif %}
+
+<script>
+    (function () {
+        const button = document.getElementById("copyGptPrompt");
+        const prompt = document.getElementById("gptPromptText");
+        const status = document.getElementById("copyPromptStatus");
+        if (!button || !prompt) {
+            return;
+        }
+
+        button.addEventListener("click", async function () {
+            try {
+                await navigator.clipboard.writeText(prompt.value);
+                status.textContent = "Промпт скопирован.";
+            } catch (_error) {
+                prompt.classList.remove("visually-hidden");
+                prompt.focus();
+                prompt.select();
+                document.execCommand("copy");
+                prompt.classList.add("visually-hidden");
+                status.textContent = "Промпт скопирован.";
+            }
+        });
+    })();
+
+    (function () {
+        const partnerSelect = document.getElementById("partner_id");
+        const confirmation = document.getElementById("existingPartnerConfirmation");
+        const checkbox = document.getElementById("confirm_existing_partner");
+        const selectedLabel = document.getElementById("selectedExistingPartnerLabel");
+        if (!partnerSelect || !confirmation || !checkbox) {
+            return;
+        }
+
+        function syncExistingPartnerConfirmation() {
+            const usesExistingPartner = Boolean(partnerSelect.value);
+            confirmation.classList.toggle("d-none", !usesExistingPartner);
+            checkbox.required = usesExistingPartner;
+            if (!usesExistingPartner) {
+                checkbox.checked = false;
+            }
+            if (selectedLabel) {
+                selectedLabel.textContent = usesExistingPartner
+                    ? "Выбрано: " + partnerSelect.options[partnerSelect.selectedIndex].textContent.trim()
+                    : "";
+            }
+        }
+
+        partnerSelect.addEventListener("change", syncExistingPartnerConfirmation);
+        syncExistingPartnerConfirmation();
+    })();
+</script>
+{% endblock %}

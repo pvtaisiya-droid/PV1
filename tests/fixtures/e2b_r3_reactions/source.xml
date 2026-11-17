@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthetic reaction input, not a complete submission, dictionary or XSD fixture. -->
+<MCCI_IN200100UV01 xmlns="urn:hl7-org:v3" ITSVersion="XML_1.0">
+  <id root="2.16.840.1.113883.3.989.2.1.3.22" extension="Batch-MixedCase-07"/>
+  <creationTime value="20260304120000+0300"/>
+  <PORR_IN049016UV>
+    <id root="2.16.840.1.113883.3.989.2.1.3.1" extension="Message-NotVersion-99"/>
+    <creationTime value="20260303110000+0300"/>
+    <sender><device><id root="2.16.840.1.113883.3.989.2.1.3.11" extension="Sender-A"/></device></sender>
+    <receiver><device><id root="2.16.840.1.113883.3.989.2.1.3.12" extension="Receiver-Test"/></device></receiver>
+    <controlActProcess classCode="CACT" moodCode="EVN">
+      <subject typeCode="SUBJ"><investigationEvent classCode="INVSTG" moodCode="EVN">
+        <id root="2.16.840.1.113883.3.989.2.1.3.1" extension="Sender-Case-X"/>
+        <id root="2.16.840.1.113883.3.989.2.1.3.2" extension="ZZ-SYNTH-0001"/>
+        <effectiveTime><low value="20260105"/></effectiveTime>
+        <availabilityTime value="20260203141516.125+0530"/>
+        <text>Synthetic case for local import verification.</text>
+        <component><adverseEventAssessment><subject1><primaryRole>
+          <player1><name>SY</name></player1>
+          <subjectOf2><observation><id root="SYNTH-REACTION"/>
+<code code="29" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1"/>
+<value code="10000001" codeSystem="2.16.840.1.113883.6.163" codeSystemVersion="29.0" displayName="Synthetic label, not dictionary validated"><originalText language="rus">Синтетическая реакция</originalText></value>
+<outboundRelationship2><observation><code code="34" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" displayName="irrelevant"/><value value="true"/></observation></outboundRelationship2>
+<outboundRelationship2><observation><code code="21" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" displayName="irrelevant"/><value value="false"/></observation></outboundRelationship2>
+<outboundRelationship2><observation><code code="33" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" displayName="irrelevant"/><value nullFlavor="NI"/></observation></outboundRelationship2>
+<outboundRelationship2><observation><code code="35" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" displayName="irrelevant"/><value value="maybe"/></observation></outboundRelationship2>
+<outboundRelationship2><observation><code code="37" codeSystem="2.16.840.1.113883.3.989.2.1.1.19"/><value code="2" codeSystem="2.16.840.1.113883.3.989.2.1.1.10" codeSystemVersion="1.0"/></observation></outboundRelationship2>
+<outboundRelationship2><observation><code code="27" codeSystem="2.16.840.1.113883.3.989.2.1.1.19"/><value code="1" codeSystem="2.16.840.1.113883.3.989.2.1.1.11" codeSystemVersion="1.0" displayName="not the meaning"/></observation></outboundRelationship2></observation></subjectOf2>
+          <subjectOf2><organizer><code displayName="drugInformation"/><component>
+            <substanceAdministration><id root="DID1"/><consumable><instanceOfKind><kindOfProduct><name>Test Product</name></kindOfProduct></instanceOfKind></consumable></substanceAdministration>
+          </component></organizer></subjectOf2>
+        </primaryRole></subject1></adverseEventAssessment></component>
+      </investigationEvent></subject>
+    </controlActProcess>
+  </PORR_IN049016UV>
+</MCCI_IN200100UV01>

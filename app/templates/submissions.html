@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ _('Submissions') }} - {{ _('PV MVP') }}{% endblock %}
+{% block title %}{{ _('Submissions') }} - {{ _('PV System') }}{% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
@@ -13,26 +13,52 @@
 <section class="surface mb-4">
     <h2 class="h6 section-title">{{ _('Create Submission') }}</h2>
     <form class="row g-3" method="post" action="/submissions">
-        <div class="col-md-3">
-            <label class="form-label">{{ _('Case') }}</label>
-            <select class="form-select" name="case_id" required>
+        <input type="hidden" id="submissionObjectVersion" name="expected_object_version" value="{{ cases[0].version if cases else '' }}">
+        <div class="col-md-2">
+            <label class="form-label" for="submissionObjectType">Объект подачи</label>
+            <select class="form-select" id="submissionObjectType" name="submission_object_type">
+                <option value="case">ИСНР</option>
+                <option value="pbrer">ПООБ / PSUR</option>
+            </select>
+        </div>
+        <div class="col-md-3" id="submissionCaseField">
+            <label class="form-label" for="submissionCaseId">{{ _('Case') }}</label>
+            <select class="form-select" id="submissionCaseId" name="case_id" required>
                 {% for case in cases %}
-                <option value="{{ case.id }}">{{ case.case_number }}</option>
+                <option value="{{ case.id }}" data-version="{{ case.version }}">{{ case.case_number }}</option>
                 {% endfor %}
             </select>
         </div>
+        <div class="col-md-3 d-none" id="submissionPsurField">
+            <label class="form-label" for="submissionPsurId">ПООБ / PSUR</label>
+            <select class="form-select" id="submissionPsurId" name="pbrer_id" disabled>
+                <option value="">Выберите отчёт</option>
+                {% for plan in psur_plans %}
+                <option value="{{ plan.id }}" data-version="{{ plan.version }}">{{ plan.product.product_name if plan.product else (plan.active_substance.inn_name or plan.active_substance.substance_name) }} · {{ plan.reporting_period_start }}–{{ plan.reporting_period_end }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label" for="submissionRecipientType">Получатель</label>
+            <select class="form-select" id="submissionRecipientType" name="recipient_type">
+                <option value="regulator">Регулятор</option>
+                <option value="partner">Партнёр</option>
+                <option value="other">Другое</option>
+            </select>
+        </div>
         <div class="col-md-3">
-            <label class="form-label">{{ _('Recipient partner') }}</label>
-            <select class="form-select" name="recipient_partner_id">
+            <label class="form-label" for="submissionRecipientPartner">{{ _('Recipient partner') }}</label>
+            <select class="form-select" id="submissionRecipientPartner" name="recipient_partner_id">
                 <option value="">{{ _('None') }}</option>
                 {% for partner in partners %}
                 <option value="{{ partner.id }}">{{ partner.partner_name }}</option>
                 {% endfor %}
             </select>
         </div>
+        <div class="col-md-3"><label class="form-label">№ отчёта Росздравнадзора / в АИС</label><input class="form-control" name="submission_number" placeholder="Например, 3840835"></div>
         <div class="col-md-2"><label class="form-label">{{ _('Type') }}</label><input class="form-control" name="submission_type" value="icsr"></div>
-        <div class="col-md-2"><label class="form-label">{{ _('Format') }}</label><input class="form-control" name="submission_format" value="email"></div>
-        <div class="col-md-1">
+        <div class="col-md-2"><label class="form-label">{{ _('Format') }}</label><input class="form-control" name="submission_format" value="ais"></div>
+        <div class="col-md-2">
             <label class="form-label">{{ _('Status') }}</label>
             <select class="form-select" name="submission_status">
                 {% for status in status_options %}
@@ -40,7 +66,10 @@
                 {% endfor %}
             </select>
         </div>
-        <div class="col-md-1"><label class="form-label">{{ _('Due') }}</label><input class="form-control" type="date" name="due_date"></div>
+        <div class="col-md-2"><label class="form-label">{{ _('Due') }}</label><input class="form-control" type="date" name="due_date"></div>
+        <div class="col-md-3"><label class="form-label">Дата и время подачи</label><input class="form-control" type="datetime-local" name="submitted_at"></div>
+        <div class="col-md-3"><label class="form-label">Дата и время квитанции</label><input class="form-control" type="datetime-local" name="acknowledged_at"></div>
+        <div class="col-md-3"><label class="form-label">№ квитанции / уведомления</label><input class="form-control" name="acknowledgement_code" placeholder="Например, 418026"></div>
         <div class="col-12">
             <button class="btn btn-primary icon-button" type="submit"><i data-lucide="send"></i><span>{{ _('Create') }}</span></button>
         </div>
@@ -51,30 +80,42 @@
 <section class="surface">
     <div class="table-responsive">
         <table class="table table-hover align-middle">
-            <thead><tr><th>{{ _('No.') }}</th><th>{{ _('Object') }}</th><th>{{ _('Case') }}</th><th>{{ _('Recipient') }}</th><th>{{ _('Status') }}</th><th>{{ _('Due') }}</th><th>{{ _('Submitted') }}</th><th></th></tr></thead>
+            <thead><tr><th>{{ _('No.') }}</th><th>{{ _('Object') }}</th><th>Карточка</th><th>{{ _('Recipient') }}</th><th>{{ _('Status') }}</th><th>{{ _('Due') }}</th><th>{{ _('Submitted') }}</th><th>Квитанция</th></tr></thead>
             <tbody>
             {% for submission in submissions %}
             <tr>
                 <td class="fw-medium">{{ submission.submission_number }}</td>
                 <td>{{ _(submission.submission_object_type) }}</td>
-                <td>{{ submission.case.case_number if submission.case else "" }}</td>
+                <td>
+                    {% if submission.case %}
+                    {{ submission.case.case_number }}
+                    {% elif submission.pbrer_id and psur_by_id.get(submission.pbrer_id) %}
+                    {% set plan = psur_by_id.get(submission.pbrer_id) %}
+                    {{ plan.product.product_name if plan.product else (plan.active_substance.inn_name or plan.active_substance.substance_name) }}<br>
+                    <span class="text-secondary small">{{ plan.reporting_period_start }}–{{ plan.reporting_period_end }}</span>
+                    {% endif %}
+                </td>
                 <td>{{ submission.recipient_partner.partner_name if submission.recipient_partner else submission.recipient_type }}</td>
                 <td><span class="status-pill">{{ _(submission.submission_status) }}</span></td>
                 <td>{{ submission.due_date or "" }}</td>
                 <td>{{ submission.submitted_at or "" }}</td>
-                <td>
-                    {% if has_permission('edit') %}
-                    <form class="d-flex gap-2" method="post" action="/submissions/{{ submission.id }}/status">
-                        <select class="form-select form-select-sm" name="submission_status">
-                            {% for status in status_options %}
-                            <option value="{{ status }}" {% if submission.submission_status == status %}selected{% endif %}>{{ _(status) }}</option>
-                            {% endfor %}
-                        </select>
-                        <button class="btn btn-outline-primary btn-sm icon-only" type="submit" title="{{ _('Save status') }}"><i data-lucide="save"></i></button>
+                <td>{{ submission.acknowledgement_code or "" }}{% if submission.acknowledged_at %}<br><span class="text-secondary small">{{ submission.acknowledged_at }}</span>{% endif %}</td>
+            </tr>
+            {% if has_permission('edit') %}
+            <tr class="table-light">
+                <td colspan="8" class="py-2">
+                    <form class="row g-2 align-items-end" method="post" action="/submissions/{{ submission.id }}/status">
+                        <input type="hidden" name="expected_version" value="{{ submission.version }}">
+                        <div class="col-lg-2"><label class="form-label small">№ отчёта</label><input class="form-control form-control-sm" name="submission_number" value="{{ submission.submission_number }}"></div>
+                        <div class="col-lg-2"><label class="form-label small">Статус</label><select class="form-select form-select-sm" name="submission_status">{% for status in status_options %}<option value="{{ status }}" {% if submission.submission_status == status %}selected{% endif %}>{{ _(status) }}</option>{% endfor %}</select></div>
+                        <div class="col-lg-2"><label class="form-label small">Дата подачи</label><input class="form-control form-control-sm" type="datetime-local" name="submitted_at" value="{{ submission.submitted_at.strftime('%Y-%m-%dT%H:%M') if submission.submitted_at else '' }}"></div>
+                        <div class="col-lg-2"><label class="form-label small">Дата квитанции</label><input class="form-control form-control-sm" type="datetime-local" name="acknowledged_at" value="{{ submission.acknowledged_at.strftime('%Y-%m-%dT%H:%M') if submission.acknowledged_at else '' }}"></div>
+                        <div class="col-lg-2"><label class="form-label small">№ квитанции</label><input class="form-control form-control-sm" name="acknowledgement_code" value="{{ submission.acknowledgement_code or '' }}"></div>
+                        <div class="col-lg-2"><button class="btn btn-outline-primary btn-sm icon-button w-100" type="submit"><i data-lucide="save"></i><span>Сохранить реквизиты</span></button></div>
                     </form>
-                    {% endif %}
                 </td>
             </tr>
+            {% endif %}
             {% else %}
             <tr><td colspan="8" class="text-secondary">{{ _('No submissions yet.') }}</td></tr>
             {% endfor %}
@@ -82,4 +123,31 @@
         </table>
     </div>
 </section>
+
+<script>
+(() => {
+    const objectType = document.getElementById('submissionObjectType');
+    const caseField = document.getElementById('submissionCaseField');
+    const caseSelect = document.getElementById('submissionCaseId');
+    const psurField = document.getElementById('submissionPsurField');
+    const psurSelect = document.getElementById('submissionPsurId');
+    const objectVersion = document.getElementById('submissionObjectVersion');
+    if (!objectType) return;
+    const syncObjectFields = () => {
+        const isPsur = objectType.value === 'pbrer';
+        caseField.classList.toggle('d-none', isPsur);
+        caseSelect.disabled = isPsur;
+        caseSelect.required = !isPsur;
+        psurField.classList.toggle('d-none', !isPsur);
+        psurSelect.disabled = !isPsur;
+        psurSelect.required = isPsur;
+        const selected = (isPsur ? psurSelect : caseSelect).selectedOptions[0];
+        objectVersion.value = selected?.dataset.version || '';
+    };
+    objectType.addEventListener('change', syncObjectFields);
+    caseSelect.addEventListener('change', syncObjectFields);
+    psurSelect.addEventListener('change', syncObjectFields);
+    syncObjectFields();
+})();
+</script>
 {% endblock %}

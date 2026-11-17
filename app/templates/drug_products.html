@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+{% block title %}Препараты случая{% endblock %}
+{% block content %}
+<h1 class="h3">Препараты случая {{ case.case_number }}</h1><a href="/cases/{{ case.id }}?tab=product">Карточка случая</a>
+{% if validation %}<div class="alert alert-warning">{{ validation }}</div>{% endif %}{% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
+<p>Текущие режимы и показания — отдельные записи ниже. Исторические одиночные поля не редактируются. Сопоставление с каталогом не подтверждает исходные сведения. Словарная проверка кодов и единиц не выполнена.</p>
+{% if has_permission('create') %}<a class="btn btn-primary" href="/cases/{{ case.id }}/drug-editor/product">Добавить препарат</a>{% endif %}
+{% for p in products %}<section class="surface my-3" id="product-{{ p.id }}">
+<h2 class="h5">{{ p.reported_product_name or 'Название не указано' }}</h2><p>Запись: {{ p.id }} · Роль: {{ roles.get(p.drug_role,p.drug_role) }} · Происхождение: {{ p.drug_provenance.profile }}</p>
+<p>Каталог: {{ catalog_names.get(p.product_id,'Не сопоставлен') }} · Статус: {{ p.product_match_status or 'не проверен' }}</p>
+<p>Разрешение: {{ p.authorization_number or 'не указано' }} · {{ p.authorization_country_code or '' }} · {{ p.authorization_holder or '' }}</p>
+{% for identifier in p.coded_identifiers %}<p>Код: {{ identifier.code or 'нет' }} · Система: {{ identifier.code_system or 'не указана' }} · Версия: {{ identifier.version or 'не указана' }} · nullFlavor: {{ identifier.null_flavor or 'нет' }}</p>{% endfor %}
+{% if has_permission('edit') %}<a href="/cases/{{ case.id }}/drug-editor/product?row_id={{ p.id }}">Исправить сведения препарата</a>{% endif %}
+{% for kind,key in [('dosage','dosages'),('indication','indications'),('substance','substances'),('assessment','assessments'),('rechallenge','rechallenges')] %}
+<h3 class="h6 mt-4">{{ titles[kind] }}</h3>
+{% if has_permission('create') %}<a href="/cases/{{ case.id }}/drug-editor/{{ kind }}?product_id={{ p.id }}">Добавить</a>{% endif %}
+{% for row in p[key] %}<div class="border rounded p-2 my-2">
+{% if row.get('reaction_id') %}<p>Реакция: {{ reaction_names.get(row.reaction_id,row.reaction_id) }} · {{ row.reaction_id }}</p>{% endif %}
+<dl class="row">{% for f,label in labels.items() %}{% if f not in ['product_id','reaction_id'] and row.get(f) is not none %}<dt class="col-sm-5">{{ label }}</dt><dd class="col-sm-7">{{ row[f] }}</dd>{% endif %}{% endfor %}</dl>
+{% if kind=='rechallenge' %}<p>Значение кода: {{ row.drug_provenance.rechallenge_meaning or 'Не интерпретировано' }}</p>{% endif %}
+{% if kind=='substance' %}<p>Сопоставление вещества: {{ row.match_status or 'не проверено' }}; исходное содержание не является дозой пациенту.</p>{% endif %}
+{% if kind=='dosage' %}{% for side,label in [('start','Начало'),('end','Окончание')] %}{% set d=row.drug_provenance.current_dates[side] %}<p>{{ label }}: {{ d.state }} · точность {{ d.precision or 'не установлена' }} · {{ d.raw or '' }} · nullFlavor {{ d.null_flavor or 'нет' }}</p>{% endfor %}{% endif %}
+<p>Происхождение: {{ row.drug_provenance.profile }} · Проверенные вручную поля: {{ row.drug_provenance.reviewed_fields|join(', ') or 'нет' }}</p>
+{% if has_permission('edit') %}<a href="/cases/{{ case.id }}/drug-editor/{{ kind }}?product_id={{ p.id }}&row_id={{ row.id }}">Исправить</a>{% endif %}
+{% if has_permission('soft_delete') %}<details><summary>Архивировать ошибочную запись</summary><form method="post" action="/cases/{{ case.id }}/drug-products/{{ p.id }}/{{ kind }}/{{ row.id }}/archive"><input type="hidden" name="csrf" value="{{ csrf_token(request) }}"><input type="hidden" name="expected_case_version" value="{{ case.version }}"><input type="hidden" name="expected_parent_version" value="{{ p.version }}"><input type="hidden" name="expected_version" value="{{ row.version }}"><label>Основание<input name="change_reason" required minlength="10" maxlength="2000"></label><button type="submit">Архивировать с аудитом</button></form></details>{% endif %}
+<details><summary>Исходные значения и состояния</summary><pre class="text-wrap">{{ row.drug_provenance | tojson(indent=2) }}</pre></details>
+</div>{% else %}<p class="text-secondary">Записи отсутствуют.</p>{% endfor %}{% endfor %}
+{% if p.rechallenge_result or p.active_substance_text %}<p>Исторический снимок: rechallenge {{ p.rechallenge_result or 'не указан' }} (пара с реакцией не установлена); текст веществ {{ p.active_substance_text or 'не указан' }}.</p>{% endif %}
+<details><summary>Источник препарата и исторические одиночные поля</summary><pre class="text-wrap">{{ p.drug_provenance|tojson(indent=2) }}</pre><p>Доза: {{ p.dose_value or '' }} {{ p.dose_unit or '' }} · Путь: {{ p.route or '' }} · Частота: {{ p.frequency or '' }} · Показание: {{ p.indication_text or '' }} · Исторический PT: {{ p.indication_meddra_pt_code or '' }}</p></details>
+</section>{% else %}<p>Препараты не добавлены.</p>{% endfor %}
+{% endblock %}

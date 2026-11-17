@@ -1,0 +1,115 @@
+{% macro immutable_documents_block(documents, context_type, context_id, partner_id='', annex_code='', scope='GLOBAL', return_to='/documents', title='Нередактируемые документы', show_upload=True, context_version=None) -%}
+{% set block_key = (context_type ~ '-' ~ context_id)|replace(' ', '-')|replace('.', '-') %}
+<section class="surface immutable-documents-block mt-4" data-document-context="{{ context_type }}" data-context-id="{{ context_id }}">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+        <div>
+            <h2 class="h6 section-title mb-1">{{ title }}</h2>
+            <div class="text-secondary small">Показаны записи единого реестра, относящиеся к этой карточке. Файл не копируется.</div>
+        </div>
+        {% if show_upload and (has_permission('upload') or has_permission('create') or has_permission('manage_document_versions')) %}
+        <button class="btn btn-outline-primary btn-sm icon-button" type="button" data-bs-toggle="collapse" data-bs-target="#upload-{{ block_key }}">
+            <i data-lucide="upload"></i><span>Загрузить нередактируемый документ</span>
+        </button>
+        {% endif %}
+    </div>
+
+    {% if show_upload and (has_permission('upload') or has_permission('create') or has_permission('manage_document_versions')) %}
+    <form class="collapse row g-2 align-items-end mb-3 immutable-document-upload" id="upload-{{ block_key }}" method="post" action="/documents" enctype="multipart/form-data">
+        <input type="hidden" name="expected_related_version" value="{{ context_version or '' }}">
+        <input type="hidden" name="related_object_type" value="{{ context_type }}">
+        <input type="hidden" name="related_object_id" value="{{ context_id }}">
+        <input type="hidden" name="partner_id" value="{{ partner_id }}">
+        <input type="hidden" name="return_to" value="{{ return_to }}">
+        <div class="col-lg-3"><label class="form-label">Наименование документа *</label><input class="form-control form-control-sm" name="document_title" required></div>
+        <div class="col-lg-2"><label class="form-label">Вид документа</label><input class="form-control form-control-sm" name="document_type" value="other" list="document-types-{{ block_key }}"></div>
+        <div class="col-lg-2"><label class="form-label">Приложение МФСФ</label><input class="form-control form-control-sm" name="psmf_annex_code" value="{{ annex_code }}" list="annexes-{{ block_key }}"></div>
+        <div class="col-lg-1"><label class="form-label">Версия</label><input class="form-control form-control-sm" name="document_version" value="1.0"></div>
+        <div class="col-lg-2"><label class="form-label">Дата документа</label><input class="form-control form-control-sm" type="date" name="document_date"></div>
+        <div class="col-lg-2"><label class="form-label">Срок действия</label><input class="form-control form-control-sm" type="date" name="valid_until"></div>
+        <div class="col-lg-2"><label class="form-label">Статус</label><select class="form-select form-select-sm" name="document_status"><option value="active">Действует</option><option value="draft">Черновик</option><option value="under_review">На рассмотрении</option><option value="replaced">Заменен</option><option value="expired">Устарел</option><option value="archived">Архивный</option></select></div>
+        <div class="col-lg-2"><label class="form-label">Область действия</label><select class="form-select form-select-sm" name="scope"><option value="GLOBAL" {% if scope == 'GLOBAL' %}selected{% endif %}>Общая</option><option value="PARTNER_SPECIFIC" {% if scope == 'PARTNER_SPECIFIC' %}selected{% endif %}>Конкретный партнер</option></select></div>
+        <div class="col-lg-1"><label class="form-label">Страниц</label><input class="form-control form-control-sm" type="number" min="1" name="page_count"></div>
+        <div class="col-lg-1"><label class="form-label">Порядок</label><input class="form-control form-control-sm" type="number" min="0" name="inclusion_order" value="0"></div>
+        <div class="col-lg-3"><label class="form-label">Файл *</label><input class="form-control form-control-sm" type="file" name="document_file" required></div>
+        <div class="col-lg-3 d-flex flex-wrap gap-3 align-items-center pb-1">
+            <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="is_signed" value="true"><span class="form-check-label">Подписан</span></label>
+            <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="include_in_psmf" value="true" checked><span class="form-check-label">Включать в МФСФ</span></label>
+        </div>
+        <div class="col-lg-2"><button class="btn btn-primary btn-sm icon-button" type="submit"><i data-lucide="upload"></i><span>Загрузить</span></button></div>
+        <datalist id="document-types-{{ block_key }}">
+            <option value="job description"><option value="appointment order"><option value="CV"><option value="diploma or certificate"><option value="PV agreement"><option value="additional agreement"><option value="organization chart"><option value="training record"><option value="risk management plan"><option value="safety reference information"><option value="risk minimization measure"><option value="audit document"><option value="quality system document"><option value="other">
+        </datalist>
+        <datalist id="annexes-{{ block_key }}">
+            {% for code in ['Приложение А-1','Приложение А-2','Приложение А-3','Приложение Б-1','Приложение Б-1.1','Приложение Б-3','Приложение Б-3.1','Приложение В-1','Приложение В-1.1','Приложение В-2','Приложение Г-1','Приложение Г-1.1','Приложение Д-1','Приложение Д-1.1','Приложение Д-2','Приложение Е-1','Приложение Е-2','Приложение Е-2.1','Приложение Е-3','Приложение Ж-1','Приложение Ж-1.1','Приложение Ж-2','Приложение Ж-2.1','Приложение Ж-3','Приложение Ж-3.1','Приложение Ж-4','Приложение З-1','Приложение З-2','Приложение З-2.1','Приложение З-3','Приложение З-4','Приложение З-5','Приложение З-6','Приложение И-1','Приложение И-2','Приложение И-2.1','Приложение К','Приложение Л'] %}<option value="{{ code }}">{% endfor %}
+        </datalist>
+    </form>
+    {% endif %}
+
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle immutable-documents-table">
+            <thead><tr><th>Наименование</th><th>Вид</th><th>Приложение</th><th>Версия</th><th>Дата</th><th>Срок действия</th><th>Статус</th><th>Подписан</th><th>Страниц</th><th>Область</th><th>В МФСФ</th><th>Порядок</th><th>Действия</th></tr></thead>
+            <tbody>
+            {% for document in documents %}
+            <tr>
+                <td class="fw-medium">{{ document.document_title or document.file_name }}</td>
+                <td>{{ _(document.document_type or document.attachment_type or 'other') }}</td>
+                <td>{{ document.psmf_annex_code or '—' }}</td>
+                <td>{{ document.document_version or document.version }}</td>
+                <td>{{ document.document_date or '—' }}</td>
+                <td>{{ document.valid_until or 'Бессрочно' }}</td>
+                <td><span class="status-pill">{{ _(document.status) }}</span></td>
+                <td>{% if document.is_signed %}<i data-lucide="badge-check" class="text-success"></i><span class="visually-hidden">Да</span>{% else %}—{% endif %}</td>
+                <td>{{ document.page_count or '—' }}</td>
+                <td>{% if document.scope == 'PARTNER_SPECIFIC' %}Партнер{% else %}Общая{% endif %}</td>
+                <td>{% if document.include_in_psmf %}<span class="badge text-bg-success">Да</span>{% else %}<span class="badge text-bg-secondary">Нет</span>{% endif %}</td>
+                <td>{{ document.inclusion_order }}</td>
+                <td>
+                    <div class="d-flex flex-wrap gap-1">
+                        <a class="btn btn-outline-secondary btn-sm" href="/documents/{{ document.id }}/view" target="_blank">Просмотреть</a>
+                        {% if document.storage_path %}<a class="btn btn-outline-secondary btn-sm" href="/documents/{{ document.id }}/download">Скачать</a>{% endif %}
+                        {% if has_permission('upload') or has_permission('manage_document_versions') %}<button class="btn btn-outline-primary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#new-version-{{ document.id }}">Добавить новую версию</button>{% endif %}
+                        {% if has_permission('edit') or has_permission('manage_document_versions') %}
+                        <form method="post" action="/documents/{{ document.id }}/psmf-inclusion">
+                            <input type="hidden" name="expected_version" value="{{ document.version }}">
+                            <input type="hidden" name="return_to" value="{{ return_to }}">
+                            <input type="hidden" name="include_in_psmf" value="{% if document.include_in_psmf %}false{% else %}true{% endif %}">
+                            <button class="btn btn-outline-{% if document.include_in_psmf %}danger{% else %}success{% endif %} btn-sm" type="submit">{% if document.include_in_psmf %}Исключить из сборки{% else %}Включить в МФСФ{% endif %}</button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </td>
+            </tr>
+            {% if has_permission('upload') or has_permission('manage_document_versions') %}
+            <tr class="collapse" id="new-version-{{ document.id }}"><td colspan="13">
+                <form class="row g-2 align-items-end" method="post" action="/documents/{{ document.id }}/versions" enctype="multipart/form-data">
+                    <input type="hidden" name="expected_version" value="{{ document.version }}">
+                    <input type="hidden" name="return_to" value="{{ return_to }}">
+                    <div class="col-lg-3"><label class="form-label">Новый файл *</label><input class="form-control form-control-sm" type="file" name="document_file" required></div>
+                    <div class="col-lg-1"><label class="form-label">Версия</label><input class="form-control form-control-sm" name="document_version" required></div>
+                    <div class="col-lg-2"><label class="form-label">Дата</label><input class="form-control form-control-sm" type="date" name="document_date"></div>
+                    <div class="col-lg-2"><label class="form-label">Срок действия</label><input class="form-control form-control-sm" type="date" name="valid_until"></div>
+                    <div class="col-lg-1"><label class="form-label">Страниц</label><input class="form-control form-control-sm" type="number" min="1" name="page_count"></div>
+                    <div class="col-lg-2"><label class="form-label">Причина</label><input class="form-control form-control-sm" name="change_reason"></div>
+                    <input type="hidden" name="document_status" value="active">
+                    <div class="col-lg-1"><label class="form-check mb-2"><input class="form-check-input" type="checkbox" name="is_signed" value="true"><span class="form-check-label">Подписан</span></label></div>
+                    <div class="col-12"><button class="btn btn-primary btn-sm" type="submit">Сохранить новую версию</button><span class="text-secondary small ms-2">Ранее сформированные сборки останутся без изменений.</span></div>
+                </form>
+            </td></tr>
+            {% endif %}
+            {% if document.build_inclusions %}
+            <tr><td colspan="13" class="small bg-light-subtle">
+                <strong>Использование в сборках:</strong>
+                {% for inclusion in document.build_inclusions %}
+                <span class="badge text-bg-light">{{ inclusion.build.partner.partner_name if inclusion.build and inclusion.build.partner else '' }} · в.{{ inclusion.build.version if inclusion.build else '' }} · документ {{ inclusion.version_label_snapshot }} · {{ inclusion.build.build_status if inclusion.build else '' }}</span>
+                {% endfor %}
+                <span class="text-secondary">Новую версию можно выбрать для будущей сборки; ранее сформированные файлы не изменятся.</span>
+            </td></tr>
+            {% endif %}
+            {% else %}
+            <tr><td colspan="13" class="text-secondary">Для этой записи нередактируемые документы пока не загружены.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{%- endmacro %}

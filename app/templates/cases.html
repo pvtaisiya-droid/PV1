@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ _('Cases') }} - {{ _('PV MVP') }}{% endblock %}
+{% block title %}{{ _('Cases') }} - {{ _('PV System') }}{% endblock %}
 
 {% block content %}
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
@@ -9,10 +9,10 @@
     </div>
     <div class="d-flex gap-2">
         {% if has_permission('export') %}
-        <a class="btn btn-outline-secondary btn-sm icon-button" href="/api/cases/export.csv"><i data-lucide="download"></i><span>{{ _('CSV') }}</span></a>
+        <a class="btn btn-outline-secondary btn-sm icon-button" href="/api/cases/export.xlsx{% if filters.partner_id %}?partner_id={{ filters.partner_id }}{% endif %}"><i data-lucide="download"></i><span>XLSX</span></a>
         {% endif %}
         {% if has_permission('create') %}
-        <a class="btn btn-primary btn-sm icon-button" href="/cases/new"><i data-lucide="plus"></i><span>{{ _('Add') }}</span></a>
+        <a class="btn btn-primary btn-sm icon-button" href="/cases/new"><i data-lucide="plus"></i><span>Создать вручную</span></a>
         {% endif %}
     </div>
 </div>
@@ -81,9 +81,14 @@
         <table class="table table-hover align-middle">
             <thead>
             <tr>
+                {% if not filters.partner_id %}
+                <th>Код партнёра</th>
+                <th>Наименование партнёра</th>
+                {% endif %}
                 <th>{{ _('Case no.') }}</th>
+                {% if not filters.partner_id %}<th>Полный код</th>{% endif %}
+                <th>Дополнительные номера</th>
                 <th>{{ _('Received') }}</th>
-                <th>{{ _('Partner') }}</th>
                 <th>{{ _('Seriousness') }}</th>
                 <th>{{ _('Status') }}</th>
                 <th>{{ _('Due') }}</th>
@@ -93,9 +98,14 @@
             <tbody>
             {% for case in cases %}
             <tr>
+                {% if not filters.partner_id %}
+                <td class="font-monospace">{{ case.numbering_partner_code }}</td>
+                <td>{% if case.numbering_partner %}{{ case.numbering_partner.partner_name }}{% else %}<span class="text-warning-emphasis">Партнёр не выбран</span>{% endif %}</td>
+                {% endif %}
                 <td class="fw-medium">{{ case.case_number }}</td>
+                {% if not filters.partner_id %}<td class="font-monospace">{{ case.full_case_code }}{% if case.numbering_warning %}<div class="small text-warning-emphasis">{{ case.numbering_warning }}</div>{% endif %}</td>{% endif %}
+                <td>{{ case.additional_case_numbers }}</td>
                 <td>{{ case.initial_received_date or "" }}</td>
-                <td>{{ case.partner.partner_name if case.partner else "" }}</td>
                 <td>{{ _(case.seriousness) }}</td>
                 <td><span class="status-pill">{{ _(case.workflow_status) }}</span></td>
                 <td>{{ case.due_date or "" }}</td>
@@ -107,6 +117,7 @@
                         {% endif %}
                         {% if has_permission('soft_delete') %}
                         <form method="post" action="/cases/{{ case.id }}/delete">
+<input type="hidden" name="expected_version" value="{{ case.version }}">
                             <button class="btn btn-outline-danger btn-sm icon-only" type="submit" title="{{ _('Delete') }}"><i data-lucide="trash-2"></i></button>
                         </form>
                         {% endif %}
@@ -114,7 +125,7 @@
                 </td>
             </tr>
             {% else %}
-            <tr><td colspan="7" class="text-secondary">{% if filters.active and total_count %}{{ _('No records match the filters.') }}{% else %}{{ _('No cases yet.') }}{% endif %}</td></tr>
+            <tr><td colspan="{% if filters.partner_id %}7{% else %}10{% endif %}" class="text-secondary">{% if filters.active and total_count %}{{ _('No records match the filters.') }}{% else %}{{ _('No cases yet.') }}{% endif %}</td></tr>
             {% endfor %}
             </tbody>
         </table>

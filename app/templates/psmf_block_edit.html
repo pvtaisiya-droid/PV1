@@ -1,0 +1,252 @@
+{% extends "base.html" %}
+{% from "_immutable_documents.html" import immutable_documents_block with context %}
+{% block title %}{{ block.title_ru }} - МФСФ / PSMF{% endblock %}
+
+{% block content %}
+{% macro status_badge(status) -%}
+<span class="status-pill psmf-status-{{ status|replace('_', '-') }}">{{ status_labels.get(status, status) }}</span>
+{%- endmacro %}
+
+{% macro block_type_badge(block_type) -%}
+<span class="status-pill psmf-block-{{ block_type|lower|replace('_', '-') }}">{{ block_type_labels.get(block_type, block_type) }}</span>
+{%- endmacro %}
+
+{% macro block_versions_modal(block, block_version, current_block_version) -%}
+<div class="modal fade" id="block-version-history-{{ block.id }}" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title h6 mb-0">История версий: {{ block.code }}</h3>
+                <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+            </div>
+            <div class="modal-body">
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead><tr><th>Версия</th><th>Статус</th><th>Дата</th><th>Автор</th><th>Изменение</th><th></th></tr></thead>
+                        <tbody>
+                        {% for version in block.versions if not version.is_deleted %}
+                        {% set is_current = current_block_version and version.id == current_block_version.id %}
+                        <tr class="{% if block_version and version.id == block_version.id %}table-active{% endif %}">
+                            <td class="fw-medium">
+                                {{ version.version }}
+                                {% if is_current %}<span class="text-secondary small d-block">текущая</span>{% endif %}
+                            </td>
+                            <td>{{ status_badge(version.status) }}</td>
+                            <td class="text-nowrap">{{ version.updated_at or version.created_at }}</td>
+                            <td>{{ version.created_by_text or '' }}</td>
+                            <td>{{ version.change_summary or version.change_reason or '' }}</td>
+                            <td class="text-end">
+                                <a class="btn btn-outline-primary btn-sm" href="/psmf/blocks/{{ block.id }}/edit{% if not is_current %}?block_version_id={{ version.id }}{% endif %}">
+                                    {% if is_current %}Открыть текущую{% else %}Открыть{% endif %}
+                                </a>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="6" class="text-secondary">Версий пока нет.</td></tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{%- endmacro %}
+
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+    <div>
+        <div class="text-secondary small mb-1">
+            <a href="/psmf?tab={{ return_tab }}&component_id={{ block.component_id }}">МФСФ</a>
+            / {{ block.component.code if block.component else '' }}
+        </div>
+        <h1 class="h3 mb-1">{{ block.title_ru }}</h1>
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            <span class="fw-medium">{{ block.code }}</span>
+            {{ block_type_badge(block.block_type) }}
+            {{ status_badge(block.status) }}
+            {% if block_version %}
+            <span class="text-secondary small">версия {{ block_version.version }}</span>
+            {% endif %}
+        </div>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+        {% if block.versions %}
+        <button class="btn btn-outline-secondary icon-button" type="button" data-bs-toggle="modal" data-bs-target="#block-version-history-{{ block.id }}">
+            <i data-lucide="history"></i><span>История версий</span>
+        </button>
+        {% endif %}
+        <a class="btn btn-outline-secondary icon-button" href="/psmf?tab={{ return_tab }}&component_id={{ block.component_id }}">
+            <i data-lucide="arrow-left"></i><span>{% if return_tab == 'annexes' %}К приложению{% else %}К главе{% endif %}</span>
+        </a>
+    </div>
+</div>
+
+{% if message %}
+<div class="alert alert-success py-2" role="status">{{ message }}</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-danger py-2" role="alert">{{ error }}</div>
+{% endif %}
+{% if validation %}
+<div class="alert alert-warning py-2" role="alert">{{ validation }}</div>
+{% endif %}
+{% if block_version_is_archive %}
+<div class="alert alert-info py-2 d-flex flex-wrap justify-content-between align-items-center gap-2">
+    <span>Открыта архивная версия {{ block_version.version }}. Редактирование недоступно.</span>
+    <a class="btn btn-outline-primary btn-sm" href="/psmf/blocks/{{ block.id }}/edit">Вернуться к текущей версии</a>
+</div>
+{% endif %}
+
+<div class="psmf-editor-page">
+    <section class="surface psmf-editor-main">
+        {% if not block_version %}
+        <div class="text-secondary">У блока пока нет версии.</div>
+        {% elif block.status == 'draft' and block.block_type != 'AUTO_TABLE_BLOCK' and not block_version_is_archive %}
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+            <div>
+                <h2 class="h6 section-title mb-1">Редактирование блока</h2>
+                <div class="text-secondary small">Изменения сохраняются в текущую черновую версию блока.</div>
+            </div>
+        </div>
+        <form method="post" action="/psmf/blocks/{{ block.id }}/save">
+            <input type="hidden" name="expected_version" value="{{ block.version }}">
+            <input type="hidden" name="expected_content_version" value="{{ block_current_version(block).row_version }}">
+            <div class="mb-3">
+                <label class="form-label">Текст блока</label>
+                <textarea class="form-control psmf-editor-textarea" name="content" rows="18">{{ block_version.content }}</textarea>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Краткое описание изменения</label>
+                <input class="form-control" name="change_summary" value="{{ block_version.change_summary or '' }}">
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+                <button class="btn btn-primary icon-button" type="submit"><i data-lucide="save"></i><span>Сохранить</span></button>
+            </div>
+        </form>
+        {% else %}
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+            <div>
+                <h2 class="h6 section-title mb-1">Текущая версия блока</h2>
+                <div class="text-secondary small">
+                    {% if block.block_type == 'AUTO_TABLE_BLOCK' %}
+                    Это автотаблица. Ее содержимое формируется системой при сборке МФСФ.
+                    {% elif block.status == 'approved' %}
+                    Блок утвержден. Для редактирования создайте новую версию.
+                    {% elif block.status == 'under_review' %}
+                    Блок на проверке. Сначала утвердите его или верните процессуально в черновик.
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        <div class="raw-text psmf-editor-preview">{{ block_version.content }}</div>
+        {% endif %}
+    </section>
+
+    <aside class="surface psmf-editor-side">
+        <h2 class="h6 section-title">Действия</h2>
+        <div class="d-grid gap-2 mb-3">
+            {% if block_version_is_archive %}
+            <a class="btn btn-outline-primary w-100 icon-button" href="/psmf/blocks/{{ block.id }}/edit">
+                <i data-lucide="rotate-ccw"></i><span>Текущая версия</span>
+            </a>
+            {% elif block.status == 'draft' and block.block_type != 'AUTO_TABLE_BLOCK' %}
+            <form method="post" action="/psmf/blocks/{{ block.id }}/submit">
+                <input type="hidden" name="expected_version" value="{{ block.version }}">
+                <input type="hidden" name="expected_content_version" value="{{ block_current_version(block).row_version }}">
+                <button class="btn btn-outline-primary w-100 icon-button" type="submit"><i data-lucide="send"></i><span>На проверку</span></button>
+            </form>
+            {% elif block.status == 'under_review' %}
+            <form method="post" action="/psmf/blocks/{{ block.id }}/approve">
+                <input type="hidden" name="expected_version" value="{{ block.version }}">
+                <input type="hidden" name="expected_content_version" value="{{ block_current_version(block).row_version }}">
+                <input class="form-control mb-2" name="approval_comment" placeholder="Комментарий утверждения">
+                <button class="btn btn-primary w-100 icon-button" type="submit"><i data-lucide="check"></i><span>Утвердить</span></button>
+            </form>
+            {% elif block.status == 'approved' %}
+            <form method="post" action="/psmf/blocks/{{ block.id }}/new-version">
+                <input type="hidden" name="expected_version" value="{{ block.version }}">
+                <input type="hidden" name="expected_content_version" value="{{ block_current_version(block).row_version }}">
+                <button class="btn btn-primary w-100 icon-button" type="submit"><i data-lucide="copy-plus"></i><span>Создать новую версию</span></button>
+            </form>
+            {% endif %}
+            {% if block.block_type == 'PARTNER_BLOCK' and not block_version_is_archive %}
+            <form method="post" action="/psmf/blocks/{{ block.id }}/partner-review">
+                <input type="hidden" name="expected_version" value="{{ block.version }}">
+                <input type="hidden" name="expected_content_version" value="{{ block_current_version(block).row_version }}">
+                <input class="form-control mb-2" name="partner_review_comment" placeholder="Комментарий партнера">
+                <button class="btn btn-outline-primary w-100 icon-button" type="submit"><i data-lucide="handshake"></i><span>Согласовать с партнером</span></button>
+            </form>
+            {% endif %}
+        </div>
+
+        <dl class="compact-dl mb-0">
+            <dt>Глава</dt><dd>{{ block.component.code if block.component else '' }}</dd>
+            <dt>Тип</dt><dd>{{ block_type_labels.get(block.block_type, block.block_type) }}</dd>
+            <dt>Источник</dt><dd>{{ block.source_module or 'ручной ввод' }}</dd>
+            <dt>Исторический код</dt><dd>{{ block.original_code or 'нет' }}</dd>
+            <dt>Согласование партнера</dt><dd>{{ block_version.partner_review_status if block_version else 'нет' }}</dd>
+            <dt>Утверждено</dt><dd>{% if block_version %}{{ block_version.approved_by_text or block_version.approved_by or 'нет' }}{% else %}нет{% endif %}</dd>
+        </dl>
+    </aside>
+</div>
+
+<section class="surface mt-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+        <div>
+            <h2 class="h6 section-title mb-1">PDF-документы приложения</h2>
+            <div class="text-secondary small">Загруженные PDF будут добавлены после сформированного листа приложения и войдут в единый МФСФ и ZIP-комплект.</div>
+        </div>
+    </div>
+    <form class="row g-2 align-items-end mb-3" method="post" action="/psmf/blocks/{{ block.id }}/attachments" enctype="multipart/form-data">
+<input type="hidden" name="expected_version" value="{{ block.version }}">
+        <div class="col-lg-3">
+            <label class="form-label">PDF-файл</label>
+            <input class="form-control" type="file" name="document_file" accept="application/pdf,.pdf" required>
+        </div>
+        <div class="col-lg-3">
+            <label class="form-label">Название документа</label>
+            <input class="form-control" name="document_title" placeholder="Например, договор или схема">
+        </div>
+        <div class="col-lg-2">
+            <label class="form-label">Версия</label>
+            <input class="form-control" name="document_version">
+        </div>
+        <div class="col-lg-2">
+            <label class="form-label">Дата документа</label>
+            <input class="form-control" type="date" name="document_date">
+        </div>
+        {% if block_is_partner_specific %}
+        <div class="col-lg-2">
+            <label class="form-label">Партнер</label>
+            <select class="form-select" name="partner_id" required>
+                <option value="">Выберите</option>
+                {% for partner in partners %}<option value="{{ partner.id }}">{{ partner.partner_name }}</option>{% endfor %}
+            </select>
+        </div>
+        {% endif %}
+        <div class="col-12">
+            <button class="btn btn-outline-primary btn-sm icon-button" type="submit"><i data-lucide="paperclip"></i><span>Добавить PDF</span></button>
+        </div>
+    </form>
+    <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+            <thead><tr><th>Документ</th><th>Версия</th><th>Дата</th>{% if block_is_partner_specific %}<th>Партнер</th>{% endif %}<th></th></tr></thead>
+            <tbody>
+            {% for attachment in block_attachments %}
+            <tr>
+                <td>{{ attachment.document_title or attachment.file_name }}</td>
+                <td>{{ attachment.document_version or '' }}</td>
+                <td>{{ attachment.document_date or attachment.uploaded_at or '' }}</td>
+                {% if block_is_partner_specific %}<td>{{ attachment.partner.partner_name if attachment.partner else '' }}</td>{% endif %}
+                <td class="text-end"><a class="btn btn-outline-secondary btn-sm" href="/documents/{{ attachment.id }}/download"><i data-lucide="download"></i> PDF</a></td>
+            </tr>
+            {% else %}
+            <tr><td class="text-secondary" colspan="{% if block_is_partner_specific %}5{% else %}4{% endif %}">Связанные PDF пока не загружены.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{{ immutable_documents_block(block_attachments, 'PSMFBlock', block.id, block.partner_id or '', block.component.code if block.component else '', 'PARTNER_SPECIFIC' if block_is_partner_specific else 'GLOBAL', '/psmf/blocks/' ~ block.id ~ '/edit', 'Нередактируемые документы приложения', show_upload=False) }}
+{{ block_versions_modal(block, block_version, current_block_version) }}
+{% endblock %}

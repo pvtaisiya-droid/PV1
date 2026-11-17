@@ -1,0 +1,614 @@
+<?xml version='1.0' encoding='utf-8'?>
+<ns0:MCCI_IN200100UV01 xmlns:ns0="urn:hl7-org:v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ITSVersion="XML_1.0">
+  <ns0:id root="2.16.840.1.113883.3.989.2.1.3.22" extension="Batch-MixedCase-07" />
+  <ns0:creationTime value="20260304120000+0300" />
+  <ns0:PORR_IN049016UV>
+    <ns0:id root="2.16.840.1.113883.3.989.2.1.3.1" extension="Message-NotVersion-99" />
+    <ns0:creationTime value="20260303110000+0300" />
+    <ns0:sender>
+      <ns0:device>
+        <ns0:id root="2.16.840.1.113883.3.989.2.1.3.11" extension="Sender-A" />
+      </ns0:device>
+    </ns0:sender>
+    <ns0:receiver>
+      <ns0:device>
+        <ns0:id root="2.16.840.1.113883.3.989.2.1.3.12" extension="Receiver-Test" />
+      </ns0:device>
+    </ns0:receiver>
+    <ns0:controlActProcess classCode="CACT" moodCode="EVN">
+      <ns0:subject typeCode="SUBJ">
+        <ns0:investigationEvent classCode="INVSTG" moodCode="EVN">
+          <ns0:id root="2.16.840.1.113883.3.989.2.1.3.1" extension="Sender-Case-X" />
+          <ns0:id root="2.16.840.1.113883.3.989.2.1.3.2" extension="ZZ-SYNTH-0001" />
+          <ns0:effectiveTime>
+            <ns0:low value="20260105" />
+          </ns0:effectiveTime>
+          <ns0:availabilityTime value="20260203141516.125+0530" />
+          <ns0:text>Synthetic case for local import verification.</ns0:text>
+          <ns0:component>
+            <ns0:adverseEventAssessment>
+              <ns0:subject1>
+                <ns0:primaryRole>
+                  <ns0:player1>
+                    <ns0:name>SY</ns0:name>
+                    <ns0:birthTime value="2020" />
+                    <ns0:role>
+                      <ns0:code code="PRN" codeSystem="2.16.840.1.113883.5.111" />
+                      <ns0:associatedPerson>
+                        <ns0:name>SY-PARENT</ns0:name>
+                        <ns0:birthTime value="199001" />
+                      </ns0:associatedPerson>
+                    </ns0:role>
+                  </ns0:player1>
+                  <ns0:subjectOf2>
+                    <ns0:observation>
+                      <ns0:id root="9c516dc1-f622-4de6-a6a9-3726a83ee611" extension="rx-1" />
+                      <ns0:code code="29" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" />
+                      <ns0:value code="10000001" codeSystem="2.16.840.1.113883.6.163" codeSystemVersion="29.0">
+                        <ns0:originalText>Реакция 1</ns0:originalText>
+                      </ns0:value>
+                    </ns0:observation>
+                  </ns0:subjectOf2>
+                  <ns0:subjectOf2>
+                    <ns0:observation>
+                      <ns0:id root="9c516dc1-f622-4de6-a6a9-3726a83ee611" extension="rx-2" />
+                      <ns0:code code="29" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" />
+                      <ns0:value code="10000002" codeSystem="2.16.840.1.113883.6.163" codeSystemVersion="29.0">
+                        <ns0:originalText>Реакция 2</ns0:originalText>
+                      </ns0:value>
+                    </ns0:observation>
+                  </ns0:subjectOf2>
+                  <ns0:subjectOf2>
+                    <ns0:organizer>
+                      <ns0:code code="4" codeSystem="2.16.840.1.113883.3.989.2.1.1.20" codeSystemVersion="1.0" />
+                      <ns0:component>
+                        <ns0:substanceAdministration>
+                          <ns0:id root="9c516dc1-f622-4de6-a6a9-3726a83ee611" extension="drug-1" />
+                          <ns0:consumable>
+                            <ns0:instanceOfKind>
+                              <ns0:kindOfProduct>
+                                <ns0:code code="synthetic-1" codeSystem="urn:synthetic:product" codeSystemVersion="test-v1" />
+                                <ns0:name>Test Product</ns0:name>
+                                <ns0:asManufacturedProduct>
+                                  <ns0:subjectOf>
+                                    <ns0:approval>
+                                      <ns0:id root="2.16.840.1.113883.3.989.2.1.3.4" extension="SYNTH-AUTH-1" />
+                                      <ns0:holder>
+                                        <ns0:role>
+                                          <ns0:playingOrganization>
+                                            <ns0:name>Synthetic holder</ns0:name>
+                                          </ns0:playingOrganization>
+                                        </ns0:role>
+                                      </ns0:holder>
+                                      <ns0:author>
+                                        <ns0:territorialAuthority>
+                                          <ns0:territory>
+                                            <ns0:code code="ZZ" />
+                                          </ns0:territory>
+                                        </ns0:territorialAuthority>
+                                      </ns0:author>
+                                    </ns0:approval>
+                                  </ns0:subjectOf>
+                                </ns0:asManufacturedProduct>
+                                <ns0:ingredient classCode="ACTI">
+                                  <ns0:quantity>
+                                    <ns0:numerator value="0.1250" unit="mg" />
+                                    <ns0:denominator value="1.00" unit="mL" />
+                                  </ns0:quantity>
+                                  <ns0:ingredientSubstance>
+                                    <ns0:code code="sub-1-1" codeSystem="urn:synthetic:substance" codeSystemVersion="test-v1" />
+                                    <ns0:name>Veщество 1</ns0:name>
+                                  </ns0:ingredientSubstance>
+                                </ns0:ingredient>
+                                <ns0:ingredient classCode="ACTI">
+                                  <ns0:quantity>
+                                    <ns0:numerator value="0.1250" unit="mg" />
+                                    <ns0:denominator value="1.00" unit="mL" />
+                                  </ns0:quantity>
+                                  <ns0:ingredientSubstance>
+                                    <ns0:code code="sub-1-2" codeSystem="urn:synthetic:substance" codeSystemVersion="test-v1" />
+                                    <ns0:name>Veщество 2</ns0:name>
+                                  </ns0:ingredientSubstance>
+                                </ns0:ingredient>
+                              </ns0:kindOfProduct>
+                            </ns0:instanceOfKind>
+                          </ns0:consumable>
+                          <ns0:outboundRelationship2 typeCode="COMP">
+                            <ns0:substanceAdministration>
+                              <ns0:text>Исходный режим 1</ns0:text>
+                              <ns0:doseQuantity value="0.2500" unit="mg" />
+                              <ns0:effectiveTime xsi:type="SXPR_TS">
+                                <ns0:comp xsi:type="PIVL_TS">
+                                  <ns0:period value="12.00" unit="h" />
+                                </ns0:comp>
+                                <ns0:comp xsi:type="IVL_TS">
+                                  <ns0:low value="2025" />
+                                  <ns0:high nullFlavor="UNK" />
+                                  <ns0:width value="7.0" unit="d" />
+                                </ns0:comp>
+                              </ns0:effectiveTime>
+                              <ns0:routeCode nullFlavor="UNK">
+                                <ns0:originalText>исходный путь</ns0:originalText>
+                              </ns0:routeCode>
+                              <ns0:consumable>
+                                <ns0:instanceOfKind>
+                                  <ns0:kindOfProduct>
+                                    <ns0:formCode code="FORM-X" codeSystem="urn:synthetic:form" codeSystemVersion="v1">
+                                      <ns0:originalText>Исходная форма</ns0:originalText>
+                                    </ns0:formCode>
+                                  </ns0:kindOfProduct>
+                                </ns0:instanceOfKind>
+                              </ns0:consumable>
+                            </ns0:substanceAdministration>
+                          </ns0:outboundRelationship2>
+                          <ns0:inboundRelationship>
+                            <ns0:observation>
+                              <ns0:code code="19" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" />
+                              <ns0:value code="10001001" codeSystem="2.16.840.1.113883.6.163" codeSystemVersion="29.0">
+                                <ns0:originalText>Показание 1</ns0:originalText>
+                              </ns0:value>
+                            </ns0:observation>
+                          </ns0:inboundRelationship>
+                          <ns0:outboundRelationship2 typeCode="COMP">
+                            <ns0:substanceAdministration>
+                              <ns0:text>Исходный режим 2</ns0:text>
+                              <ns0:doseQuantity value="0.2500" unit="mg" />
+                              <ns0:effectiveTime xsi:type="SXPR_TS">
+                                <ns0:comp xsi:type="PIVL_TS">
+                                  <ns0:period value="12.00" unit="h" />
+                                </ns0:comp>
+                                <ns0:comp xsi:type="IVL_TS">
+                                  <ns0:low value="202503" />
+                                  <ns0:high nullFlavor="UNK" />
+                                  <ns0:width value="7.0" unit="d" />
+                                </ns0:comp>
+                              </ns0:effectiveTime>
+                              <ns0:routeCode nullFlavor="UNK">
+                                <ns0:originalText>исходный путь</ns0:originalText>
+                              </ns0:routeCode>
+                              <ns0:consumable>
+                                <ns0:instanceOfKind>
+                                  <ns0:kindOfProduct>
+                                    <ns0:formCode code="FORM-X" codeSystem="urn:synthetic:form" codeSystemVersion="v1">
+                                      <ns0:originalText>Исходная форма</ns0:originalText>
+                                    </ns0:formCode>
+                                  </ns0:kindOfProduct>
+                                </ns0:instanceOfKind>
+                              </ns0:consumable>
+                            </ns0:substanceAdministration>
+                          </ns0:outboundRelationship2>
+                          <ns0:inboundRelationship>
+                            <ns0:observation>
+                              <ns0:code code="19" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" />
+                              <ns0:value code="10001002" codeSystem="2.16.840.1.113883.6.163" codeSystemVersion="29.0">
+                                <ns0:originalText>Показание 2</ns0:originalText>
+                              </ns0:value>
+                            </ns0:observation>
+                          </ns0:inboundRelationship>
+                          <ns0:outboundRelationship2>
+                            <ns0:observation>
+                              <ns0:code code="31" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" />
+                              <ns0:value code="2" codeSystem="2.16.840.1.113883.3.989.2.1.1.16" codeSystemVersion="1.0" />
+                              <ns0:outboundRelationship1>
+                                <ns0:actReference>
+                                  <ns0:id root="9c516dc1-f622-4de6-a6a9-3726a83ee611" extension="rx-2" />
+                                </ns0:actReference>
+                              </ns0:outboundRelationship1>
+                            </ns0:observation>
+                          </ns0:outboundRelationship2>
+                          <ns0:outboundRelationship2>
+                            <ns0:observation>
+                              <ns0:code code="14" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" />
+                              <ns0:value value="3.2500" unit="mg" />
+                            </ns0:observation>
+                          </ns0:outboundRelationship2>
+                          <ns0:outboundRelationship2>
+                            <ns0:observation>
+                              <ns0:code code="16" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" />
+                              <ns0:value value="12" unit="wk" />
+                            </ns0:observation>
+                          </ns0:outboundRelationship2>
+                          <ns0:outboundRelationship2>
+                            <ns0:observation>
+                              <ns0:code code="6" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" />
+                              <ns0:value nullFlavor="UNK" />
+                            </ns0:observation>
+                          </ns0:outboundRelationship2>
+                          <ns0:outboundRelationship2>
+                            <ns0:observation>
+                              <ns0:code code="9" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" />
+                              <ns0:value code="1" codeSystem="2.16.840.1.113883.3.989.2.1.1.17" />
+                            </ns0:observation>
+                          </ns0:outboundRelationship2>
+                          <ns0:outboundRelationship1 typeCode="SAS">
+                            <ns0:pauseQuantity value="2" unit="d" />
+                            <ns0:actReference>
+                              <ns0:id root="9c516dc1-f622-4de6-a6a9-3726a83ee611" extension="rx-1" />
+                            </ns0:actReference>
+                          </ns0:outboundRelationship1>
+                        </ns0:substanceAdministration>
+                      </ns0:component>
+                      <ns0:component>
+                        <ns0:substanceAdministration>
+                          <ns0:id root="9c516dc1-f622-4de6-a6a9-3726a83ee611" extension="drug-2" />
+                          <ns0:consumable>
+                            <ns0:instanceOfKind>
+                              <ns0:kindOfProduct>
+                                <ns0:code code="synthetic-2" codeSystem="urn:synthetic:product" codeSystemVersion="test-v1" />
+                                <ns0:name>Test Product</ns0:name>
+                                <ns0:asManufacturedProduct>
+                                  <ns0:subjectOf>
+                                    <ns0:approval>
+                                      <ns0:id root="2.16.840.1.113883.3.989.2.1.3.4" extension="SYNTH-AUTH-2" />
+                                      <ns0:holder>
+                                        <ns0:role>
+                                          <ns0:playingOrganization>
+                                            <ns0:name>Synthetic holder</ns0:name>
+                                          </ns0:playingOrganization>
+                                        </ns0:role>
+                                      </ns0:holder>
+                                      <ns0:author>
+                                        <ns0:territorialAuthority>
+                                          <ns0:territory>
+                                            <ns0:code code="ZZ" />
+                                          </ns0:territory>
+                                        </ns0:territorialAuthority>
+                                      </ns0:author>
+                                    </ns0:approval>
+                                  </ns0:subjectOf>
+                                </ns0:asManufacturedProduct>
+                                <ns0:ingredient classCode="ACTI">
+                                  <ns0:quantity>
+                                    <ns0:numerator value="0.1250" unit="mg" />
+                                    <ns0:denominator value="1.00" unit="mL" />
+                                  </ns0:quantity>
+                                  <ns0:ingredientSubstance>
+                                    <ns0:code code="sub-2-1" codeSystem="urn:synthetic:substance" codeSystemVersion="test-v1" />
+                                    <ns0:name>Veщество 1</ns0:name>
+                                  </ns0:ingredientSubstance>
+                                </ns0:ingredient>
+                              </ns0:kindOfProduct>
+                            </ns0:instanceOfKind>
+                          </ns0:consumable>
+                          <ns0:outboundRelationship2 typeCode="COMP">
+                            <ns0:substanceAdministration>
+                              <ns0:text>Исходный режим 1</ns0:text>
+                              <ns0:doseQuantity value="0.2500" unit="mg" />
+                              <ns0:effectiveTime xsi:type="SXPR_TS">
+                                <ns0:comp xsi:type="PIVL_TS">
+                                  <ns0:period value="12.00" unit="h" />
+                                </ns0:comp>
+                                <ns0:comp xsi:type="IVL_TS">
+                                  <ns0:low value="2025" />
+                                  <ns0:high nullFlavor="UNK" />
+                                  <ns0:width value="7.0" unit="d" />
+                                </ns0:comp>
+                              </ns0:effectiveTime>
+                              <ns0:routeCode nullFlavor="UNK">
+                                <ns0:originalText>исходный путь</ns0:originalText>
+                              </ns0:routeCode>
+                              <ns0:consumable>
+                                <ns0:instanceOfKind>
+                                  <ns0:kindOfProduct>
+                                    <ns0:formCode code="FORM-X" codeSystem="urn:synthetic:form" codeSystemVersion="v1">
+                                      <ns0:originalText>Исходная форма</ns0:originalText>
+                                    </ns0:formCode>
+                                  </ns0:kindOfProduct>
+                                </ns0:instanceOfKind>
+                              </ns0:consumable>
+                            </ns0:substanceAdministration>
+                          </ns0:outboundRelationship2>
+                          <ns0:inboundRelationship>
+                            <ns0:observation>
+                              <ns0:code code="19" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" />
+                              <ns0:value code="10001001" codeSystem="2.16.840.1.113883.6.163" codeSystemVersion="29.0">
+                                <ns0:originalText>Показание 1</ns0:originalText>
+                              </ns0:value>
+                            </ns0:observation>
+                          </ns0:inboundRelationship>
+                          <ns0:outboundRelationship2>
+                            <ns0:observation>
+                              <ns0:code code="31" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" />
+                              <ns0:value code="4" codeSystem="2.16.840.1.113883.3.989.2.1.1.16" codeSystemVersion="1.0" />
+                              <ns0:outboundRelationship1>
+                                <ns0:actReference>
+                                  <ns0:id root="9c516dc1-f622-4de6-a6a9-3726a83ee611" extension="rx-1" />
+                                </ns0:actReference>
+                              </ns0:outboundRelationship1>
+                            </ns0:observation>
+                          </ns0:outboundRelationship2>
+                        </ns0:substanceAdministration>
+                      </ns0:component>
+                    </ns0:organizer>
+                  </ns0:subjectOf2>
+                  <ns0:subjectOf1>
+                    <ns0:researchStudy>
+                      <ns0:id root="2.16.840.1.113883.3.989.2.1.3.5" extension="SYN-PROTOCOL" />
+                      <ns0:title>Synthetic study</ns0:title>
+                      <ns0:code code="1" codeSystem="2.16.840.1.113883.3.989.2.1.1.8" />
+                      <ns0:authorization>
+                        <ns0:studyRegistration>
+                          <ns0:id root="2.16.840.1.113883.3.989.2.1.3.6" extension="SYN-REG-1" />
+                          <ns0:author>
+                            <ns0:territorialAuthority>
+                              <ns0:governingPlace>
+                                <ns0:code code="ZZ" />
+                              </ns0:governingPlace>
+                            </ns0:territorialAuthority>
+                          </ns0:author>
+                        </ns0:studyRegistration>
+                      </ns0:authorization>
+                    </ns0:researchStudy>
+                  </ns0:subjectOf1>
+                  <ns0:subjectOf2>
+                    <ns0:organizer>
+                      <ns0:code code="1" codeSystem="2.16.840.1.113883.3.989.2.1.1.20" />
+                      <ns0:component>
+                        <ns0:observation>
+                          <ns0:code code="10000001" codeSystem="2.16.840.1.113883.6.163" codeSystemVersion="29.0" />
+                          <ns0:effectiveTime>
+                            <ns0:low value="2018" />
+                            <ns0:high nullFlavor="UNK" />
+                          </ns0:effectiveTime>
+                        </ns0:observation>
+                      </ns0:component>
+                      <ns0:component>
+                        <ns0:observation>
+                          <ns0:code code="10000002" codeSystem="2.16.840.1.113883.6.163" codeSystemVersion="29.0" />
+                          <ns0:effectiveTime>
+                            <ns0:low value="201902" />
+                          </ns0:effectiveTime>
+                        </ns0:observation>
+                      </ns0:component>
+                    </ns0:organizer>
+                  </ns0:subjectOf2>
+                  <ns0:subjectOf2>
+                    <ns0:organizer>
+                      <ns0:code code="3" codeSystem="2.16.840.1.113883.3.989.2.1.1.20" />
+                      <ns0:component>
+                        <ns0:observation>
+                          <ns0:code code="10000003" codeSystem="2.16.840.1.113883.6.163" codeSystemVersion="29.0">
+                            <ns0:originalText>Synthetic lab</ns0:originalText>
+                          </ns0:code>
+                          <ns0:effectiveTime value="202602" />
+                          <ns0:value xsi:type="PQ" value="1.2500" unit="mg/L" />
+                          <ns0:referenceRange>
+                            <ns0:observationRange>
+                              <ns0:interpretationCode code="L" />
+                              <ns0:value value="0.5" unit="mg/L" />
+                            </ns0:observationRange>
+                          </ns0:referenceRange>
+                          <ns0:referenceRange>
+                            <ns0:observationRange>
+                              <ns0:interpretationCode code="H" />
+                              <ns0:value value="2.5" unit="mg/L" />
+                            </ns0:observationRange>
+                          </ns0:referenceRange>
+                        </ns0:observation>
+                      </ns0:component>
+                    </ns0:organizer>
+                  </ns0:subjectOf2>
+                  <ns0:subjectOf2>
+                    <ns0:organizer>
+                      <ns0:code code="2" codeSystem="2.16.840.1.113883.3.989.2.1.1.20" />
+                      <ns0:component>
+                        <ns0:substanceAdministration>
+                          <ns0:effectiveTime>
+                            <ns0:low value="2019" />
+                            <ns0:high nullFlavor="UNK" />
+                          </ns0:effectiveTime>
+                          <ns0:consumable>
+                            <ns0:instanceOfKind>
+                              <ns0:kindOfProduct>
+                                <ns0:name>Historical synthetic drug</ns0:name>
+                              </ns0:kindOfProduct>
+                            </ns0:instanceOfKind>
+                          </ns0:consumable>
+                        </ns0:substanceAdministration>
+                      </ns0:component>
+                    </ns0:organizer>
+                  </ns0:subjectOf2>
+                  <ns0:subjectOf2>
+                    <ns0:observation>
+                      <ns0:code code="32" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" />
+                      <ns0:value code="10000004" codeSystem="2.16.840.1.113883.6.163" codeSystemVersion="29.0">
+                        <ns0:originalText>Synthetic cause</ns0:originalText>
+                      </ns0:value>
+                    </ns0:observation>
+                  </ns0:subjectOf2>
+                  <ns0:subjectOf2>
+                    <ns0:observation>
+                      <ns0:code code="5" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" />
+                      <ns0:value nullFlavor="UNK" />
+                      <ns0:outboundRelationship2>
+                        <ns0:observation>
+                          <ns0:code code="8" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" />
+                          <ns0:value code="10000005" codeSystem="2.16.840.1.113883.6.163" codeSystemVersion="29.0" />
+                        </ns0:observation>
+                      </ns0:outboundRelationship2>
+                    </ns0:observation>
+                  </ns0:subjectOf2>
+                </ns0:primaryRole>
+              </ns0:subject1>
+              <ns0:component>
+                <ns0:causalityAssessment>
+                  <ns0:code code="20" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" />
+                  <ns0:value code="1" codeSystem="2.16.840.1.113883.3.989.2.1.1.13" codeSystemVersion="1.0" />
+                  <ns0:subject2>
+                    <ns0:productUseReference>
+                      <ns0:id root="9c516dc1-f622-4de6-a6a9-3726a83ee611" extension="drug-1" />
+                    </ns0:productUseReference>
+                  </ns0:subject2>
+                </ns0:causalityAssessment>
+              </ns0:component>
+              <ns0:component>
+                <ns0:causalityAssessment>
+                  <ns0:code code="39" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" />
+                  <ns0:value>Результат 1</ns0:value>
+                  <ns0:methodCode>
+                    <ns0:originalText>Метод источника 1</ns0:originalText>
+                  </ns0:methodCode>
+                  <ns0:author>
+                    <ns0:assignedEntity>
+                      <ns0:code>
+                        <ns0:originalText>Источник 1</ns0:originalText>
+                      </ns0:code>
+                    </ns0:assignedEntity>
+                  </ns0:author>
+                  <ns0:subject1>
+                    <ns0:adverseEffectReference>
+                      <ns0:id root="9c516dc1-f622-4de6-a6a9-3726a83ee611" extension="rx-2" />
+                    </ns0:adverseEffectReference>
+                  </ns0:subject1>
+                  <ns0:subject2>
+                    <ns0:productUseReference>
+                      <ns0:id root="9c516dc1-f622-4de6-a6a9-3726a83ee611" extension="drug-1" />
+                    </ns0:productUseReference>
+                  </ns0:subject2>
+                </ns0:causalityAssessment>
+              </ns0:component>
+              <ns0:component>
+                <ns0:causalityAssessment>
+                  <ns0:code code="39" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" />
+                  <ns0:value>Результат 2</ns0:value>
+                  <ns0:methodCode>
+                    <ns0:originalText>Метод источника 2</ns0:originalText>
+                  </ns0:methodCode>
+                  <ns0:author>
+                    <ns0:assignedEntity>
+                      <ns0:code>
+                        <ns0:originalText>Источник 2</ns0:originalText>
+                      </ns0:code>
+                    </ns0:assignedEntity>
+                  </ns0:author>
+                  <ns0:subject1>
+                    <ns0:adverseEffectReference>
+                      <ns0:id root="9c516dc1-f622-4de6-a6a9-3726a83ee611" extension="rx-2" />
+                    </ns0:adverseEffectReference>
+                  </ns0:subject1>
+                  <ns0:subject2>
+                    <ns0:productUseReference>
+                      <ns0:id root="9c516dc1-f622-4de6-a6a9-3726a83ee611" extension="drug-1" />
+                    </ns0:productUseReference>
+                  </ns0:subject2>
+                </ns0:causalityAssessment>
+              </ns0:component>
+              <ns0:component>
+                <ns0:causalityAssessment>
+                  <ns0:code code="20" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" />
+                  <ns0:value code="2" codeSystem="2.16.840.1.113883.3.989.2.1.1.13" codeSystemVersion="1.0" />
+                  <ns0:subject2>
+                    <ns0:productUseReference>
+                      <ns0:id root="9c516dc1-f622-4de6-a6a9-3726a83ee611" extension="drug-2" />
+                    </ns0:productUseReference>
+                  </ns0:subject2>
+                </ns0:causalityAssessment>
+              </ns0:component>
+              <ns0:component>
+                <ns0:causalityAssessment>
+                  <ns0:code code="39" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" />
+                  <ns0:value>Результат 1</ns0:value>
+                  <ns0:methodCode>
+                    <ns0:originalText>Метод источника 1</ns0:originalText>
+                  </ns0:methodCode>
+                  <ns0:author>
+                    <ns0:assignedEntity>
+                      <ns0:code>
+                        <ns0:originalText>Источник 1</ns0:originalText>
+                      </ns0:code>
+                    </ns0:assignedEntity>
+                  </ns0:author>
+                  <ns0:subject1>
+                    <ns0:adverseEffectReference>
+                      <ns0:id root="9c516dc1-f622-4de6-a6a9-3726a83ee611" extension="rx-1" />
+                    </ns0:adverseEffectReference>
+                  </ns0:subject1>
+                  <ns0:subject2>
+                    <ns0:productUseReference>
+                      <ns0:id root="9c516dc1-f622-4de6-a6a9-3726a83ee611" extension="drug-2" />
+                    </ns0:productUseReference>
+                  </ns0:subject2>
+                </ns0:causalityAssessment>
+              </ns0:component>
+            </ns0:adverseEventAssessment>
+          </ns0:component>
+          <ns0:outboundRelationship>
+            <ns0:priorityNumber value="1" />
+            <ns0:relatedInvestigation>
+              <ns0:code code="2" codeSystem="2.16.840.1.113883.3.989.2.1.1.22" />
+              <ns0:subjectOf2>
+                <ns0:controlActEvent>
+                  <ns0:author>
+                    <ns0:assignedEntity>
+                      <ns0:telecom value="tel:+0001" />
+                      <ns0:telecom value="mailto:synthetic1@example.invalid" />
+                      <ns0:assignedPerson>
+                        <ns0:name>
+                          <ns0:given>Source1</ns0:given>
+                          <ns0:family>Synthetic</ns0:family>
+                        </ns0:name>
+                        <ns0:asQualifiedEntity>
+                          <ns0:code code="1" codeSystem="2.16.840.1.113883.3.989.2.1.1.6" />
+                        </ns0:asQualifiedEntity>
+                      </ns0:assignedPerson>
+                    </ns0:assignedEntity>
+                  </ns0:author>
+                </ns0:controlActEvent>
+              </ns0:subjectOf2>
+            </ns0:relatedInvestigation>
+          </ns0:outboundRelationship>
+          <ns0:outboundRelationship>
+            <ns0:priorityNumber value="2" />
+            <ns0:relatedInvestigation>
+              <ns0:code code="2" codeSystem="2.16.840.1.113883.3.989.2.1.1.22" />
+              <ns0:subjectOf2>
+                <ns0:controlActEvent>
+                  <ns0:author>
+                    <ns0:assignedEntity>
+                      <ns0:telecom value="tel:+0002" />
+                      <ns0:telecom value="mailto:synthetic2@example.invalid" />
+                      <ns0:assignedPerson>
+                        <ns0:name>
+                          <ns0:given>Source2</ns0:given>
+                          <ns0:family>Synthetic</ns0:family>
+                        </ns0:name>
+                        <ns0:asQualifiedEntity>
+                          <ns0:code code="1" codeSystem="2.16.840.1.113883.3.989.2.1.1.6" />
+                        </ns0:asQualifiedEntity>
+                      </ns0:assignedPerson>
+                    </ns0:assignedEntity>
+                  </ns0:author>
+                </ns0:controlActEvent>
+              </ns0:subjectOf2>
+            </ns0:relatedInvestigation>
+          </ns0:outboundRelationship>
+          <ns0:subjectOf2>
+            <ns0:investigationCharacteristic>
+              <ns0:code code="1" codeSystem="2.16.840.1.113883.3.989.2.1.1.23" />
+              <ns0:value code="2" codeSystem="2.16.840.1.113883.3.989.2.1.1.2" />
+            </ns0:investigationCharacteristic>
+          </ns0:subjectOf2>
+          <ns0:reference>
+            <ns0:document>
+              <ns0:code code="2" codeSystem="2.16.840.1.113883.3.989.2.1.1.27" />
+              <ns0:bibliographicDesignationText>Synthetic citation 1</ns0:bibliographicDesignationText>
+            </ns0:document>
+          </ns0:reference>
+          <ns0:reference>
+            <ns0:document>
+              <ns0:code code="2" codeSystem="2.16.840.1.113883.3.989.2.1.1.27" />
+              <ns0:bibliographicDesignationText>Synthetic citation 2</ns0:bibliographicDesignationText>
+            </ns0:document>
+          </ns0:reference>
+          <ns0:reference>
+            <ns0:document>
+              <ns0:code code="1" codeSystem="2.16.840.1.113883.3.989.2.1.1.27" />
+              <ns0:title>Synthetic document</ns0:title>
+              <ns0:text representation="B64" mediaType="application/pdf" filename="syn.pdf">JVBERi0xLjQgc3ludGhldGljIGNsaW5pY2FsIGRvY3VtZW50LCBub3QgcmVhbA==</ns0:text>
+            </ns0:document>
+          </ns0:reference>
+        </ns0:investigationEvent>
+      </ns0:subject>
+    </ns0:controlActProcess>
+  </ns0:PORR_IN049016UV>
+</ns0:MCCI_IN200100UV01>

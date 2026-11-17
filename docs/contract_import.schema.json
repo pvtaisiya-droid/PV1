@@ -1,0 +1,924 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pv1.local/schemas/contract_import.schema.json",
+  "title": "PV1 Contract Import",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_name", "schema_version", "contract", "partner"],
+  "properties": {
+    "schema_name": {
+      "const": "pv_contract_import"
+    },
+    "schema_version": {
+      "const": "1.0"
+    },
+    "source_document": {
+      "$ref": "#/$defs/source_document"
+    },
+    "import_policy": {
+      "$ref": "#/$defs/import_policy"
+    },
+    "partner": {
+      "$ref": "#/$defs/partner"
+    },
+    "contract": {
+      "$ref": "#/$defs/contract"
+    },
+    "contacts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/contact"
+      },
+      "default": []
+    },
+    "products": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/product"
+      },
+      "default": []
+    },
+    "services": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/service"
+      },
+      "default": []
+    },
+    "manual_review": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/manual_review_item"
+      },
+      "default": []
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "default": []
+    }
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "page": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "clause": {
+          "type": ["string", "null"],
+          "maxLength": 100
+        },
+        "quote": {
+          "type": ["string", "null"],
+          "maxLength": 2000
+        },
+        "confidence": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "requires_manual_review": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "string_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value"],
+      "properties": {
+        "value": {
+          "type": ["string", "null"],
+          "maxLength": 2000
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        }
+      }
+    },
+    "short_string_source": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/string_source"
+        },
+        {
+          "properties": {
+            "value": {
+              "type": ["string", "null"],
+              "maxLength": 255
+            }
+          }
+        }
+      ]
+    },
+    "date_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value"],
+      "properties": {
+        "value": {
+          "type": ["string", "null"],
+          "format": "date"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        }
+      }
+    },
+    "boolean_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value"],
+      "properties": {
+        "value": {
+          "type": ["boolean", "null"]
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        }
+      }
+    },
+    "number_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value"],
+      "properties": {
+        "value": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        }
+      }
+    },
+    "code_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value"],
+      "properties": {
+        "value": {
+          "type": ["string", "null"],
+          "maxLength": 100
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        }
+      }
+    },
+    "operation": {
+      "enum": ["create", "update", "link", "skip", "manual_review"]
+    },
+    "partner_type": {
+      "enum": ["fn", "registration_in_progress", "archive"]
+    },
+    "contract_type": {
+      "enum": ["pharmacovigilance_agreement", "additional_agreement"]
+    },
+    "reconciliation_frequency": {
+      "enum": ["monthly", "quarterly", "not_conducted"]
+    },
+    "contact_type": {
+      "enum": [
+        "pv",
+        "quality",
+        "regulatory",
+        "medical_information",
+        "manufacturing_site",
+        "logistics_supply",
+        "legal_contracts",
+        "management",
+        "administrative",
+        "accounting",
+        "other"
+      ]
+    },
+    "contact_status": {
+      "enum": ["current", "inactive"]
+    },
+    "reconciliation_participation": {
+      "enum": ["primary", "cc", "none"]
+    },
+    "product_authorization_status": {
+      "enum": ["registration_active", "registration_in_progress", "ma_change", "active", "inactive", "authorized"]
+    },
+    "registration_status": {
+      "enum": ["active", "registration_active", "registration_in_progress", "suspended", "cancelled", "replaced", "archived", "inactive"]
+    },
+    "partner_role": {
+      "enum": ["mah", "local_representative", "pv_service_provider", "manufacturer", "distributor", "applicant", "other"]
+    },
+    "currency": {
+      "enum": ["RUB", "USD", "EUR", "GBP", "CHF", "CNY"]
+    },
+    "unit": {
+      "enum": ["service", "message", "search", "report", "document", "reconciliation", "request", "hour", "month", "quarter", "year", "other"]
+    },
+    "accounting_service_code": {
+      "enum": [
+        "post_registration_pv",
+        "spontaneous_message_collection",
+        "message_validation_medical_assessment",
+        "expedited_reporting",
+        "literature_safety_screening",
+        "psur_preparation_submission",
+        "rmp_preparation",
+        "psmf_maintenance",
+        "partner_message_reconciliation",
+        "regulator_request_response",
+        "other"
+      ]
+    },
+    "obligation_type": {
+      "enum": [
+        "icsr_collection",
+        "icsr_validation",
+        "expedited_reporting",
+        "literature_monitoring",
+        "psur_pbrer",
+        "rmp",
+        "psmf",
+        "signal_management",
+        "training",
+        "audit",
+        "capa",
+        "regulatory_request",
+        "reconciliation",
+        "other"
+      ]
+    },
+    "responsible_party": {
+      "enum": ["our_company", "partner", "both", "mah", "local_representative", "third_party", "unspecified"]
+    },
+    "message_type": {
+      "enum": ["serious_icsr", "non_serious_icsr", "pregnancy", "literature_case", "product_quality_complaint", "medical_information", "regulatory_request", "aggregate_report", "other"]
+    },
+    "manual_review_category": {
+      "enum": [
+        "ambiguous_term",
+        "unmapped_field",
+        "conflicting_deadline",
+        "multiple_responsible_parties",
+        "unrecognized_product",
+        "unrecognized_service",
+        "missing_required_data",
+        "missing_attachment",
+        "depends_on_additional_agreement",
+        "currency_not_supported",
+        "other"
+      ]
+    },
+    "source_document": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "file_name": {
+          "type": ["string", "null"],
+          "maxLength": 255
+        },
+        "document_title": {
+          "type": ["string", "null"],
+          "maxLength": 255
+        },
+        "document_date": {
+          "$ref": "#/$defs/date_source"
+        },
+        "checksum_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[A-Fa-f0-9]{64}$"
+        },
+        "language": {
+          "enum": ["ru", "en", "mixed", null]
+        }
+      }
+    },
+    "import_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allow_create": {
+          "type": "boolean",
+          "default": false
+        },
+        "allow_update": {
+          "type": "boolean",
+          "default": false
+        },
+        "requested_operations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/operation_request"
+          },
+          "default": []
+        }
+      }
+    },
+    "operation_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entity", "operation"],
+      "properties": {
+        "entity": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "business_key": {
+          "type": "object",
+          "additionalProperties": {
+            "type": ["string", "number", "boolean", "null"]
+          }
+        },
+        "operation": {
+          "$ref": "#/$defs/operation"
+        },
+        "reason": {
+          "type": ["string", "null"],
+          "maxLength": 1000
+        }
+      }
+    },
+    "partner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["partner_name"],
+      "properties": {
+        "requested_operation": {
+          "$ref": "#/$defs/operation"
+        },
+        "partner_code": {
+          "$ref": "#/$defs/short_string_source"
+        },
+        "partner_name": {
+          "$ref": "#/$defs/short_string_source"
+        },
+        "partner_type": {
+          "$ref": "#/$defs/partner_type",
+          "default": "fn"
+        },
+        "address": {
+          "$ref": "#/$defs/short_string_source"
+        },
+        "reconciliation_frequency": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/code_source"
+            },
+            {
+              "properties": {
+                "value": {
+                  "$ref": "#/$defs/reconciliation_frequency"
+                }
+              }
+            }
+          ]
+        },
+        "accounting": {
+          "$ref": "#/$defs/partner_accounting"
+        }
+      }
+    },
+    "partner_accounting": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "legal_entity_name": {
+          "$ref": "#/$defs/short_string_source"
+        },
+        "inn": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/short_string_source"
+            },
+            {
+              "properties": {
+                "value": {
+                  "type": ["string", "null"],
+                  "pattern": "^\\d{10}|\\d{12}$"
+                }
+              }
+            }
+          ]
+        },
+        "kpp": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/short_string_source"
+            },
+            {
+              "properties": {
+                "value": {
+                  "type": ["string", "null"],
+                  "pattern": "^\\d{9}$"
+                }
+              }
+            }
+          ]
+        },
+        "billing_contact_name": {
+          "type": ["string", "null"],
+          "maxLength": 255
+        },
+        "billing_email": {
+          "type": ["string", "null"],
+          "format": "email",
+          "maxLength": 255
+        },
+        "comment": {
+          "type": ["string", "null"],
+          "maxLength": 2000
+        }
+      }
+    },
+    "contract_lookup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract_number"],
+      "properties": {
+        "contract_number": {
+          "$ref": "#/$defs/short_string_source"
+        },
+        "contract_date": {
+          "$ref": "#/$defs/date_source"
+        },
+        "partner_name": {
+          "$ref": "#/$defs/short_string_source"
+        }
+      }
+    },
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract_type", "contract_number", "contract_date", "valid_until"],
+      "properties": {
+        "requested_operation": {
+          "$ref": "#/$defs/operation"
+        },
+        "contract_type": {
+          "$ref": "#/$defs/contract_type"
+        },
+        "contract_number": {
+          "$ref": "#/$defs/short_string_source"
+        },
+        "contract_date": {
+          "$ref": "#/$defs/date_source"
+        },
+        "valid_until": {
+          "$ref": "#/$defs/date_source"
+        },
+        "parent_contract": {
+          "$ref": "#/$defs/contract_lookup"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "contract_type": {
+                "const": "additional_agreement"
+              }
+            }
+          },
+          "then": {
+            "required": ["parent_contract"]
+          }
+        }
+      ]
+    },
+    "party": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role_code", "partner_name"],
+      "properties": {
+        "role_code": {
+          "$ref": "#/$defs/partner_role"
+        },
+        "partner_name": {
+          "$ref": "#/$defs/short_string_source"
+        },
+        "legal_entity_name": {
+          "$ref": "#/$defs/short_string_source"
+        },
+        "inn": {
+          "$ref": "#/$defs/short_string_source"
+        },
+        "registration_number": {
+          "$ref": "#/$defs/short_string_source"
+        },
+        "address": {
+          "$ref": "#/$defs/string_source"
+        },
+        "is_primary_partner": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "contact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contact_type", "last_name", "first_name", "position"],
+      "properties": {
+        "requested_operation": {
+          "$ref": "#/$defs/operation"
+        },
+        "contact_type": {
+          "$ref": "#/$defs/contact_type"
+        },
+        "last_name": {
+          "$ref": "#/$defs/short_string_source"
+        },
+        "first_name": {
+          "$ref": "#/$defs/short_string_source"
+        },
+        "patronymic": {
+          "$ref": "#/$defs/short_string_source"
+        },
+        "email": {
+          "$ref": "#/$defs/short_string_source"
+        },
+        "position": {
+          "$ref": "#/$defs/short_string_source"
+        },
+        "phones": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mobile": {
+              "$ref": "#/$defs/short_string_source"
+            },
+            "work": {
+              "$ref": "#/$defs/short_string_source"
+            },
+            "extension": {
+              "$ref": "#/$defs/short_string_source"
+            }
+          }
+        },
+        "company_website": {
+          "type": ["string", "null"],
+          "maxLength": 255
+        },
+        "address": {
+          "$ref": "#/$defs/string_source"
+        },
+        "contact_status": {
+          "$ref": "#/$defs/contact_status",
+          "default": "current"
+        },
+        "is_current": {
+          "type": "boolean",
+          "default": true
+        },
+        "reconciliation_participation": {
+          "$ref": "#/$defs/reconciliation_participation",
+          "default": "primary"
+        },
+        "comments": {
+          "type": ["string", "null"],
+          "maxLength": 2000
+        }
+      }
+    },
+    "product": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["import_key", "product_name"],
+      "properties": {
+        "requested_operation": {
+          "$ref": "#/$defs/operation"
+        },
+        "import_key": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]+$",
+          "maxLength": 100
+        },
+        "product_name": {
+          "$ref": "#/$defs/short_string_source"
+        },
+        "dosage_form": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "properties": {
+            "reference_code": {"type": ["string", "null"], "maxLength": 100},
+            "name_ru": {"$ref": "#/$defs/short_string_source"},
+            "name_en": {"$ref": "#/$defs/short_string_source"},
+            "group_ru": {"$ref": "#/$defs/short_string_source"},
+            "group_en": {"$ref": "#/$defs/short_string_source"},
+            "add_new": {"type": "boolean", "default": false}
+          }
+        },
+        "strength": {
+          "$ref": "#/$defs/short_string_source"
+        },
+        "comment": {
+          "type": ["string", "null"],
+          "maxLength": 2000
+        },
+        "active_substances": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/substance"
+          },
+          "default": []
+        }
+      }
+    },
+    "substance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name_ru"],
+      "properties": {
+        "reference_name": {
+          "type": ["string", "null"],
+          "maxLength": 255
+        },
+        "name_ru": {
+          "$ref": "#/$defs/short_string_source"
+        },
+        "name_en": {
+          "$ref": "#/$defs/short_string_source"
+        },
+        "atc_code": {
+          "type": ["string", "null"],
+          "maxLength": 50
+        },
+        "add_new": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "registration_certificate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["registration_number"],
+      "properties": {
+        "requested_operation": {
+          "$ref": "#/$defs/operation"
+        },
+        "registration_number": {
+          "$ref": "#/$defs/short_string_source"
+        },
+        "registration_date": {
+          "$ref": "#/$defs/date_source"
+        },
+        "valid_until": {
+          "$ref": "#/$defs/date_source"
+        },
+        "status": {
+          "$ref": "#/$defs/registration_status",
+          "default": "active"
+        },
+        "holder": {
+          "$ref": "#/$defs/short_string_source"
+        },
+        "country_code": {
+          "type": ["string", "null"],
+          "pattern": "^[A-Z]{2}$"
+        },
+        "dosage_form": {
+          "$ref": "#/$defs/short_string_source"
+        },
+        "strength": {
+          "$ref": "#/$defs/short_string_source"
+        },
+        "comment": {
+          "type": ["string", "null"],
+          "maxLength": 2000
+        }
+      }
+    },
+    "product_link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["product_key", "partner_role"],
+      "properties": {
+        "requested_operation": {
+          "$ref": "#/$defs/operation"
+        },
+        "product_key": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "registration_number": {
+          "type": ["string", "null"],
+          "maxLength": 100
+        },
+        "partner_role": {
+          "$ref": "#/$defs/partner_role"
+        },
+        "comment": {
+          "type": ["string", "null"],
+          "maxLength": 2000
+        }
+      }
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["service_code", "unit", "price"],
+      "properties": {
+        "requested_operation": {
+          "$ref": "#/$defs/operation"
+        },
+        "service_code": {
+          "$ref": "#/$defs/accounting_service_code"
+        },
+        "contract_number": {
+          "$ref": "#/$defs/short_string_source"
+        },
+        "unit": {
+          "$ref": "#/$defs/unit"
+        },
+        "price": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["amount"],
+          "properties": {
+            "amount": {
+              "$ref": "#/$defs/number_source"
+            }
+          }
+        },
+        "comment": {
+          "$ref": "#/$defs/string_source"
+        }
+      }
+    },
+    "pv_obligation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["obligation_type", "responsible_party", "description"],
+      "properties": {
+        "obligation_type": {
+          "$ref": "#/$defs/obligation_type"
+        },
+        "responsible_party": {
+          "$ref": "#/$defs/responsible_party"
+        },
+        "description": {
+          "$ref": "#/$defs/string_source"
+        },
+        "due_rule": {
+          "$ref": "#/$defs/string_source"
+        },
+        "requested_operation": {
+          "const": "manual_review"
+        }
+      }
+    },
+    "message_transfer_term": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message_type", "deadline"],
+      "properties": {
+        "message_type": {
+          "$ref": "#/$defs/message_type"
+        },
+        "responsible_party": {
+          "$ref": "#/$defs/responsible_party"
+        },
+        "deadline": {
+          "$ref": "#/$defs/short_string_source"
+        },
+        "business_day_rule": {
+          "$ref": "#/$defs/string_source"
+        },
+        "requested_operation": {
+          "const": "manual_review"
+        }
+      }
+    },
+    "reconciliation_settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "frequency": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/code_source"
+            },
+            {
+              "properties": {
+                "value": {
+                  "$ref": "#/$defs/reconciliation_frequency"
+                }
+              }
+            }
+          ]
+        },
+        "method": {
+          "$ref": "#/$defs/string_source"
+        },
+        "contact_email": {
+          "type": ["string", "null"],
+          "format": "email",
+          "maxLength": 255
+        },
+        "requested_operation": {
+          "$ref": "#/$defs/operation"
+        }
+      }
+    },
+    "additional_agreement": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/contract"
+        },
+        {
+          "properties": {
+            "contract_type": {
+              "const": "additional_agreement"
+            }
+          }
+        }
+      ]
+    },
+    "document": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file_name"],
+      "properties": {
+        "requested_operation": {
+          "$ref": "#/$defs/operation"
+        },
+        "file_name": {
+          "type": "string",
+          "maxLength": 255
+        },
+        "document_title": {
+          "type": ["string", "null"],
+          "maxLength": 255
+        },
+        "document_type": {
+          "type": ["string", "null"],
+          "maxLength": 100
+        },
+        "document_date": {
+          "$ref": "#/$defs/date_source"
+        },
+        "status": {
+          "enum": ["draft", "under_review", "active", "archived", "imported", "obsolete", null]
+        },
+        "checksum_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[A-Fa-f0-9]{64}$"
+        },
+        "related_to": {
+          "enum": ["partner", "product", "registration_certificate", "contract_import", "other", null]
+        },
+        "product_key": {
+          "type": ["string", "null"],
+          "maxLength": 100
+        },
+        "registration_number": {
+          "type": ["string", "null"],
+          "maxLength": 100
+        },
+        "comment": {
+          "type": ["string", "null"],
+          "maxLength": 2000
+        }
+      }
+    },
+    "manual_review_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category", "description", "recommended_action"],
+      "properties": {
+        "category": {
+          "$ref": "#/$defs/manual_review_category"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "possible_values": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "default": []
+        },
+        "recommended_action": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        }
+      }
+    }
+  }
+}

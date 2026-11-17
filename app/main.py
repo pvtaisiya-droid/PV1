@@ -7,15 +7,24 @@ from app.auth import access_middleware
 from app.config import get_settings
 from app.database import init_db
 from app.i18n import language_middleware
+from app.security import RequestSizeLimitMiddleware
+from sqlalchemy.orm.exc import StaleDataError
+from sqlalchemy.exc import IntegrityError
+from fastapi.responses import JSONResponse
 from app.routers import (
+    accounting_data,
+    authentication,
     cases,
     contract_contacts,
+    contract_imports,
     contracts,
     dashboard,
+    dosage_forms,
     incoming_requests,
     literature_monitoring,
     partners,
     partner_reconciliation,
+    partner_onboarding,
     placeholders,
     products,
     psmf,
@@ -34,14 +43,16 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
-    yield
+    from app.local_runtime import runtime_guard
+    with runtime_guard():
+        init_db()
+        yield
 
 
 app = FastAPI(
-    title="Pharmacovigilance MVP",
-    description="SQLite + FastAPI MVP for pharmacovigilance workflows.",
-    version="0.1.0",
+    title="Pharmacovigilance System",
+    description="Internal pharmacovigilance workflow system.",
+    version="1.0.0",
     lifespan=lifespan,
     docs_url=None if settings.is_prod else "/docs",
     redoc_url=None if settings.is_prod else "/redoc",
@@ -50,14 +61,41 @@ app = FastAPI(
 
 app.middleware("http")(language_middleware)
 app.middleware("http")(access_middleware)
+app.add_middleware(RequestSizeLimitMiddleware)
+
+
+@app.exception_handler(StaleDataError)
+async def concurrent_update_error(request, exc):
+    return JSONResponse(
+        {"detail": "Запись уже изменена другим пользователем. Обновите страницу и повторите действие."},
+        status_code=409,
+    )
+
+
+@app.exception_handler(IntegrityError)
+async def invalid_reference_error(request, exc):
+    return JSONResponse({"detail": "Нарушена связь или уникальность записи. Проверьте выбранные данные."}, status_code=422)
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
+app.include_router(authentication.router)
 app.include_router(dashboard.router)
 app.include_router(safety_reports.router)
 app.include_router(cases.router)
+from app.routers import drug_blocks
+app.include_router(drug_blocks.router)
+from app.routers import clinical
+app.include_router(clinical.router)
+from app.routers import r3_exports
+app.include_router(r3_exports.router)
+from app.routers import as2
+app.include_router(as2.router)
+from app.routers import operations
+app.include_router(operations.router)
 app.include_router(partners.router)
+app.include_router(partner_onboarding.router)
 app.include_router(partner_reconciliation.router)
+app.include_router(accounting_data.router)
 app.include_router(incoming_requests.router)
 app.include_router(literature_monitoring.router)
 app.include_router(tasks.router)
@@ -65,8 +103,10 @@ app.include_router(sops.router)
 app.include_router(psur.router)
 app.include_router(psmf.router)
 app.include_router(products.router)
+app.include_router(dosage_forms.router)
 app.include_router(substances.router)
 app.include_router(contracts.router)
+app.include_router(contract_imports.router)
 app.include_router(contract_contacts.router)
 app.include_router(submissions.router)
 app.include_router(users_roles.router)

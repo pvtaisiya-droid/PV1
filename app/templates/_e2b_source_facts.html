@@ -1,0 +1,35 @@
+{% macro e2b_source_facts(facts) %}
+{% if facts %}
+<section class="surface mb-4">
+  <h2 class="h6 section-title">Источник идентификаторов и дат E2B</h2>
+  <p class="small text-secondary">Исходные сведения XML сохранены отдельно от регистрации в PV1. Они не подтверждают соответствие профилю РЗН.</p>
+  {% for fact in facts %}
+  <details class="mb-3" {% if loop.first %}open{% endif %}>
+    <summary>Источник импорта {{ loop.index }} · регистрация в PV1: {{ fact.registered_at or 'не установлена' }}</summary>
+    <div class="small text-break">Пакет PV1: <a href="/safety-reports/e2b-imports/{{ fact.import_batch_id }}">{{ fact.import_batch_id }}</a>; файл: {{ fact.import_item_id }}; SHA-256: {{ fact.checksum_sha256 }}</div>
+    {% if fact.interpretation == 'legacy_unverified' %}
+    <p class="alert alert-warning py-2">Историческая интерпретация не проверена. Значения не переставлялись и даты не восстанавливались.</p>
+    {% endif %}
+    <div class="table-responsive"><table class="table table-sm">
+      <thead><tr><th>Назначение</th><th>Исходное значение</th><th>Состояние / пространство</th></tr></thead>
+      <tbody>
+      {% for key, label in [('batch','N.1.2 — пакет E2B'),('message','N.2.r.1 — сообщение'),('sender','N.2.r.2 — отправитель'),('receiver','N.2.r.3 — получатель'),('local','C.1.1 — случай у отправителя'),('worldwide','C.1.8.1 — worldwide ID')] %}
+        {% set identifier = fact.identifiers.get(key, {}) %}
+        <tr><td>{{ label }}</td><td class="text-break">{{ identifier.value if identifier.value is not none else 'не установлено' }}</td><td class="text-break">{{ identifier.state or 'не проверено' }}; root={{ identifier.root or identifier.expected_root or 'не установлен' }}
+          {% if identifier.candidates %}<details><summary>Исходные атрибуты ID</summary>{% for candidate in identifier.candidates %}<div>{{ candidate }}</div>{% endfor %}</details>{% endif %}
+        </td></tr>
+      {% endfor %}
+      {% for key, label in [('first_received_date','C.1.4 — первое получение из источника'),('latest_received_date','C.1.5 — наиболее свежая информация')] %}
+        {% set dt = fact.dates.get(key) or {} %}
+        <tr><td>{{ label }}</td><td>{{ dt.raw if dt.raw is not none else 'значение отсутствует' }}</td><td>{{ dt.state or 'историческое значение' }}; точность={{ dt.precision or 'не установлена' }}; nullFlavor={{ dt.null_flavor or 'не передан' }}; пояс={{ dt.timezone or 'не передан' }}; разобрано={{ dt.parsed or dt.value or 'нет' }}
+          {% if dt.candidates %}<details><summary>Исходные атрибуты даты</summary>{{ dt.candidates }}</details>{% endif %}
+        </td></tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% for warning in fact.warnings %}<p class="small text-warning">{{ warning.message }}</p>{% endfor %}
+  </details>
+  {% endfor %}
+</section>
+{% endif %}
+{% endmacro %}

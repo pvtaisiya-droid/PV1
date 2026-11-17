@@ -1,0 +1,266 @@
+{% extends "base.html" %}
+{% block title %}Данные для бухгалтерии - {{ _('PV System') }}{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+        <h1 class="h3 mb-1">Данные для бухгалтерии</h1>
+        <div class="text-secondary small">{{ periods|length }} {{ _('records') }}</div>
+    </div>
+    <a class="btn btn-outline-secondary btn-sm icon-button" href="/accounting-data"><i data-lucide="x"></i><span>{{ _('Clear search') }}</span></a>
+</div>
+
+{% if message %}<div class="alert alert-success py-2" role="status">{{ message }}</div>{% endif %}
+{% if error %}<div class="alert alert-danger py-2" role="alert">{{ error }}</div>{% endif %}
+{% if validation %}<div class="alert alert-warning py-2" role="alert">{{ validation }}</div>{% endif %}
+
+{% if has_permission('export') %}
+<section class="surface mb-4" aria-labelledby="activity-report-title">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+        <div>
+            <div class="text-secondary small mb-1">Автоматическая выгрузка из рабочих реестров</div>
+            <h2 class="h5 mb-1" id="activity-report-title">Отчёт по оказанным услугам</h2>
+            <p class="text-secondary small mb-0">Таблицы формируются по образцу бухгалтерских списков: ИСНР, ПООБ и текущая активность.</p>
+        </div>
+        <a class="btn btn-outline-secondary btn-sm icon-button" href="/submissions">
+            <i data-lucide="send"></i><span>Проверить журнал подач</span>
+        </a>
+    </div>
+
+    <form class="row g-3" method="get" action="/accounting-data/activity-export" id="accountingActivityExportForm">
+        <div class="col-xl-4 col-lg-5">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                <label class="form-label mb-0" for="activityDateFrom">Период отчёта</label>
+                <div class="btn-group btn-group-sm" role="group" aria-label="Быстрый выбор периода">
+                    <button
+                        class="btn btn-outline-secondary js-accounting-period"
+                        type="button"
+                        data-date-from="{{ activity_previous_date_from }}"
+                        data-date-to="{{ activity_previous_date_to }}"
+                    >Предыдущий квартал</button>
+                    <button
+                        class="btn btn-outline-secondary js-accounting-period"
+                        type="button"
+                        data-date-from="{{ activity_current_date_from }}"
+                        data-date-to="{{ activity_current_date_to }}"
+                    >Текущий по сегодня</button>
+                </div>
+            </div>
+            <div class="row g-2">
+                <div class="col-6">
+                    <label class="form-label small" for="activityDateFrom">С</label>
+                    <input class="form-control" id="activityDateFrom" type="date" name="date_from" value="{{ activity_default_date_from }}" required>
+                </div>
+                <div class="col-6">
+                    <label class="form-label small" for="activityDateTo">По</label>
+                    <input class="form-control" id="activityDateTo" type="date" name="date_to" value="{{ activity_default_date_to }}" required>
+                </div>
+            </div>
+        </div>
+
+        <fieldset class="col-xl-6 col-lg-7">
+            <legend class="form-label">Услуги для включения</legend>
+            <div class="row g-2">
+                {% for service in activity_services %}
+                <div class="col-md-6 {% if loop.last and activity_services|length is odd %}col-xl-12{% endif %}">
+                    <label class="border rounded-3 p-3 d-flex gap-2 h-100 bg-body-tertiary" for="activityService{{ loop.index }}">
+                        <input class="form-check-input mt-1" id="activityService{{ loop.index }}" type="checkbox" name="service" value="{{ service.code }}" checked>
+                        <span>
+                            <span class="d-block fw-semibold">{{ service.label }}</span>
+                            <span class="d-block text-secondary small">{{ service.description }}</span>
+                        </span>
+                    </label>
+                </div>
+                {% endfor %}
+            </div>
+        </fieldset>
+
+        <div class="col-xl-2 d-flex flex-column justify-content-end">
+            <button class="btn btn-primary icon-button" type="submit">
+                <i data-lucide="file-spreadsheet"></i><span>Скачать Excel</span>
+            </button>
+            <div class="form-text mt-2">Если данных нет, выбранный раздел останется в файле с соответствующей пометкой.</div>
+        </div>
+    </form>
+</section>
+
+<script>
+document.querySelectorAll('.js-accounting-period').forEach((button) => {
+    button.addEventListener('click', () => {
+        document.getElementById('activityDateFrom').value = button.dataset.dateFrom;
+        document.getElementById('activityDateTo').value = button.dataset.dateTo;
+    });
+});
+</script>
+{% endif %}
+
+<section class="surface mb-4">
+    <h2 class="h6 section-title">Поиск</h2>
+    <form class="row g-3 align-items-end" method="get" action="/accounting-data">
+        <div class="col-md-3">
+            <label class="form-label">Партнер</label>
+            <select class="form-select" name="partner_id">
+                <option value="">Все</option>
+                {% for partner in partners %}
+                <option value="{{ partner.id }}" {% if filters.partner_id == partner.id %}selected{% endif %}>{{ partner.partner_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Договор</label>
+            <select class="form-select" name="contract_id" data-version-field="expected_contract_version">
+                <option value="">Все</option>
+                {% for contract in contracts %}
+                <option data-version="{{ contract.version }}" value="{{ contract.id }}" {% if filters.contract_id == contract.id %}selected{% endif %}>{{ contract.contract_number }} - {{ contract.partner.partner_name if contract.partner else "" }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-1">
+            <label class="form-label">Год</label>
+            <input class="form-control" type="number" name="year" min="2020" max="2100" value="{{ filters.year }}" placeholder="{{ current_year }}">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">Квартал</label>
+            <select class="form-select" name="quarter">
+                <option value="">Все</option>
+                {% for quarter in [1, 2, 3, 4] %}
+                <option value="{{ quarter }}" {% if filters.quarter == quarter|string %}selected{% endif %}>{{ quarter }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Статус</label>
+            <select class="form-select" name="status">
+                <option value="">Все</option>
+                {% for code, label in statuses.items() %}
+                <option value="{{ code }}" {% if filters.status == code %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Ответственный</label>
+            <select class="form-select" name="responsible_user_id">
+                <option value="">Все</option>
+                {% for user in users %}
+                <option value="{{ user.id }}" {% if filters.responsible_user_id == user.id %}selected{% endif %}>{{ user.full_name or user.email }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-3 d-flex gap-2">
+            <button class="btn btn-primary icon-button" type="submit"><i data-lucide="search"></i><span>Поиск</span></button>
+            <a class="btn btn-outline-secondary icon-button" href="/accounting-data"><i data-lucide="x"></i><span>{{ _('Clear search') }}</span></a>
+        </div>
+    </form>
+</section>
+
+{% if has_permission('create') or has_permission('manage_reference_data') %}
+<section class="surface mb-4">
+    <h2 class="h6 section-title">Создать расшифровку</h2>
+    <form class="row g-3 align-items-end" method="post" action="/accounting-data">
+        <div class="col-md-3">
+            <label class="form-label">Партнер</label>
+            <select class="form-select" name="partner_id" required>
+                <option value="" disabled selected>Выберите партнера</option>
+                {% for partner in partners %}
+                <option value="{{ partner.id }}">{{ partner.partner_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Договор</label>
+            <select class="form-select" name="contract_id" required data-version-field="expected_contract_version">
+                <option value="" disabled selected>Выберите договор</option>
+                {% for contract in contracts %}
+                <option data-version="{{ contract.version }}" value="{{ contract.id }}">{{ contract.contract_number }} - {{ contract.partner.partner_name if contract.partner else "" }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-1">
+            <label class="form-label">Год</label>
+            <input class="form-control" type="number" name="year" min="2020" max="2100" value="{{ current_year }}" required>
+            <div class="form-text">Укажите год периода расшифровки.</div>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">Квартал</label>
+            <select class="form-select" name="quarter" required>
+                {% for quarter in [1, 2, 3, 4] %}
+                <option value="{{ quarter }}">{{ quarter }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Ответственный</label>
+            <select class="form-select" name="responsible_user_id">
+                <option value="">Не выбран</option>
+                {% for user in users %}
+                <option value="{{ user.id }}">{{ user.full_name or user.email }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-6">
+            <label class="form-label">Комментарий</label>
+            <input class="form-control" name="comment">
+        </div>
+        <div class="col-md-3">
+            <button class="btn btn-primary icon-button" type="submit"><i data-lucide="plus"></i><span>Создать расшифровку</span></button>
+        </div>
+    </form>
+</section>
+{% endif %}
+
+<section class="surface">
+    <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
+        <h2 class="h6 section-title mb-0">Общий реестр</h2>
+        {% if has_permission('export') %}
+        <a class="btn btn-outline-primary btn-sm icon-button" href="/accounting-data/export"><i data-lucide="file-spreadsheet"></i><span>Экспорт в Excel</span></a>
+        {% endif %}
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead>
+            <tr>
+                <th>Год</th>
+                <th>Квартал</th>
+                <th>Партнер</th>
+                <th>Договор</th>
+                <th>Количество услуг</th>
+                <th>Сумма по договору</th>
+                <th>Статус</th>
+                <th>Дата подготовки</th>
+                <th>Ответственный</th>
+                <th>Действия</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for period in periods %}
+            <tr>
+                <td>{{ period.year }}</td>
+                <td>{{ period.quarter }}</td>
+                <td>{{ period.partner.partner_name if period.partner else "" }}</td>
+                <td>{{ period.contract.contract_number if period.contract else "" }}</td>
+                <td>{{ period.lines|rejectattr('is_deleted')|list|length }}</td>
+                <td>{{ "%.2f"|format(period.total_contract_amount or 0) }}</td>
+                <td><span class="status-pill">{{ statuses.get(period.status, period.status) }}</span></td>
+                <td>{{ period.prepared_at or period.created_at }}</td>
+                <td>{{ period.responsible_user.full_name if period.responsible_user else "" }}</td>
+                <td>
+                    <div class="d-flex flex-wrap gap-1">
+                        <a class="btn btn-outline-primary btn-sm icon-button" href="/accounting-data/{{ period.id }}"><i data-lucide="eye"></i><span>Открыть</span></a>
+                        {% if has_permission('export') %}
+                        <a class="btn btn-outline-secondary btn-sm icon-button" href="/accounting-data/{{ period.id }}/export"><i data-lucide="file-spreadsheet"></i><span>Excel</span></a>
+                        {% endif %}
+                        <form method="post" action="/accounting-data/{{ period.id }}/status">
+                            <input type="hidden" name="status" value="sent_to_accounting">
+                        <button class="btn btn-outline-success btn-sm icon-button" type="submit"><i data-lucide="send"></i><span>Отметить переданной</span></button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="10" class="empty-state-cell"><div class="empty-state text-secondary"><i data-lucide="file-spreadsheet"></i><span>Расшифровок пока нет. Создайте первую расшифровку выше.</span></div></td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

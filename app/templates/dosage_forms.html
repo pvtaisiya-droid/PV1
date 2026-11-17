@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}{{ _('Dosage forms') }} - {{ _('PV System') }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h1 class="h3 mb-1">{{ _('Dosage forms') }}</h1>
+        <div class="text-secondary small">{{ dosage_forms|length }} {{ _('records') }}</div>
+    </div>
+</div>
+
+{% if message %}
+<div class="alert alert-success py-2" role="status">{{ _(message) }}</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-danger py-2" role="alert">{{ _(error) }}</div>
+{% endif %}
+{% if validation %}
+<div class="alert alert-warning py-2" role="alert">{{ _(validation) }}</div>
+{% endif %}
+
+{% if has_permission('create') or has_permission('manage_reference_data') %}
+<section class="surface mb-4">
+    <h2 class="h6 section-title">{{ _('Add dosage form') }}</h2>
+    <form class="row g-3" method="post" action="/dosage-forms">
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Dosage form RU') }}</label>
+            <input class="form-control" name="name_ru" placeholder="{{ _('Dosage form RU') }}" required>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">{{ _('Dosage form EN') }}</label>
+            <input class="form-control" name="name_en" placeholder="{{ _('Dosage form EN') }}">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Group RU') }}</label>
+            <input class="form-control" name="group_ru">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">{{ _('Group EN') }}</label>
+            <input class="form-control" name="group_en">
+        </div>
+        <div class="col-md-1 d-flex align-items-end">
+            <button class="btn btn-primary w-100 icon-button" type="submit"><i data-lucide="plus"></i><span>{{ _('Add dosage form') }}</span></button>
+        </div>
+    </form>
+</section>
+{% endif %}
+
+<section class="surface">
+    <h2 class="h6 section-title">{{ _('Dosage form list') }}</h2>
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead>
+            <tr>
+                <th>{{ _('Dosage form RU') }}</th>
+                <th>{{ _('Dosage form EN') }}</th>
+                <th>{{ _('Group RU') }}</th>
+                <th>{{ _('Group EN') }}</th>
+                <th>{{ _('Active?') }}</th>
+                <th>{{ _('Actions') }}</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for dosage_form in dosage_forms %}
+            <tr>
+                <td class="fw-medium">{{ dosage_form.name_ru }}</td>
+                <td>{{ dosage_form.name_en or "" }}</td>
+                <td>{{ dosage_form.group_ru or "" }}</td>
+                <td>{{ dosage_form.group_en or "" }}</td>
+                <td>{% if dosage_form.is_active %}<span class="badge text-bg-success">{{ _('Yes') }}</span>{% else %}<span class="badge text-bg-secondary">{{ _('No') }}</span>{% endif %}</td>
+                <td>
+                    <div class="d-flex flex-wrap gap-1">
+                        {% if has_permission('edit') or has_permission('manage_reference_data') %}
+                        <button class="btn btn-outline-primary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#dosage-form-edit-{{ dosage_form.id }}" title="{{ _('Edit') }}"><i data-lucide="pencil"></i></button>
+                        {% endif %}
+                        {% if dosage_form.is_active and (has_permission('soft_delete') or has_permission('manage_reference_data')) %}
+                        <form method="post" action="/dosage-forms/{{ dosage_form.id }}/deactivate">
+                            <input type="hidden" name="expected_version" value="{{ dosage_form.row_version }}">
+                            <button class="btn btn-outline-danger btn-sm icon-only" type="submit" title="{{ _('Deactivate') }}" data-confirm-message="{{ _('Deactivate dosage form confirmation') }}"><i data-lucide="ban"></i></button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </td>
+            </tr>
+            {% if has_permission('edit') or has_permission('manage_reference_data') %}
+            <tr class="collapse" id="dosage-form-edit-{{ dosage_form.id }}">
+                <td colspan="6">
+                    <form class="row g-2 align-items-end" method="post" action="/dosage-forms/{{ dosage_form.id }}/edit">
+                        <input type="hidden" name="expected_version" value="{{ dosage_form.row_version }}">
+                        <div class="col-md-2">
+                            <label class="form-label">{{ _('Dosage form RU') }}</label>
+                            <input class="form-control form-control-sm" name="name_ru" value="{{ dosage_form.name_ru }}" placeholder="{{ _('Dosage form RU') }}" required>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">{{ _('Dosage form EN') }}</label>
+                            <input class="form-control form-control-sm" name="name_en" value="{{ dosage_form.name_en or '' }}" placeholder="{{ _('Dosage form EN') }}">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">{{ _('Group RU') }}</label>
+                            <input class="form-control form-control-sm" name="group_ru" value="{{ dosage_form.group_ru or '' }}">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">{{ _('Group EN') }}</label>
+                            <input class="form-control form-control-sm" name="group_en" value="{{ dosage_form.group_en or '' }}">
+                        </div>
+                        <div class="col-md-1">
+                            <label class="form-label">{{ _('Sort order') }}</label>
+                            <input class="form-control form-control-sm" name="sort_order" value="{{ dosage_form.sort_order or '' }}" inputmode="numeric" placeholder="10">
+                        </div>
+                        <div class="col-md-1">
+                            <label class="form-check mt-4">
+                                <input class="form-check-input" type="checkbox" name="is_active" value="true" {% if dosage_form.is_active %}checked{% endif %}>
+                                {{ _('Active?') }}
+                            </label>
+                        </div>
+                        <div class="col-md-2 d-flex gap-2">
+                            <button class="btn btn-primary btn-sm icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Save dosage form') }}</span></button>
+                            <button class="btn btn-outline-secondary btn-sm icon-button" type="button" data-bs-toggle="collapse" data-bs-target="#dosage-form-edit-{{ dosage_form.id }}"><i data-lucide="x"></i><span>{{ _('Cancel') }}</span></button>
+                        </div>
+                    </form>
+                </td>
+            </tr>
+            {% endif %}
+            {% else %}
+            <tr><td colspan="6" class="empty-state-cell"><div class="empty-state text-secondary"><i data-lucide="list"></i><span>{{ _('No dosage forms yet.') }}</span></div></td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

@@ -1,0 +1,36 @@
+{% extends 'base.html' %}{% from '_clinical_values.html' import value,fields as field_table with context %}{% block content %}
+<h1 class="h3">Клинические данные · {{ case.case_number }}</h1>
+<a href="/cases/{{ case.id }}">Карточка случая</a> · <a href="/cases/{{ case.id }}/drug-products">Препараты и связи</a>
+<p>Пустое поле, неизвестность и ошибка разбора различаются. Словари и профиль получателя не проверены. Черновик можно сохранять до устранения замечаний.</p>
+<details><summary>Локальные проверки</summary>{{ value(validation) }}</details>
+<div class="row"><nav class="col-md-3">{% for key, definition in contract.items() %}<div><a href="?kind={{ key }}">{{ definition.label }}</a></div>{% endfor %}</nav><section class="col-md-9">
+{% if kind %}<h2 class="h5">{{ contract[kind].label }}</h2>
+<form method="post" action="/cases/{{ case.id }}/clinical/{{ kind }}">
+<input type="hidden" name="csrf" value="{{ csrf_token(request) }}"><input type="hidden" name="expected_case_version" value="{{ case.version }}">
+{% if row %}<input type="hidden" name="row_id" value="{{ row.id }}"><input type="hidden" name="expected_version" value="{{ row.version }}">{% endif %}
+<p>Отметьте «изменить» только для нужных значений. «Очистить текущее» сохраняет исходный факт и аудит.</p>
+{% for key, entries, title in [('parent_id',records,'Родительский клинический блок'),('case_product_id',products,'Препарат'),('reaction_id',reactions,'Реакция'),('attachment_id',attachments,'Документ')] %}
+<label><input type="checkbox" name="change:{{ key }}"> Изменить связь: {{ title }}</label>
+<select class="form-select" name="{{ key }}"><option value="">Не выбрано</option>{% for entry in entries %}{% if not entry.is_deleted %}<option value="{{ entry.id }}" {% if row.get(key)==entry.id %}selected{% endif %}>{{ entry.label or entry.reported_product_name or entry.reported_term or entry.file_name or entry.id }} · {{ entry.id }}</option>{% endif %}{% endfor %}</select>{% endfor %}
+{% for key, definition in fields.items() %}{% set v=row.get('fields',{}).get(key,{}) %}
+<fieldset class="border rounded p-2 my-2"><legend class="fs-6">{{ clinical_label(key) }} · {{ key }}</legend>
+<label><input type="checkbox" name="change:{{ key }}"> Изменить</label> <label><input type="checkbox" name="clear:{{ key }}"> Очистить текущее</label>
+{% set shape=clinical_structured(kind,key,v) %}
+{% if shape.mode=='rows' %}<div id="rows-{{ loop.index }}" class="structured-rows">{% for entry in shape.rows + [{}] %}<div class="row mb-1">{% for column,title in shape.columns %}<label class="col">{{ title }}<input class="form-control" name="part:{{ key }}:{{ column }}" value="{{ entry.get(column) or '' }}"></label>{% endfor %}</div>{% endfor %}</div><button type="button" class="btn btn-sm btn-outline-secondary" onclick="const box=this.previousElementSibling;const row=box.lastElementChild.cloneNode(true);row.querySelectorAll('input').forEach(x=>x.value='');box.appendChild(row)">Добавить строку</button>
+{% elif shape.mode=='scalar' %}<label>Значение<input class="form-control" name="scalar:{{ key }}" value="{{ shape.value }}"></label>
+{% elif shape.mode=='preserved' %}<p>Составное исходное значение сохранено. Его можно прочитать ниже; для нового простого результата добавьте отдельную запись анализа.</p>{{ value(v) }}
+{% elif key in clinical_options %}<select class="form-select" name="raw:{{ key }}"><option value="">Не указано</option>{% for code in clinical_options[key] %}<option value="{{ code }}" {% if v.get('raw')==code %}selected{% endif %}>{{ clinical_display(code) }}</option>{% endfor %}</select>
+{% elif definition.type=='boolean' %}<select class="form-select" name="raw:{{ key }}"><option value="">Не указано</option><option value="true" {% if v.get('value') is sameas true %}selected{% endif %}>Да</option><option value="false" {% if v.get('value') is sameas false %}selected{% endif %}>Нет</option></select>
+{% else %}<textarea name="raw:{{ key }}" class="form-control" aria-label="Значение {{ key }}">{{ v.get('raw') or '' }}</textarea>{% endif %}
+<div class="row">{% for prefix, field, label in [('nf','null_flavor','nullFlavor'),('system','system','Система кодирования'),('version','system_version','Версия словаря')] %}<label class="col">{{ label }}<input class="form-control" name="{{ prefix }}:{{ key }}" value="{{ v.get(field) or '' }}"></label>{% endfor %}</div>
+<small>Тип: {{ definition.type }} · состояние: {{ v.get('state','missing') }} · точность: {{ v.get('precision','') }}</small></fieldset>{% endfor %}
+<label>Основание и документ/RSI при необходимости<textarea class="form-control" name="change_reason" required minlength="10"></textarea></label>
+{% if has_permission('edit' if row else 'create') %}<button class="btn btn-primary" name="action" value="save">Сохранить</button>{% endif %}
+{% if row and has_permission('soft_delete') %}<button class="btn btn-outline-danger" name="action" value="archive">Архивировать запись</button>{% endif %}</form>
+{% endif %}
+<h2 class="h5 mt-4">Текущие записи</h2>{% for item in records %}<details class="border p-2"><summary>{{ item.label }} · {{ item.id }} {{ '— архив' if item.is_deleted else '' }}</summary>
+{% if not item.is_deleted %}<a href="?kind={{ item.kind }}&row_id={{ item.id }}">Исправить</a>{% endif %}{{ field_table(item.fields) }}<details><summary>Технический источник и связи</summary>{{ value(item) }}</details></details>{% endfor %}
+<h2 class="h5 mt-4">Содержательные ревизии</h2><p>Ревизия фиксирует черновик и результат проверок; она не означает готовность к отправке.</p>
+{% for rev in revisions %}<div><a href="/cases/{{ case.id }}/revisions/{{ rev.id }}">Ревизия {{ rev.revision_number }}</a> · {{ rev.created_at }} · {{ rev.reason }}</div>{% endfor %}
+<form method="post" action="/cases/{{ case.id }}/revisions"><input type="hidden" name="csrf" value="{{ csrf_token(request) }}"><input type="hidden" name="expected_case_version" value="{{ case.version }}"><label>Основание<input class="form-control" name="reason" required minlength="10"></label>{% if has_permission('edit') %}<button class="btn btn-secondary">Зафиксировать ревизию</button>{% endif %}</form>
+</section></div>{% endblock %}

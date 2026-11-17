@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.models import SOP
 
 
-DEMO_SOPS = [
+STARTER_SOPS = [
     ("PV-SOP-001", "Processing of Individual Case Safety Reports", "ICSR"),
     ("PV-SOP-002", "ICSR Validity and Seriousness Assessment", "ICSR"),
     ("PV-SOP-003", "Management of Pharmacovigilance Agreements", "PV Agreements"),
@@ -19,12 +19,12 @@ DEMO_SOPS = [
 ]
 
 
-def ensure_sop_demo_data(db: Session) -> None:
+def ensure_sop_starter_data(db: Session) -> None:
     if db.query(SOP).filter(SOP.is_deleted.is_(False)).first():
         return
 
     today = date.today()
-    for index, (code, title, process_area) in enumerate(DEMO_SOPS, start=1):
+    for index, (code, title, process_area) in enumerate(STARTER_SOPS, start=1):
         status = "Effective"
         if index in {2, 8}:
             status = "Requires Review"
@@ -44,8 +44,8 @@ def ensure_sop_demo_data(db: Session) -> None:
                 approval_date=today - timedelta(days=30 + index),
                 effective_date=today - timedelta(days=30),
                 next_review_date=today + timedelta(days=30 * index),
-                revision_reason="Initial MVP demo record.",
-                description="Demo SOP record for the MVP SOP register.",
+                revision_reason="Первичная рабочая версия документа.",
+                description="Запись реестра СОП для процессов фармаконадзора.",
                 training_required=index in {1, 2, 4, 5, 10},
             )
         )

@@ -59,6 +59,11 @@ def paginate_items(items: list, page: int | None, per_page: int | None) -> tuple
     return items[pagination.offset : pagination.offset + pagination.per_page], pagination
 
 
+def paginate_query(query, page: int | None, per_page: int | None):
+    pagination = Pagination(normalize_page(page), normalize_per_page(per_page), query.order_by(None).count())
+    return query.offset(pagination.offset).limit(pagination.per_page).all(), pagination
+
+
 def page_url(request: Request, page: int) -> str:
     parts = urlsplit(str(request.url))
     params = dict(parse_qsl(parts.query, keep_blank_values=True))

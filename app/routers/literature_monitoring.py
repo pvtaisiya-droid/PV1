@@ -1,3 +1,6 @@
+from app import models
+from app.concurrency import protect_record, snapshot_token, protect_snapshot, LITERATURE_INPUTS
+from app.unit_of_work import atomic_write
 from datetime import date
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
@@ -73,6 +76,7 @@ def product_names(product_links) -> str:
 
 def literature_reference_context(db: Session) -> dict:
     return {
+        "input_snapshot": snapshot_token(db, LITERATURE_INPUTS),
         "partners": crud.list_partners(db),
         "products": crud.list_products(db),
         "substances": crud.list_substances(db),
@@ -322,6 +326,7 @@ def literature_monitoring_page(
 
 
 @router.post("/literature-monitoring/plans", dependencies=[Depends(require_permission("create"))])
+@atomic_write
 def create_literature_plan_form(
     request: Request,
     partner_id: str = Form(...),
@@ -377,6 +382,7 @@ def create_literature_plan_form(
 
 
 @router.post("/literature-monitoring/plans/{plan_id}", dependencies=[Depends(require_permission("edit"))])
+@atomic_write
 def update_literature_plan_form(
     plan_id: str,
     request: Request,
@@ -393,8 +399,10 @@ def update_literature_plan_form(
     end_date: str | None = Form(None),
     status_value: str = Form("active"),
     comment: str | None = Form(None),
+    expected_version: int = Form(..., gt=0),
     db: Session = Depends(get_db),
 ):
+    protect_record(db, models.LiteratureMonitoringPlan, plan_id, expected_version)
     plan = crud.get_literature_plan(db, plan_id)
     if not plan:
         return redirect_with_message("/literature-monitoring?tab=plan", error="Plan not found.")
@@ -440,12 +448,15 @@ def update_literature_plan_form(
     "/literature-monitoring/plans/{plan_id}/archive",
     dependencies=[Depends(require_any_permission("edit", "soft_delete"))],
 )
+@atomic_write
 def archive_literature_plan_form(
     plan_id: str,
     request: Request,
     archive_comment: str | None = Form(None),
+    expected_version: int = Form(..., gt=0),
     db: Session = Depends(get_db),
 ):
+    protect_record(db, models.LiteratureMonitoringPlan, plan_id, expected_version)
     plan = crud.get_literature_plan(db, plan_id)
     if not plan:
         return redirect_with_message("/literature-monitoring?tab=plan", error="Plan not found.")
@@ -459,6 +470,7 @@ def archive_literature_plan_form(
 
 
 @router.post("/literature-monitoring/logs", dependencies=[Depends(require_permission("create"))])
+@atomic_write
 def create_literature_log_form(
     request: Request,
     plan_id: str = Form(...),
@@ -477,8 +489,10 @@ def create_literature_log_form(
     status_value: str = Form("completed"),
     summary: str | None = Form(None),
     comment: str | None = Form(None),
+    expected_plan_version: int = Form(..., gt=0),
     db: Session = Depends(get_db),
 ):
+    protect_record(db, models.LiteratureMonitoringPlan, plan_id, expected_plan_version)
     try:
         log = crud.create_literature_search_log(
             db,
@@ -518,6 +532,7 @@ def create_literature_log_form(
 
 
 @router.post("/literature-monitoring/logs/{log_id}", dependencies=[Depends(require_permission("edit"))])
+@atomic_write
 def update_literature_log_form(
     log_id: str,
     request: Request,
@@ -537,8 +552,12 @@ def update_literature_log_form(
     status_value: str = Form("completed"),
     summary: str | None = Form(None),
     comment: str | None = Form(None),
+    expected_version: int = Form(..., gt=0),
+    expected_plan_version: int = Form(..., gt=0),
     db: Session = Depends(get_db),
 ):
+    protect_record(db, models.LiteratureMonitoringPlan, plan_id, expected_plan_version)
+    protect_record(db, models.LiteratureSearchLog, log_id, expected_version)
     search_log = crud.get_literature_search_log(db, log_id)
     if not search_log:
         return redirect_with_message("/literature-monitoring?tab=log", error="Log record not found.")
@@ -627,6 +646,7 @@ def create_literature_attachment(
     "/literature-monitoring/results",
     dependencies=[Depends(require_any_permission("create", "upload"))],
 )
+@atomic_write
 def create_literature_result_form(
     request: Request,
     search_log_id: str | None = Form(None),
@@ -649,8 +669,10 @@ def create_literature_result_form(
     specialist_comment: str | None = Form(None),
     article_pdf: UploadFile | None = File(None),
     search_screenshot: UploadFile | None = File(None),
+    expected_plan_version: int = Form(..., gt=0),
     db: Session = Depends(get_db),
 ):
+    protect_record(db, models.LiteratureMonitoringPlan, plan_id, expected_plan_version)
     try:
         article_upload = store_optional_upload(article_pdf)
         screenshot_upload = store_optional_upload(search_screenshot)
@@ -717,6 +739,7 @@ def create_literature_result_form(
 
 
 @router.post("/literature-monitoring/results/{result_id}", dependencies=[Depends(require_permission("edit"))])
+@atomic_write
 def update_literature_result_form(
     result_id: str,
     request: Request,
@@ -738,8 +761,12 @@ def update_literature_result_form(
     pv_decision: str = Form("no_action"),
     processing_status: str = Form("new"),
     specialist_comment: str | None = Form(None),
+    expected_version: int = Form(..., gt=0),
+    expected_plan_version: int = Form(..., gt=0),
     db: Session = Depends(get_db),
 ):
+    protect_record(db, models.LiteratureMonitoringPlan, plan_id, expected_plan_version)
+    protect_record(db, models.LiteratureResult, result_id, expected_version)
     result = crud.get_literature_result(db, result_id)
     if not result:
         return redirect_with_message("/literature-monitoring?tab=results", error="Result not found.")
@@ -791,13 +818,16 @@ def update_literature_result_form(
     "/literature-monitoring/results/{result_id}/documents",
     dependencies=[Depends(require_any_permission("upload", "edit"))],
 )
+@atomic_write
 def upload_literature_result_documents_form(
     result_id: str,
     request: Request,
     article_pdf: UploadFile | None = File(None),
     search_screenshot: UploadFile | None = File(None),
+    expected_version: int = Form(..., gt=0),
     db: Session = Depends(get_db),
 ):
+    protect_record(db, models.LiteratureResult, result_id, expected_version)
     result = crud.get_literature_result(db, result_id)
     if not result:
         return redirect_with_message("/literature-monitoring?tab=results", error="Result not found.")
@@ -846,11 +876,16 @@ def upload_literature_result_documents_form(
     "/literature-monitoring/results/{result_id}/create-icsr",
     dependencies=[Depends(require_any_permission("create", "icsr_workflow"))],
 )
+@atomic_write
 def create_case_from_literature_result_form(
     result_id: str,
     request: Request,
+    expected_version: int = Form(..., gt=0),
+    expected_inputs: str = Form(..., min_length=64, max_length=64),
     db: Session = Depends(get_db),
 ):
+    protect_record(db, models.LiteratureResult, result_id, expected_version)
+    protect_snapshot(db, LITERATURE_INPUTS, expected_inputs)
     result = crud.get_literature_result(db, result_id)
     if not result:
         return redirect_with_message("/literature-monitoring?tab=results", error="Result not found.")
@@ -869,13 +904,18 @@ def create_case_from_literature_result_form(
     "/literature-monitoring/results/{result_id}/link",
     dependencies=[Depends(require_permission("edit"))],
 )
+@atomic_write
 def link_literature_result_form(
     result_id: str,
     request: Request,
     target: str = Form(...),
     target_id: str | None = Form(None),
+    expected_version: int = Form(..., gt=0),
+    expected_inputs: str = Form(..., min_length=64, max_length=64),
     db: Session = Depends(get_db),
 ):
+    protect_record(db, models.LiteratureResult, result_id, expected_version)
+    protect_snapshot(db, LITERATURE_INPUTS, expected_inputs)
     result = crud.get_literature_result(db, result_id)
     if not result:
         return redirect_with_message("/literature-monitoring?tab=results", error="Result not found.")
@@ -902,12 +942,15 @@ def link_literature_result_form(
     "/literature-monitoring/results/{result_id}/close",
     dependencies=[Depends(require_any_permission("edit", "comment"))],
 )
+@atomic_write
 def close_literature_result_form(
     result_id: str,
     request: Request,
     close_comment: str | None = Form(None),
+    expected_version: int = Form(..., gt=0),
     db: Session = Depends(get_db),
 ):
+    protect_record(db, models.LiteratureResult, result_id, expected_version)
     result = crud.get_literature_result(db, result_id)
     if not result:
         return redirect_with_message("/literature-monitoring?tab=results", error="Result not found.")

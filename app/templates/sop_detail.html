@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_immutable_documents.html" import immutable_documents_block with context %}
 {% block title %}{{ sop.sop_code }} - {{ _('SOPs and Instructions') }}{% endblock %}
 
 {% block content %}
@@ -77,25 +78,7 @@
                     </tbody>
                 </table>
             </div>
-            <div class="table-responsive mt-3">
-                <h2 class="h6 section-title">{{ _('Linked files') }}</h2>
-                <table class="table table-sm align-middle">
-                    <thead><tr><th>{{ _('Title') }}</th><th>{{ _('Type') }}</th><th>{{ _('Version') }}</th><th>{{ _('Date') }}</th><th>{{ _('Actions') }}</th></tr></thead>
-                    <tbody>
-                    {% for document in documents %}
-                    <tr>
-                        <td class="fw-medium">{{ document.document_title or document.file_name }}</td>
-                        <td>{{ _(document.document_type) }}</td>
-                        <td>{{ document.document_version or "" }}</td>
-                        <td>{{ document.document_date or document.uploaded_at or document.created_at }}</td>
-                        <td>{% if document.storage_path %}<a class="btn btn-outline-primary btn-sm icon-only" href="/documents/{{ document.id }}/download" title="{{ _('Download') }}"><i data-lucide="download"></i></a>{% endif %}</td>
-                    </tr>
-                    {% else %}
-                    <tr><td colspan="5" class="text-secondary">{{ _('No files linked yet.') }}</td></tr>
-                    {% endfor %}
-                    </tbody>
-                </table>
-            </div>
+            {{ immutable_documents_block(documents, 'SOP', sop.id, '', 'Приложение Д-1', 'GLOBAL', '/sops/' ~ sop.id, 'Нередактируемые документы системы качества', context_version=sop.row_version) }}
         </section>
     </div>
 
@@ -104,7 +87,7 @@
             <h2 class="h6 section-title">{{ _('Related processes') }}</h2>
             <div class="empty-state">
                 <span class="status-pill">{{ _(sop.process_area) }}</span>
-                <p class="mb-0 text-secondary">{{ _('Related process links can be expanded in the next MVP phase.') }}</p>
+                <p class="mb-0 text-secondary">{{ _('Related process links will be available after module configuration.') }}</p>
             </div>
         </section>
     </div>

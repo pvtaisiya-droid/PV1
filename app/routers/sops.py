@@ -1,3 +1,4 @@
+from pathlib import Path
 from datetime import date
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
@@ -7,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app import crud, schemas
 from app.auth import require_any_permission
+from app.concurrency import require_version
 from app.database import get_db
 from app.pagination import paginate_items
 from app.routers.placeholders import store_document_file
@@ -204,11 +206,13 @@ def edit_sop_form(
     description: str | None = Form(None),
     training_required: bool = Form(False),
     sop_file: UploadFile | None = File(None),
+    expected_version: int = Form(..., ge=1),
     db: Session = Depends(get_db),
 ):
     sop = crud.get_sop(db, sop_id)
     if not sop:
         return redirect_with_message("/sops", error="SOP not found.")
+    require_version(sop, expected_version)
     validation = validate_sop_required(sop_code, title, version, owner, effective_date, next_review_date)
     if validation:
         return redirect_with_message(f"/sops/{sop_id}", validation=validation)
@@ -242,11 +246,20 @@ def edit_sop_form(
                 training_required=training_required,
             ),
             changed_by_user_id=current_user.id if current_user else None,
+            commit=False,
         )
+        create_sop_document_if_needed(db, sop, stored_file, sop_file, current_user, commit=False)
+        db.commit()
     except (IntegrityError, ValueError) as exc:
         db.rollback()
+        if stored_file.get("storage_path"):
+            Path(str(stored_file["storage_path"])).unlink(missing_ok=True)
         return redirect_with_message(f"/sops/{sop_id}", error=f"SOP could not be saved. {exc}")
-    create_sop_document_if_needed(db, sop, stored_file, sop_file, current_user)
+    except Exception:
+        db.rollback()
+        if stored_file.get("storage_path"):
+            Path(str(stored_file["storage_path"])).unlink(missing_ok=True)
+        raise
     return redirect_with_message(f"/sops/{sop.id}", message="SOP saved.")
 
 
@@ -368,6 +381,8 @@ def create_sop_document_if_needed(
     stored_file: dict[str, object],
     sop_file: UploadFile | None,
     current_user,
+    *,
+    commit: bool = True,
 ) -> None:
     storage_path = stored_file.get("storage_path")
     if not storage_path:
@@ -389,6 +404,7 @@ def create_sop_document_if_needed(
         comment=sop.revision_reason,
         checksum_sha256=stored_file.get("checksum_sha256"),
         uploaded_by_user_id=current_user.id if current_user else None,
+        commit=commit,
     )
 
 

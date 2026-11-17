@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Новый партнёр - {{ _('PV System') }}{% endblock %}
+
+{% block content %}
+<section class="surface">
+    <h1 class="h3 mb-3">Новый партнёр</h1>
+    <p class="text-secondary">Начните сценарий подключения, чтобы заполнить сведения партнёра, контакты и документы.</p>
+    <form method="post" action="/partner-onboarding/new" class="d-flex gap-2">
+        <input type="hidden" name="csrf" value="{{ csrf_token(request) }}">
+        <button class="btn btn-primary" type="submit">Начать подключение</button>
+        <a class="btn btn-outline-secondary" href="/partners">{{ _('Back') }}</a>
+    </form>
+</section>
+{% endblock %}

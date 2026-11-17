@@ -9,3 +9,16 @@ __pycache__/
 .vscode/
 .tools/
 uploads/
+*.log
+.tmp-*
+.pytest_cache/
+/backups/audit-*/
+
+# Working data and local import exports are not part of the shared source.
+/migration_access/
+/backups/
+*.accdb
+*.mdb
+/tools/*_applied.json
+/tools/*_dry.json
+/docs/*_report.json

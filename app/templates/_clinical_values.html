@@ -1,0 +1,10 @@
+{% macro value(v) -%}
+{% if v is mapping and 'state' in v %}
+{% if v.get('value') is not mapping and (v.get('value') is string or v.get('value') is not sequence) %}<div>{{ clinical_display(v.get('raw') if v.get('raw') is not none else v.get('value')) }}</div>{% endif %}
+{% if v.get('value') is mapping or (v.get('value') is sequence and v.get('value') is not string) %}{{ value(v.get('value')) }}{% endif %}
+<small>Состояние: {{ clinical_display(v.get('state')) }}{% for k in ['null_flavor','precision','timezone','system','system_version','origin'] %}{% if v.get(k) %} · {{ clinical_label(k) }}: {{ clinical_display(v[k]) }}{% endif %}{% endfor %}</small>
+{% elif v is mapping %}<dl class="mb-1">{% for k,x in v.items() %}<dt>{{ clinical_label(k) }}</dt><dd>{{ value(x) }}</dd>{% endfor %}</dl>
+{% elif v is sequence and v is not string %}<ul>{% for x in v %}<li>{{ value(x) }}</li>{% else %}<li>Нет значений</li>{% endfor %}</ul>
+{% else %}{{ clinical_display(v) }}{% endif %}
+{%- endmacro %}
+{% macro fields(values) -%}<table class="table table-sm"><thead><tr><th>Поле</th><th>Значение и состояние</th></tr></thead><tbody>{% for key,v in values.items() %}<tr><th>{{ clinical_label(key) }} <small>{{ key }}</small></th><td>{{ value(v) }}</td></tr>{% endfor %}</tbody></table>{%- endmacro %}

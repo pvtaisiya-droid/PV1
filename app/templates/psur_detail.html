@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ _('PSUR / PBRER') }} - {{ _('PV MVP') }}{% endblock %}
+{% block title %}{{ _('PSUR / PBRER') }} - {{ _('PV System') }}{% endblock %}
 
 {% block content %}
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
@@ -44,8 +44,15 @@
         <div class="row g-4">
             <div class="col-lg-8">
                 <section class="surface">
-                    <h2 class="h6 section-title">{{ _('General information') }}</h2>
-                    <dl class="row compact-dl">
+                    <div class="d-flex justify-content-between align-items-center gap-2 mb-3" data-psur-view>
+                        <h2 class="h6 section-title mb-0">{{ _('General information') }}</h2>
+                        {% if has_permission('edit') %}
+                        <button class="btn btn-outline-primary btn-sm icon-button" type="button" data-psur-edit-toggle aria-controls="psur-detail-edit" aria-expanded="false">
+                            <i data-lucide="pencil"></i><span>{{ _('Edit') }}</span>
+                        </button>
+                        {% endif %}
+                    </div>
+                    <dl class="row compact-dl" data-psur-view>
                         <dt class="col-sm-4">{{ _('Active substance') }}</dt><dd class="col-sm-8">{{ plan.active_substance.substance_name if plan.active_substance else "" }}</dd>
                         <dt class="col-sm-4">{{ _('Product') }}</dt><dd class="col-sm-8">{{ plan.product.product_name if plan.product else "" }}</dd>
                         <dt class="col-sm-4">{{ _('Type') }}</dt><dd class="col-sm-8">{{ _(plan.psur_type) }}</dd>
@@ -57,6 +64,58 @@
                         <dt class="col-sm-4">{{ _('Responsible') }}</dt><dd class="col-sm-8">{{ plan.responsible_user.full_name if plan.responsible_user else "" }}</dd>
                         <dt class="col-sm-4">{{ _('Reviewer') }}</dt><dd class="col-sm-8">{{ plan.reviewer_user.full_name if plan.reviewer_user else "" }}</dd>
                     </dl>
+                    {% if has_permission('edit') %}
+                    <div id="psur-detail-edit" hidden>
+                        <form class="row g-3" method="post" action="/psur/{{ plan.id }}">
+                            <input type="hidden" name="expected_version" value="{{ plan.version }}">
+                            <div class="col-md-4">
+                                <label class="form-label">{{ _('Product') }}</label>
+                                <select class="form-select" name="product_id">
+                                    <option value="">{{ _('None') }}</option>
+                                    {% for product in products %}
+                                    <option value="{{ product.id }}" {% if plan.product_id == product.id %}selected{% endif %}>{{ product.product_name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">{{ _('Type') }}</label>
+                                <select class="form-select" name="psur_type">
+                                    {% for type in psur_type_options %}
+                                    <option value="{{ type }}" {% if plan.psur_type == type %}selected{% endif %}>{{ _(type) }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-2"><label class="form-label">{{ _('Period start') }}</label><input class="form-control" type="date" name="reporting_period_start" value="{{ plan.reporting_period_start }}" required></div>
+                            <div class="col-md-2"><label class="form-label">{{ _('Period end') }}</label><input class="form-control" type="date" name="reporting_period_end" value="{{ plan.reporting_period_end }}" required></div>
+                            <div class="col-md-2"><label class="form-label">{{ _('Data lock point') }}</label><input class="form-control" type="date" name="data_lock_point" value="{{ plan.data_lock_point }}" required></div>
+                            <div class="col-md-2"><label class="form-label">{{ _('Frequency') }}</label><input class="form-control" name="frequency" value="{{ plan.frequency or '' }}"></div>
+                            <div class="col-md-3"><label class="form-label">{{ _('Internal due') }}</label><input class="form-control" type="date" name="due_date_internal" value="{{ plan.due_date_internal or '' }}"></div>
+                            <div class="col-md-3"><label class="form-label">{{ _('Submission due') }}</label><input class="form-control" type="date" name="due_date_submission" value="{{ plan.due_date_submission or '' }}"></div>
+                            <div class="col-md-3">
+                                <label class="form-label">{{ _('Responsible') }}</label>
+                                <select class="form-select" name="responsible_user_id">
+                                    <option value="">{{ _('None') }}</option>
+                                    {% for user in users %}
+                                    <option value="{{ user.id }}" {% if plan.responsible_user_id == user.id %}selected{% endif %}>{{ user.full_name or user.email }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">{{ _('Reviewer') }}</label>
+                                <select class="form-select" name="reviewer_user_id">
+                                    <option value="">{{ _('None') }}</option>
+                                    {% for user in users %}
+                                    <option value="{{ user.id }}" {% if plan.reviewer_user_id == user.id %}selected{% endif %}>{{ user.full_name or user.email }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-12 d-flex flex-wrap gap-2">
+                                <button class="btn btn-primary icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Save') }}</span></button>
+                                <button class="btn btn-outline-secondary icon-button" type="button" data-psur-edit-toggle><i data-lucide="x"></i><span>{{ _('Cancel') }}</span></button>
+                            </div>
+                        </form>
+                    </div>
+                    {% endif %}
                 </section>
             </div>
             <div class="col-lg-4">
@@ -64,6 +123,7 @@
                 <section class="surface mb-4">
                     <h2 class="h6 section-title">{{ _('Change status') }}</h2>
                     <form class="row g-3" method="post" action="/psur/{{ plan.id }}/status">
+                        <input type="hidden" name="expected_version" value="{{ plan.version }}">
                         <div class="col-12">
                             <label class="form-label">{{ _('Status') }}</label>
                             <select class="form-select" name="status_value">
@@ -84,58 +144,6 @@
                 {% endif %}
             </div>
         </div>
-
-        {% if has_permission('edit') %}
-        <section class="surface mt-4">
-            <h2 class="h6 section-title">{{ _('Edit') }}</h2>
-            <form class="row g-3" method="post" action="/psur/{{ plan.id }}">
-                <div class="col-md-3">
-                    <label class="form-label">{{ _('Product') }}</label>
-                    <select class="form-select" name="product_id">
-                        <option value="">{{ _('None') }}</option>
-                        {% for product in products %}
-                        <option value="{{ product.id }}" {% if plan.product_id == product.id %}selected{% endif %}>{{ product.product_name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="col-md-2">
-                    <label class="form-label">{{ _('Type') }}</label>
-                    <select class="form-select" name="psur_type">
-                        {% for type in psur_type_options %}
-                        <option value="{{ type }}" {% if plan.psur_type == type %}selected{% endif %}>{{ _(type) }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="col-md-2"><label class="form-label">{{ _('Period start') }}</label><input class="form-control" type="date" name="reporting_period_start" value="{{ plan.reporting_period_start }}" required></div>
-                <div class="col-md-2"><label class="form-label">{{ _('Period end') }}</label><input class="form-control" type="date" name="reporting_period_end" value="{{ plan.reporting_period_end }}" required></div>
-                <div class="col-md-2"><label class="form-label">{{ _('Data lock point') }}</label><input class="form-control" type="date" name="data_lock_point" value="{{ plan.data_lock_point }}" required></div>
-                <div class="col-md-1"><label class="form-label">{{ _('Frequency') }}</label><input class="form-control" name="frequency" value="{{ plan.frequency or '' }}"></div>
-                <div class="col-md-2"><label class="form-label">{{ _('Internal due') }}</label><input class="form-control" type="date" name="due_date_internal" value="{{ plan.due_date_internal or '' }}"></div>
-                <div class="col-md-2"><label class="form-label">{{ _('Submission due') }}</label><input class="form-control" type="date" name="due_date_submission" value="{{ plan.due_date_submission or '' }}"></div>
-                <div class="col-md-3">
-                    <label class="form-label">{{ _('Responsible') }}</label>
-                    <select class="form-select" name="responsible_user_id">
-                        <option value="">{{ _('None') }}</option>
-                        {% for user in users %}
-                        <option value="{{ user.id }}" {% if plan.responsible_user_id == user.id %}selected{% endif %}>{{ user.full_name or user.email }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">{{ _('Reviewer') }}</label>
-                    <select class="form-select" name="reviewer_user_id">
-                        <option value="">{{ _('None') }}</option>
-                        {% for user in users %}
-                        <option value="{{ user.id }}" {% if plan.reviewer_user_id == user.id %}selected{% endif %}>{{ user.full_name or user.email }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="col-md-2 d-flex align-items-end">
-                    <button class="btn btn-primary w-100 icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Save') }}</span></button>
-                </div>
-            </form>
-        </section>
-        {% endif %}
     </div>
 
     <div class="tab-pane fade" id="products" role="tabpanel" aria-labelledby="products-tab" tabindex="0">
@@ -143,6 +151,7 @@
         <section class="surface mb-4">
             <h2 class="h6 section-title">{{ _('Add product') }}</h2>
             <form class="row g-3" method="post" action="/psur/{{ plan.id }}/products">
+                <input type="hidden" name="expected_version" value="{{ plan.version }}">
                 <div class="col-md-3">
                     <label class="form-label">{{ _('Product') }}</label>
                     <select class="form-select" name="product_id" required>
@@ -182,6 +191,8 @@
             <div class="d-flex flex-wrap gap-2">
                 {% if has_permission('edit') %}
                 <form method="post" action="/psur/{{ plan.id }}/find-cases">
+<input type="hidden" name="expected_inputs" value="{{ input_snapshot }}">
+                    <input type="hidden" name="expected_version" value="{{ plan.version }}">
                     <button class="btn btn-primary btn-sm icon-button" type="submit"><i data-lucide="search"></i><span>{{ _('Find ICSR cases for this PSUR') }}</span></button>
                 </form>
                 {% endif %}
@@ -198,6 +209,8 @@
                     {% for row in plan.psur_cases %}
                     <tr>
                         <form method="post" action="/psur/{{ plan.id }}/cases/{{ row.id }}">
+                            <input type="hidden" name="expected_version" value="{{ plan.version }}">
+                            <input type="hidden" name="expected_row_version" value="{{ row.version }}">
                             <td>
                                 {% if row.case %}<a href="/cases/{{ row.case_id }}">{{ row.case.case_number }}</a>{% else %}{{ row.case_id }}{% endif %}
                                 <input type="hidden" name="case_origin" value="{{ row.case_origin or '' }}">
@@ -225,6 +238,8 @@
         <section class="surface mb-4">
             <h2 class="h6 section-title">{{ _('Create partner requests') }}</h2>
             <form class="row g-3" method="post" action="/psur/{{ plan.id }}/partner-requests">
+<input type="hidden" name="expected_inputs" value="{{ input_snapshot }}">
+                <input type="hidden" name="expected_version" value="{{ plan.version }}">
                 <div class="col-lg-5">
                     <label class="form-label">{{ _('Partners') }}</label>
                     <div class="small-check-grid">
@@ -261,6 +276,8 @@
                     {% for request_row in plan.partner_requests %}
                     <tr>
                         <form method="post" action="/psur/{{ plan.id }}/partner-requests/{{ request_row.id }}">
+                            <input type="hidden" name="expected_version" value="{{ plan.version }}">
+                            <input type="hidden" name="expected_row_version" value="{{ request_row.version }}">
                             <td><input type="hidden" name="partner_id" value="{{ request_row.partner_id }}">{{ request_row.partner.partner_name if request_row.partner else request_row.partner_id }}</td>
                             <td>
                                 <select class="form-select form-select-sm" name="contact_person_id">
@@ -333,6 +350,8 @@
                     <tr class="collapse" id="section-edit-{{ section.id }}">
                         <td colspan="8">
                             <form class="row g-3" method="post" action="/psur/{{ plan.id }}/sections/{{ section.id }}">
+                                <input type="hidden" name="expected_version" value="{{ plan.version }}">
+                                <input type="hidden" name="expected_row_version" value="{{ section.version }}">
                                 <div class="col-md-2">
                                     <label class="form-label">{{ _('Status') }}</label>
                                     <select class="form-select" name="section_status">
@@ -369,6 +388,9 @@
                             </form>
                             {% if has_permission('edit') or has_permission('comment') %}
                             <form class="mt-2" method="post" action="/psur/{{ plan.id }}/sections/{{ section.id }}/generate">
+<input type="hidden" name="expected_inputs" value="{{ input_snapshot }}">
+                                <input type="hidden" name="expected_version" value="{{ plan.version }}">
+                                <input type="hidden" name="expected_row_version" value="{{ section.version }}">
                                 <button class="btn btn-outline-secondary btn-sm icon-button" type="submit"><i data-lucide="sparkles"></i><span>{{ _('Generate draft for human review') }}</span></button>
                             </form>
                             {% endif %}
@@ -394,6 +416,7 @@
         <section class="surface mb-4">
             <h2 class="h6 section-title">{{ _('Add document') }}</h2>
             <form class="row g-3" method="post" action="/psur/{{ plan.id }}/documents">
+                <input type="hidden" name="expected_version" value="{{ plan.version }}">
                 <div class="col-md-2">
                     <label class="form-label">{{ _('Type') }}</label>
                     <select class="form-select" name="document_type">
@@ -432,6 +455,7 @@
         <section class="surface mb-4">
             <h2 class="h6 section-title">{{ _('Add task') }}</h2>
             <form class="row g-3" method="post" action="/psur/{{ plan.id }}/tasks">
+                <input type="hidden" name="expected_version" value="{{ plan.version }}">
                 <div class="col-md-3"><label class="form-label">{{ _('Title') }}</label><input class="form-control" name="title" required></div>
                 <div class="col-md-3"><label class="form-label">{{ _('Description') }}</label><input class="form-control" name="description"></div>
                 <div class="col-md-1"><label class="form-label">{{ _('Status') }}</label><input class="form-control" name="status_value" value="Open"></div>
@@ -502,6 +526,26 @@
 </div>
 
 <script>
+    document.querySelectorAll("[data-psur-edit-toggle]").forEach((button) => {
+        button.addEventListener("click", () => {
+            const panel = document.getElementById("psur-detail-edit");
+            if (!panel) {
+                return;
+            }
+            const willOpen = panel.hidden;
+            panel.hidden = !willOpen;
+            document.querySelectorAll("[data-psur-view]").forEach((viewElement) => {
+                viewElement.hidden = willOpen;
+            });
+            document.querySelectorAll("[data-psur-edit-toggle][aria-controls='psur-detail-edit']").forEach((toggle) => {
+                toggle.setAttribute("aria-expanded", willOpen ? "true" : "false");
+            });
+            if (willOpen) {
+                panel.querySelector("input, select, textarea")?.focus();
+            }
+        });
+    });
+
     (function () {
         if (!window.location.hash || !window.bootstrap) {
             return;

@@ -1,0 +1,1506 @@
+{
+  "report": {
+    "xpath": "/h:MCCI_IN200100UV01/h:PORR_IN049016UV/h:controlActProcess/h:subject/h:investigationEvent",
+    "fields": {
+      "C.1.3": {
+        "label": "Type of Report",
+        "element": "C.1.3",
+        "type": "code",
+        "xpath": "h:subjectOf2/h:investigationCharacteristic[h:code[@code='1'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.23']]/h:value",
+        "attribute": "code",
+        "system": "2.16.840.1.113883.3.989.2.1.1.2"
+      },
+      "C.1.6.1": {
+        "label": "Are Additional Documents Available?",
+        "element": "C.1.6.1",
+        "type": "boolean",
+        "xpath": "h:component/h:observationEvent[h:code[@code='1'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "value"
+      },
+      "C.1.7": {
+        "label": "Does This Case Fulfil the Local Criteria for an Expedited Report?",
+        "element": "C.1.7",
+        "type": "boolean",
+        "xpath": "h:component/h:observationEvent[h:code[@code='23'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "value"
+      },
+      "C.1.8.2": {
+        "label": "First Sender of This Case",
+        "element": "C.1.8.2",
+        "type": "code",
+        "xpath": "h:outboundRelationship[h:relatedInvestigation/h:code[@code='1'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.22']]/h:relatedInvestigation[h:code[@code='1'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.22']]/h:subjectOf2/h:controlActEvent/h:author/h:assignedEntity/h:code",
+        "attribute": "code",
+        "system": "2.16.840.1.113883.3.989.2.1.1.3"
+      },
+      "C.1.9.1": {
+        "label": "Other Case Identifiers in Previous Transmissions",
+        "element": "C.1.9.1",
+        "type": "boolean",
+        "xpath": "h:subjectOf2/h:investigationCharacteristic[h:code[@code='2'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.23']]/h:value",
+        "attribute": "value"
+      },
+      "C.1.11.1": {
+        "label": "Report Nullification / Amendment",
+        "element": "C.1.11.1",
+        "type": "code",
+        "xpath": "h:subjectOf2/h:investigationCharacteristic[h:code[@code='3'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.23']]/h:value",
+        "attribute": "code",
+        "system": "2.16.840.1.113883.3.989.2.1.1.5"
+      },
+      "C.1.11.2": {
+        "label": "Reason for Nullification / Amendment",
+        "element": "C.1.11.2",
+        "type": "text",
+        "xpath": "h:subjectOf2/h:investigationCharacteristic[h:code[@code='4'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.23']]/h:value/h:originalText",
+        "attribute": null
+      },
+      "C.1.4": {
+        "label": "Date Report Was First Received from Source",
+        "element": "C.1.4",
+        "type": "date",
+        "xpath": "h:effectiveTime/h:low",
+        "attribute": "value"
+      },
+      "C.1.5": {
+        "label": "Date of Most Recent Information for This Report",
+        "element": "C.1.5",
+        "type": "date",
+        "xpath": "h:availabilityTime",
+        "attribute": "value"
+      },
+      "C.1.2": {
+        "label": "Date of Creation",
+        "element": "C.1.2",
+        "type": "date",
+        "xpath": "../../h:effectiveTime",
+        "attribute": "value"
+      }
+    },
+    "source": "ICH IG 5.03 / I(G) 1.03, 18 July 2025",
+    "label": "Сведения сообщения"
+  },
+  "reporter": {
+    "xpath": "/h:MCCI_IN200100UV01/h:PORR_IN049016UV/h:controlActProcess/h:subject/h:investigationEvent/h:outboundRelationship[h:relatedInvestigation/h:code[@code='2'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.22']]",
+    "fields": {
+      "C.2.r.1.1": {
+        "label": "Reporter’s Title",
+        "element": "C.2.r.1.1",
+        "type": "text",
+        "xpath": "h:relatedInvestigation[h:code[@code='2'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.22']]/h:subjectOf2/h:controlActEvent/h:author/h:assignedEntity/h:assignedPerson/h:name/h:prefix",
+        "attribute": null
+      },
+      "C.2.r.1.2": {
+        "label": "Reporter’s Given Name",
+        "element": "C.2.r.1.2",
+        "type": "text",
+        "xpath": "h:relatedInvestigation[h:code[@code='2'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.22']]/h:subjectOf2/h:controlActEvent/h:author/h:assignedEntity/h:assignedPerson/h:name/h:given[1]",
+        "attribute": null
+      },
+      "C.2.r.1.3": {
+        "label": "Reporter’s Middle Name",
+        "element": "C.2.r.1.3",
+        "type": "text",
+        "xpath": "h:relatedInvestigation[h:code[@code='2'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.22']]/h:subjectOf2/h:controlActEvent/h:author/h:assignedEntity/h:assignedPerson/h:name/h:given[2]",
+        "attribute": null
+      },
+      "C.2.r.1.4": {
+        "label": "Reporter’s Family Name",
+        "element": "C.2.r.1.4",
+        "type": "text",
+        "xpath": "h:relatedInvestigation[h:code[@code='2'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.22']]/h:subjectOf2/h:controlActEvent/h:author/h:assignedEntity/h:assignedPerson/h:name/h:family",
+        "attribute": null
+      },
+      "C.2.r.2.1": {
+        "label": "Reporter’s Organisation",
+        "element": "C.2.r.2.1",
+        "type": "text",
+        "xpath": "h:relatedInvestigation[h:code[@code='2'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.22']]/h:subjectOf2/h:controlActEvent/h:author/h:assignedEntity/h:representedOrganization/h:assignedEntity/h:representedOrganization/h:name",
+        "attribute": null
+      },
+      "C.2.r.2.2": {
+        "label": "Reporter’s Department",
+        "element": "C.2.r.2.2",
+        "type": "text",
+        "xpath": "h:relatedInvestigation[h:code[@code='2'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.22']]/h:subjectOf2/h:controlActEvent/h:author/h:assignedEntity/h:representedOrganization/h:name",
+        "attribute": null
+      },
+      "C.2.r.2.3": {
+        "label": "Reporter’s Street",
+        "element": "C.2.r.2.3",
+        "type": "text",
+        "xpath": "h:relatedInvestigation[h:code[@code='2'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.22']]/h:subjectOf2/h:controlActEvent/h:author/h:assignedEntity/h:addr/h:streetAddressLine",
+        "attribute": null
+      },
+      "C.2.r.2.4": {
+        "label": "Reporter’s City",
+        "element": "C.2.r.2.4",
+        "type": "text",
+        "xpath": "h:relatedInvestigation[h:code[@code='2'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.22']]/h:subjectOf2/h:controlActEvent/h:author/h:assignedEntity/h:addr/h:city",
+        "attribute": null
+      },
+      "C.2.r.2.5": {
+        "label": "Reporter’s State or Province",
+        "element": "C.2.r.2.5",
+        "type": "text",
+        "xpath": "h:relatedInvestigation[h:code[@code='2'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.22']]/h:subjectOf2/h:controlActEvent/h:author/h:assignedEntity/h:addr/h:state",
+        "attribute": null
+      },
+      "C.2.r.2.6": {
+        "label": "Reporter’s Postcode",
+        "element": "C.2.r.2.6",
+        "type": "text",
+        "xpath": "h:relatedInvestigation[h:code[@code='2'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.22']]/h:subjectOf2/h:controlActEvent/h:author/h:assignedEntity/h:addr/h:postalCode",
+        "attribute": null
+      },
+      "C.2.r.2.7": {
+        "label": "Reporter’s Telephone",
+        "element": "C.2.r.2.7",
+        "type": "text",
+        "xpath": "h:relatedInvestigation[h:code[@code='2'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.22']]/h:subjectOf2/h:controlActEvent/h:author/h:assignedEntity/h:telecom[starts-with(@value,'tel:')]",
+        "attribute": "value"
+      },
+      "C.2.r.3": {
+        "label": "Reporter’s Country Code",
+        "element": "C.2.r.3",
+        "type": "code",
+        "xpath": "h:relatedInvestigation[h:code[@code='2'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.22']]/h:subjectOf2/h:controlActEvent/h:author/h:assignedEntity/h:assignedPerson/h:asLocatedEntity/h:location/h:code",
+        "attribute": "code",
+        "system": "1.0.3166.1.2.2"
+      },
+      "C.2.r.4": {
+        "label": "Qualification",
+        "element": "C.2.r.4",
+        "type": "code",
+        "xpath": "h:relatedInvestigation[h:code[@code='2'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.22']]/h:subjectOf2/h:controlActEvent/h:author/h:assignedEntity/h:assignedPerson/h:asQualifiedEntity/h:code",
+        "attribute": "code",
+        "system": "2.16.840.1.113883.3.989.2.1.1.6"
+      },
+      "C.2.r.5": {
+        "label": "Primary Source for Regulatory Purposes",
+        "element": "C.2.r.5",
+        "type": "text",
+        "xpath": "h:priorityNumber",
+        "attribute": "value"
+      },
+      "local.name_line": {
+        "label": "Исходная строка имени (без разложения по догадке)",
+        "type": "text",
+        "xpath": "h:relatedInvestigation/h:subjectOf2/h:controlActEvent/h:author/h:assignedEntity/h:assignedPerson/h:name",
+        "attribute": null
+      },
+      "local.contacts": {
+        "label": "Дополнительные контакты (JSON)",
+        "type": "json",
+        "xpath": null,
+        "attribute": null
+      }
+    },
+    "source": "ICH IG 5.03 / I(G) 1.03, 18 July 2025",
+    "label": "Первичный источник"
+  },
+  "sender": {
+    "xpath": "/h:MCCI_IN200100UV01/h:PORR_IN049016UV/h:controlActProcess/h:subject/h:investigationEvent/h:subjectOf1/h:controlActEvent/h:author/h:assignedEntity",
+    "fields": {
+      "C.3.1": {
+        "label": "Sender Type",
+        "element": "C.3.1",
+        "type": "code",
+        "xpath": "h:code",
+        "attribute": "code",
+        "system": "2.16.840.1.113883.3.989.2.1.1.7"
+      },
+      "C.3.2": {
+        "label": "Sender’s Organisation",
+        "element": "C.3.2",
+        "type": "text",
+        "xpath": "h:representedOrganization/h:assignedEntity/h:representedOrganization/h:name",
+        "attribute": null
+      },
+      "C.3.3.1": {
+        "label": "Sender’s Department",
+        "element": "C.3.3.1",
+        "type": "text",
+        "xpath": "h:representedOrganization/h:name",
+        "attribute": null
+      },
+      "C.3.3.2": {
+        "label": "Sender’s Title",
+        "element": "C.3.3.2",
+        "type": "text",
+        "xpath": "h:assignedPerson/h:name/h:prefix",
+        "attribute": null
+      },
+      "C.3.3.3": {
+        "label": "Sender’s Given Name",
+        "element": "C.3.3.3",
+        "type": "text",
+        "xpath": "h:assignedPerson/h:name/h:given[1]",
+        "attribute": null
+      },
+      "C.3.3.4": {
+        "label": "Sender’s Middle Name",
+        "element": "C.3.3.4",
+        "type": "text",
+        "xpath": "h:assignedPerson/h:name/h:given[2]",
+        "attribute": null
+      },
+      "C.3.3.5": {
+        "label": "Sender’s Family Name",
+        "element": "C.3.3.5",
+        "type": "text",
+        "xpath": "h:assignedPerson/h:name/h:family",
+        "attribute": null
+      },
+      "C.3.4.1": {
+        "label": "Sender’s Street Address",
+        "element": "C.3.4.1",
+        "type": "text",
+        "xpath": "h:addr/h:streetAddressLine",
+        "attribute": null
+      },
+      "C.3.4.2": {
+        "label": "Sender’s City",
+        "element": "C.3.4.2",
+        "type": "text",
+        "xpath": "h:addr/h:city",
+        "attribute": null
+      },
+      "C.3.4.3": {
+        "label": "Sender’s State or Province",
+        "element": "C.3.4.3",
+        "type": "text",
+        "xpath": "h:addr/h:state",
+        "attribute": null
+      },
+      "C.3.4.4": {
+        "label": "Sender’s Postcode",
+        "element": "C.3.4.4",
+        "type": "text",
+        "xpath": "h:addr/h:postalCode",
+        "attribute": null
+      },
+      "C.3.4.5": {
+        "label": "Sender’s Country Code",
+        "element": "C.3.4.5",
+        "type": "code",
+        "xpath": "h:assignedPerson/h:asLocatedEntity/h:location/h:code",
+        "attribute": "code",
+        "system": "1.0.3166.1.2.2"
+      },
+      "C.3.4.6": {
+        "label": "Sender’s Telephone",
+        "element": "C.3.4.6",
+        "type": "text",
+        "xpath": "h:telecom[starts-with(@value,'tel:')]",
+        "attribute": "value"
+      },
+      "C.3.4.7": {
+        "label": "Sender’s Fax",
+        "element": "C.3.4.7",
+        "type": "text",
+        "xpath": "h:telecom[starts-with(@value,'fax:')]",
+        "attribute": "value"
+      },
+      "C.3.4.8": {
+        "label": "Sender’s E-mail Address",
+        "element": "C.3.4.8",
+        "type": "text",
+        "xpath": "h:telecom[starts-with(@value,'mailto:')]",
+        "attribute": "value"
+      },
+      "local.name_line": {
+        "label": "Исходная строка имени (без разложения по догадке)",
+        "type": "text",
+        "xpath": "h:assignedPerson/h:name",
+        "attribute": null
+      },
+      "local.contacts": {
+        "label": "Дополнительные контакты (JSON)",
+        "type": "json",
+        "xpath": null,
+        "attribute": null
+      }
+    },
+    "source": "ICH IG 5.03 / I(G) 1.03, 18 July 2025",
+    "label": "Отправитель"
+  },
+  "study": {
+    "xpath": "/h:MCCI_IN200100UV01/h:PORR_IN049016UV/h:controlActProcess/h:subject/h:investigationEvent/h:component/h:adverseEventAssessment/h:subject1/h:primaryRole/h:subjectOf1/h:researchStudy",
+    "fields": {
+      "C.5.2": {
+        "label": "Study Name",
+        "element": "C.5.2",
+        "type": "text",
+        "xpath": "h:title",
+        "attribute": null
+      },
+      "C.5.3": {
+        "label": "Sponsor Study Number",
+        "element": "C.5.3",
+        "type": "text",
+        "xpath": "h:id[@root='2.16.840.1.113883.3.989.2.1.3.5']",
+        "attribute": "extension"
+      },
+      "C.5.4": {
+        "label": "Study Type Where Reaction(s) / Event(s) Were Observed",
+        "element": "C.5.4",
+        "type": "code",
+        "xpath": "h:code",
+        "attribute": "code",
+        "system": "2.16.840.1.113883.3.989.2.1.1.8"
+      }
+    },
+    "source": "ICH IG 5.03 / I(G) 1.03, 18 July 2025",
+    "label": "Исследование"
+  },
+  "study_registration": {
+    "xpath": "/h:MCCI_IN200100UV01/h:PORR_IN049016UV/h:controlActProcess/h:subject/h:investigationEvent/h:component/h:adverseEventAssessment/h:subject1/h:primaryRole/h:subjectOf1/h:researchStudy/h:authorization/h:studyRegistration",
+    "fields": {
+      "C.5.1.r.1": {
+        "label": "Study Registration Number",
+        "element": "C.5.1.r.1",
+        "type": "text",
+        "xpath": "h:id[@root='2.16.840.1.113883.3.989.2.1.3.6']",
+        "attribute": "extension"
+      },
+      "C.5.1.r.2": {
+        "label": "Study Registration Country",
+        "element": "C.5.1.r.2",
+        "type": "code",
+        "xpath": "h:author/h:territorialAuthority/h:governingPlace/h:code",
+        "attribute": "code",
+        "system": "1.0.3166.1.2.2"
+      }
+    },
+    "source": "ICH IG 5.03 / I(G) 1.03, 18 July 2025",
+    "label": "Регистрация исследования"
+  },
+  "patient": {
+    "xpath": "/h:MCCI_IN200100UV01/h:PORR_IN049016UV/h:controlActProcess/h:subject/h:investigationEvent/h:component/h:adverseEventAssessment/h:subject1/h:primaryRole",
+    "fields": {
+      "D.1": {
+        "label": "Patient (name or initials)",
+        "element": "D.1",
+        "type": "text",
+        "xpath": "h:player1/h:name",
+        "attribute": null
+      },
+      "D.1.1.1": {
+        "label": "Patient Medical Record Number(s) and Source(s) of the Record Number (GP Medical Record Number)",
+        "element": "D.1.1.1",
+        "type": "text",
+        "xpath": "h:player1/h:asIdentifiedEntity/h:id[@root='2.16.840.1.113883.3.989.2.1.3.7']",
+        "attribute": "extension"
+      },
+      "D.1.1.2": {
+        "label": "Patient Medical Record Number(s) and Source(s) of the Record Number (Specialist Record Number)",
+        "element": "D.1.1.2",
+        "type": "text",
+        "xpath": "h:player1/h:asIdentifiedEntity/h:id[@root='2.16.840.1.113883.3.989.2.1.3.8']",
+        "attribute": "extension"
+      },
+      "D.1.1.3": {
+        "label": "Patient Medical Record Number(s) and Source(s) of the Record Number (Hospital Record Number)",
+        "element": "D.1.1.3",
+        "type": "text",
+        "xpath": "h:player1/h:asIdentifiedEntity/h:id[@root='2.16.840.1.113883.3.989.2.1.3.9']",
+        "attribute": "extension"
+      },
+      "D.1.1.4": {
+        "label": "Patient Medical Record Number(s) and Source(s) of the Record Number (Investigation Number)",
+        "element": "D.1.1.4",
+        "type": "text",
+        "xpath": "h:player1/h:asIdentifiedEntity/h:id[@root='2.16.840.1.113883.3.989.2.1.3.10']",
+        "attribute": "extension"
+      },
+      "D.2.1": {
+        "label": "Date of Birth",
+        "element": "D.2.1",
+        "type": "date",
+        "xpath": "h:player1/h:birthTime",
+        "attribute": "value"
+      },
+      "D.2.2a": {
+        "label": "Age at Time of Onset of Reaction / Event (number)",
+        "element": "D.2.2a",
+        "type": "decimal",
+        "xpath": "h:subjectOf2/h:observation[h:code[@code='3'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "value"
+      },
+      "D.2.2b": {
+        "label": "Age at Time of Onset of Reaction / Event (unit)",
+        "element": "D.2.2b",
+        "type": "text",
+        "xpath": "h:subjectOf2/h:observation[h:code[@code='3'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "unit"
+      },
+      "D.2.2.1a": {
+        "label": "Gestation Period When Reaction / Event Was Observed in the Foetus (number)",
+        "element": "D.2.2.1a",
+        "type": "decimal",
+        "xpath": "h:subjectOf2/h:observation[h:code[@code='16'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "value"
+      },
+      "D.2.2.1b": {
+        "label": "Gestation Period When Reaction/Event Was Observed in the Foetus (unit)",
+        "element": "D.2.2.1b",
+        "type": "text",
+        "xpath": "h:subjectOf2/h:observation[h:code[@code='16'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "unit"
+      },
+      "D.2.3": {
+        "label": "Patient Age Group (as per reporter)",
+        "element": "D.2.3",
+        "type": "code",
+        "xpath": "h:subjectOf2/h:observation[h:code[@code='4'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "code",
+        "system": "2.16.840.1.113883.3.989.2.1.1.9"
+      },
+      "D.3": {
+        "label": "Body Weight (kg)",
+        "element": "D.3",
+        "type": "decimal",
+        "xpath": "h:subjectOf2/h:observation[h:code[@code='7'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "value"
+      },
+      "D.4": {
+        "label": "Height (cm)",
+        "element": "D.4",
+        "type": "decimal",
+        "xpath": "h:subjectOf2/h:observation[h:code[@code='17'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "value"
+      },
+      "D.5": {
+        "label": "Sex",
+        "element": "D.5",
+        "type": "code",
+        "xpath": "h:player1/h:administrativeGenderCode",
+        "attribute": "code",
+        "system": "1.0.5218"
+      },
+      "D.6": {
+        "label": "Last Menstrual Period Date",
+        "element": "D.6",
+        "type": "date",
+        "xpath": "h:subjectOf2/h:observation[h:code[@code='22'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "value"
+      },
+      "D.7.2": {
+        "label": "Text for Relevant Medical History and Concurrent Conditions (not including reaction / event)",
+        "element": "D.7.2",
+        "type": "text",
+        "xpath": "h:subjectOf2/h:organizer[h:code[@code='1'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.20']]/h:component/h:observation[h:code[@code='18'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": null
+      },
+      "D.7.3": {
+        "label": "Concomitant Therapies",
+        "element": "D.7.3",
+        "type": "boolean",
+        "xpath": "h:subjectOf2/h:organizer[h:code[@code='1'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.20']]/h:component/h:observation[h:code[@code='11'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "value"
+      },
+      "D.9.1": {
+        "label": "Date of Death",
+        "element": "D.9.1",
+        "type": "date",
+        "xpath": "h:player1/h:deceasedTime",
+        "attribute": "value"
+      },
+      "D.9.3": {
+        "label": "Was Autopsy Done?",
+        "element": "D.9.3",
+        "type": "boolean",
+        "xpath": "h:subjectOf2/h:observation[h:code[@code='5'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "value"
+      },
+      "local.patient_id": {
+        "label": "Исходный внутренний идентификатор пациента; тип медицинской записи не установлен",
+        "type": "text",
+        "xpath": null,
+        "attribute": null
+      },
+      "local.pregnancy_status": {
+        "label": "Сведения о беременности из ручной карточки",
+        "type": "text",
+        "xpath": null,
+        "attribute": null
+      }
+    },
+    "source": "ICH IG 5.03 / I(G) 1.03, 18 July 2025",
+    "label": "Пациент"
+  },
+  "parent": {
+    "xpath": "/h:MCCI_IN200100UV01/h:PORR_IN049016UV/h:controlActProcess/h:subject/h:investigationEvent/h:component/h:adverseEventAssessment/h:subject1/h:primaryRole/h:player1/h:role[h:code[@code='PRN'][@codeSystem='2.16.840.1.113883.5.111']]",
+    "fields": {
+      "D.10.1": {
+        "label": "Parent Identification",
+        "element": "D.10.1",
+        "type": "text",
+        "xpath": "h:associatedPerson/h:name",
+        "attribute": null
+      },
+      "D.10.2.1": {
+        "label": "Date of Birth of Parent",
+        "element": "D.10.2.1",
+        "type": "date",
+        "xpath": "h:associatedPerson/h:birthTime",
+        "attribute": "value"
+      },
+      "D.10.2.2a": {
+        "label": "Age of Parent (number)",
+        "element": "D.10.2.2a",
+        "type": "decimal",
+        "xpath": "h:subjectOf2/h:observation[h:code[@code='3'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "value"
+      },
+      "D.10.2.2b": {
+        "label": "Age of Parent (unit)",
+        "element": "D.10.2.2b",
+        "type": "text",
+        "xpath": "h:subjectOf2/h:observation[h:code[@code='3'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "unit"
+      },
+      "D.10.3": {
+        "label": "Last Menstrual Period Date of Parent",
+        "element": "D.10.3",
+        "type": "date",
+        "xpath": "h:subjectOf2/h:observation[h:code[@code='22'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "value"
+      },
+      "D.10.4": {
+        "label": "Body Weight (kg) of Parent",
+        "element": "D.10.4",
+        "type": "decimal",
+        "xpath": "h:subjectOf2/h:observation[h:code[@code='7'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "value"
+      },
+      "D.10.5": {
+        "label": "Height (cm) of Parent",
+        "element": "D.10.5",
+        "type": "decimal",
+        "xpath": "h:subjectOf2/h:observation[h:code[@code='17'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "value"
+      },
+      "D.10.6": {
+        "label": "Sex of Parent",
+        "element": "D.10.6",
+        "type": "code",
+        "xpath": "h:associatedPerson/h:administrativeGenderCode",
+        "attribute": "code",
+        "system": "1.0.5218"
+      },
+      "D.10.7.2": {
+        "label": "Text for Relevant Medical History and Concurrent Conditions of Parent",
+        "element": "D.10.7.2",
+        "type": "text",
+        "xpath": "h:subjectOf2/h:organizer[h:code[@code='1'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.20']]/h:component/h:observation[h:code[@code='18'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": null
+      }
+    },
+    "source": "ICH IG 5.03 / I(G) 1.03, 18 July 2025",
+    "label": "Родитель пациента"
+  },
+  "medical_history": {
+    "xpath": "/h:MCCI_IN200100UV01/h:PORR_IN049016UV/h:controlActProcess/h:subject/h:investigationEvent/h:component/h:adverseEventAssessment/h:subject1/h:primaryRole/h:subjectOf2/h:organizer[h:code[@code='1'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.20']]/h:component/h:observation[not(h:code[@code='18'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19'])]",
+    "fields": {
+      "D.7.1.r.1a": {
+        "label": "MedDRA Version for Medical History",
+        "element": "D.7.1.r.1a",
+        "type": "text",
+        "xpath": "h:code",
+        "attribute": "codeSystemVersion",
+        "system": "2.16.840.1.113883.6.163"
+      },
+      "D.7.1.r.1b": {
+        "label": "Medical History (disease / surgical procedure / etc.) (MedDRA code)",
+        "element": "D.7.1.r.1b",
+        "type": "code",
+        "xpath": "h:code",
+        "attribute": "code",
+        "system": "2.16.840.1.113883.6.163"
+      },
+      "D.7.1.r.2": {
+        "label": "Start Date",
+        "element": "D.7.1.r.2",
+        "type": "date",
+        "xpath": "h:effectiveTime/h:low",
+        "attribute": "value"
+      },
+      "D.7.1.r.3": {
+        "label": "Continuing",
+        "element": "D.7.1.r.3",
+        "type": "boolean",
+        "xpath": "h:inboundRelationship/h:observation[h:code[@code='13'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "value"
+      },
+      "D.7.1.r.4": {
+        "label": "End Date",
+        "element": "D.7.1.r.4",
+        "type": "date",
+        "xpath": "h:effectiveTime/h:high",
+        "attribute": "value"
+      },
+      "D.7.1.r.5": {
+        "label": "Comments",
+        "element": "D.7.1.r.5",
+        "type": "text",
+        "xpath": "h:outboundRelationship2/h:observation[h:code[@code='10'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": null
+      },
+      "D.7.1.r.6": {
+        "label": "Family History",
+        "element": "D.7.1.r.6",
+        "type": "boolean",
+        "xpath": "h:outboundRelationship2/h:observation[h:code[@code='38'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "value"
+      }
+    },
+    "source": "ICH IG 5.03 / I(G) 1.03, 18 July 2025",
+    "label": "Анамнез пациента"
+  },
+  "drug_history": {
+    "xpath": "/h:MCCI_IN200100UV01/h:PORR_IN049016UV/h:controlActProcess/h:subject/h:investigationEvent/h:component/h:adverseEventAssessment/h:subject1/h:primaryRole/h:subjectOf2/h:organizer[h:code[@code='2'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.20']]/h:component/h:substanceAdministration",
+    "fields": {
+      "D.8.r.1": {
+        "label": "Name of Drug as Reported",
+        "element": "D.8.r.1",
+        "type": "text",
+        "xpath": "h:consumable/h:instanceOfKind/h:kindOfProduct/h:name",
+        "attribute": null
+      },
+      "D.8.r.2a": {
+        "label": "MPID Version Date/Number",
+        "element": "D.8.r.2a",
+        "type": "text",
+        "xpath": "h:consumable/h:instanceOfKind/h:kindOfProduct/h:code[@codeSystem='TBD-MPID']",
+        "attribute": "codeSystemVersion",
+        "system": "TBD-MPID"
+      },
+      "D.8.r.2b": {
+        "label": "Medicinal Product Identifier (MPID)",
+        "element": "D.8.r.2b",
+        "type": "code",
+        "xpath": "h:consumable/h:instanceOfKind/h:kindOfProduct/h:code[@codeSystem='TBD-MPID']",
+        "attribute": "code",
+        "system": "TBD-MPID"
+      },
+      "D.8.r.3a": {
+        "label": "PhPID Version Date/Number",
+        "element": "D.8.r.3a",
+        "type": "text",
+        "xpath": "h:consumable/h:instanceOfKind/h:kindOfProduct/h:code[@codeSystem='TBD-PhPID']",
+        "attribute": "codeSystemVersion"
+      },
+      "D.8.r.3b": {
+        "label": "Pharmaceutical Product Identifier (PhPID)",
+        "element": "D.8.r.3b",
+        "type": "code",
+        "xpath": "h:consumable/h:instanceOfKind/h:kindOfProduct/h:code[@codeSystem='TBD-PhPID']",
+        "attribute": "code"
+      },
+      "D.8.r.4": {
+        "label": "Start Date",
+        "element": "D.8.r.4",
+        "type": "date",
+        "xpath": "h:effectiveTime/h:low",
+        "attribute": "value"
+      },
+      "D.8.r.5": {
+        "label": "End Date",
+        "element": "D.8.r.5",
+        "type": "date",
+        "xpath": "h:effectiveTime/h:high",
+        "attribute": "value"
+      },
+      "D.8.r.6a": {
+        "label": "MedDRA Version for Indication",
+        "element": "D.8.r.6a",
+        "type": "text",
+        "xpath": "h:outboundRelationship2/h:observation[h:code[@code='19'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "codeSystemVersion",
+        "system": "2.16.840.1.113883.6.163"
+      },
+      "D.8.r.6b": {
+        "label": "Indication (MedDRA code)",
+        "element": "D.8.r.6b",
+        "type": "code",
+        "xpath": "h:outboundRelationship2/h:observation[h:code[@code='19'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "code",
+        "system": "2.16.840.1.113883.6.163"
+      },
+      "D.8.r.7a": {
+        "label": "MedDRA Version for Reaction",
+        "element": "D.8.r.7a",
+        "type": "text",
+        "xpath": "h:outboundRelationship2/h:observation[h:code[@code='29'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "codeSystemVersion",
+        "system": "2.16.840.1.113883.6.163"
+      },
+      "D.8.r.7b": {
+        "label": "Reaction (MedDRA code)",
+        "element": "D.8.r.7b",
+        "type": "code",
+        "xpath": "h:outboundRelationship2/h:observation[h:code[@code='29'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "code",
+        "system": "2.16.840.1.113883.6.163"
+      },
+      "local.product_identifiers": {
+        "label": "Исходные коды препарата и системы; назначение IDMP не подтверждено",
+        "type": "json",
+        "xpath": null,
+        "attribute": null
+      }
+    },
+    "source": "ICH IG 5.03 / I(G) 1.03, 18 July 2025",
+    "label": "Лекарственный анамнез пациента"
+  },
+  "death_cause": {
+    "xpath": "/h:MCCI_IN200100UV01/h:PORR_IN049016UV/h:controlActProcess/h:subject/h:investigationEvent/h:component/h:adverseEventAssessment/h:subject1/h:primaryRole/h:subjectOf2/h:observation[h:code[@code='32'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]",
+    "fields": {
+      "D.9.2.r.1a": {
+        "label": "MedDRA Version for Reported Cause(s) of Death",
+        "element": "D.9.2.r.1a",
+        "type": "text",
+        "xpath": "h:value",
+        "attribute": "codeSystemVersion",
+        "system": "2.16.840.1.113883.6.163"
+      },
+      "D.9.2.r.1b": {
+        "label": "Reported Cause(s) of Death (MedDRA code)",
+        "element": "D.9.2.r.1b",
+        "type": "code",
+        "xpath": "h:value",
+        "attribute": "code",
+        "system": "2.16.840.1.113883.6.163"
+      },
+      "D.9.2.r.2": {
+        "label": "Reported Cause(s) of Death (free text)",
+        "element": "D.9.2.r.2",
+        "type": "text",
+        "xpath": "h:value/h:originalText",
+        "attribute": null
+      }
+    },
+    "source": "ICH IG 5.03 / I(G) 1.03, 18 July 2025",
+    "label": "Сообщённая причина смерти"
+  },
+  "autopsy_cause": {
+    "xpath": "/h:MCCI_IN200100UV01/h:PORR_IN049016UV/h:controlActProcess/h:subject/h:investigationEvent/h:component/h:adverseEventAssessment/h:subject1/h:primaryRole/h:subjectOf2/h:observation[h:code[@code='5'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:outboundRelationship2/h:observation[h:code[@code='8'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]",
+    "fields": {
+      "D.9.4.r.1a": {
+        "label": "MedDRA Version for Autopsy-determined Cause(s) of Death",
+        "element": "D.9.4.r.1a",
+        "type": "text",
+        "xpath": "h:value",
+        "attribute": "codeSystemVersion",
+        "system": "2.16.840.1.113883.6.163"
+      },
+      "D.9.4.r.1b": {
+        "label": "Autopsy-determined Cause(s) of Death (MedDRA code)",
+        "element": "D.9.4.r.1b",
+        "type": "code",
+        "xpath": "h:value",
+        "attribute": "code",
+        "system": "2.16.840.1.113883.6.163"
+      },
+      "D.9.4.r.2": {
+        "label": "Autopsy-determined Cause(s) of Death (free text)",
+        "element": "D.9.4.r.2",
+        "type": "text",
+        "xpath": "h:value/h:originalText",
+        "attribute": null
+      }
+    },
+    "source": "ICH IG 5.03 / I(G) 1.03, 18 July 2025",
+    "label": "Причина смерти по аутопсии"
+  },
+  "parent_medical_history": {
+    "xpath": "/h:MCCI_IN200100UV01/h:PORR_IN049016UV/h:controlActProcess/h:subject/h:investigationEvent/h:component/h:adverseEventAssessment/h:subject1/h:primaryRole/h:player1/h:role[h:code[@code='PRN'][@codeSystem='2.16.840.1.113883.5.111']]/h:subjectOf2/h:organizer[h:code[@code='1'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.20']]/h:component/h:observation[not(h:code[@code='18'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19'])]",
+    "fields": {
+      "D.10.7.1.r.1a": {
+        "label": "MedDRA Version for Medical History",
+        "element": "D.10.7.1.r.1a",
+        "type": "text",
+        "xpath": "h:code",
+        "attribute": "codeSystemVersion",
+        "system": "2.16.840.1.113883.6.163"
+      },
+      "D.10.7.1.r.1b": {
+        "label": "Medical History (disease / surgical procedure / etc.) (MedDRA code)",
+        "element": "D.10.7.1.r.1b",
+        "type": "code",
+        "xpath": "h:code",
+        "attribute": "code",
+        "system": "2.16.840.1.113883.6.163"
+      },
+      "D.10.7.1.r.2": {
+        "label": "Start Date",
+        "element": "D.10.7.1.r.2",
+        "type": "date",
+        "xpath": "h:effectiveTime/h:low",
+        "attribute": "value"
+      },
+      "D.10.7.1.r.3": {
+        "label": "Continuing",
+        "element": "D.10.7.1.r.3",
+        "type": "boolean",
+        "xpath": "h:inboundRelationship/h:observation[h:code[@code='13'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "value"
+      },
+      "D.10.7.1.r.4": {
+        "label": "End Date",
+        "element": "D.10.7.1.r.4",
+        "type": "date",
+        "xpath": "h:effectiveTime/h:high",
+        "attribute": "value"
+      },
+      "D.10.7.1.r.5": {
+        "label": "Comments",
+        "element": "D.10.7.1.r.5",
+        "type": "text",
+        "xpath": "h:outboundRelationship2/h:observation[h:code[@code='10'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": null
+      }
+    },
+    "source": "ICH IG 5.03 / I(G) 1.03, 18 July 2025",
+    "label": "Анамнез родителя"
+  },
+  "parent_drug_history": {
+    "xpath": "/h:MCCI_IN200100UV01/h:PORR_IN049016UV/h:controlActProcess/h:subject/h:investigationEvent/h:component/h:adverseEventAssessment/h:subject1/h:primaryRole/h:player1/h:role[h:code[@code='PRN'][@codeSystem='2.16.840.1.113883.5.111']]/h:subjectOf2/h:organizer[h:code[@code='2'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.20']]/h:component/h:substanceAdministration",
+    "fields": {
+      "D.10.8.r.1": {
+        "label": "Name of Drug as Reported",
+        "element": "D.10.8.r.1",
+        "type": "text",
+        "xpath": "h:consumable/h:instanceOfKind/h:kindOfProduct/h:name",
+        "attribute": null
+      },
+      "D.10.8.r.2a": {
+        "label": "MPID Version Date/Number",
+        "element": "D.10.8.r.2a",
+        "type": "text",
+        "xpath": "h:consumable/h:instanceOfKind/h:kindOfProduct/h:code[@codeSystem='TBD-MPID']",
+        "attribute": "codeSystemVersion",
+        "system": "TBD-MPID"
+      },
+      "D.10.8.r.2b": {
+        "label": "Medicinal Product Identifier (MPID)",
+        "element": "D.10.8.r.2b",
+        "type": "code",
+        "xpath": "h:consumable/h:instanceOfKind/h:kindOfProduct/h:code[@codeSystem='TBD-MPID']",
+        "attribute": "code",
+        "system": "TBD-MPID"
+      },
+      "D.10.8.r.3a": {
+        "label": "PhPID Version Date/Number",
+        "element": "D.10.8.r.3a",
+        "type": "text",
+        "xpath": "h:consumable/h:instanceOfKind/h:kindOfProduct/h:code[@codeSystem='TBD-PhPID']",
+        "attribute": "codeSystemVersion"
+      },
+      "D.10.8.r.3b": {
+        "label": "Pharmaceutical Product Identifier (PhPID)",
+        "element": "D.10.8.r.3b",
+        "type": "code",
+        "xpath": "h:consumable/h:instanceOfKind/h:kindOfProduct/h:code[@codeSystem='TBD-PhPID']",
+        "attribute": "code"
+      },
+      "D.10.8.r.4": {
+        "label": "Start Date",
+        "element": "D.10.8.r.4",
+        "type": "date",
+        "xpath": "h:effectiveTime/h:low",
+        "attribute": "value"
+      },
+      "D.10.8.r.5": {
+        "label": "End Date",
+        "element": "D.10.8.r.5",
+        "type": "date",
+        "xpath": "h:effectiveTime/h:high",
+        "attribute": "value"
+      },
+      "D.10.8.r.6a": {
+        "label": "MedDRA Version for Indication",
+        "element": "D.10.8.r.6a",
+        "type": "text",
+        "xpath": "h:outboundRelationship2/h:observation[h:code[@code='19'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "codeSystemVersion",
+        "system": "2.16.840.1.113883.6.163"
+      },
+      "D.10.8.r.6b": {
+        "label": "Indication (MedDRA code)",
+        "element": "D.10.8.r.6b",
+        "type": "code",
+        "xpath": "h:outboundRelationship2/h:observation[h:code[@code='19'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "code",
+        "system": "2.16.840.1.113883.6.163"
+      },
+      "D.10.8.r.7a": {
+        "label": "MedDRA Version for Reaction",
+        "element": "D.10.8.r.7a",
+        "type": "text",
+        "xpath": "h:outboundRelationship2/h:observation[h:code[@code='29'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "codeSystemVersion",
+        "system": "2.16.840.1.113883.6.163"
+      },
+      "D.10.8.r.7b": {
+        "label": "Reactions (MedDRA code)",
+        "element": "D.10.8.r.7b",
+        "type": "code",
+        "xpath": "h:outboundRelationship2/h:observation[h:code[@code='29'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "code",
+        "system": "2.16.840.1.113883.6.163"
+      },
+      "local.product_identifiers": {
+        "label": "Исходные коды препарата и системы; назначение IDMP не подтверждено",
+        "type": "json",
+        "xpath": null,
+        "attribute": null
+      }
+    },
+    "source": "ICH IG 5.03 / I(G) 1.03, 18 July 2025",
+    "label": "Лекарственный анамнез родителя"
+  },
+  "test": {
+    "xpath": "/h:MCCI_IN200100UV01/h:PORR_IN049016UV/h:controlActProcess/h:subject/h:investigationEvent/h:component/h:adverseEventAssessment/h:subject1/h:primaryRole/h:subjectOf2/h:organizer[h:code[@code='3'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.20']]/h:component/h:observation",
+    "fields": {
+      "F.r.1": {
+        "label": "Test Date",
+        "element": "F.r.1",
+        "type": "date",
+        "xpath": "h:effectiveTime",
+        "attribute": "value"
+      },
+      "F.r.2.1": {
+        "label": "Test Name (free text)",
+        "element": "F.r.2.1",
+        "type": "text",
+        "xpath": "h:code/h:originalText",
+        "attribute": null
+      },
+      "F.r.2.2a": {
+        "label": "MedDRA Version for Test Name",
+        "element": "F.r.2.2a",
+        "type": "text",
+        "xpath": "h:code",
+        "attribute": "codeSystemVersion",
+        "system": "2.16.840.1.113883.6.163"
+      },
+      "F.r.2.2b": {
+        "label": "Test Name (MedDRA code)",
+        "element": "F.r.2.2b",
+        "type": "code",
+        "xpath": "h:code",
+        "attribute": "code",
+        "system": "2.16.840.1.113883.6.163"
+      },
+      "F.r.3.1": {
+        "label": "Test Result (code)",
+        "element": "F.r.3.1",
+        "type": "code",
+        "xpath": "h:interpretationCode",
+        "attribute": "code",
+        "system": "2.16.840.1.113883.3.989.2.1.1.12"
+      },
+      "F.r.3.2": {
+        "label": "Test Result (value / qualifier)",
+        "element": "F.r.3.2",
+        "type": "quantity",
+        "xpath": "h:value",
+        "attribute": null
+      },
+      "F.r.3.3": {
+        "label": "Test Result (unit)",
+        "element": "F.r.3.3",
+        "type": "json",
+        "xpath": "h:value",
+        "attribute": null
+      },
+      "F.r.3.4": {
+        "label": "Result Unstructured Data (free text)",
+        "element": "F.r.3.4",
+        "type": "text",
+        "xpath": "h:value[@xsi:type='ED']",
+        "attribute": null
+      },
+      "F.r.4": {
+        "label": "Normal Low Value",
+        "element": "F.r.4",
+        "type": "decimal",
+        "xpath": "h:referenceRange/h:observationRange[h:interpretationCode[@code='L']]/h:value",
+        "attribute": "value"
+      },
+      "F.r.5": {
+        "label": "Normal High Value",
+        "element": "F.r.5",
+        "type": "decimal",
+        "xpath": "h:referenceRange/h:observationRange[h:interpretationCode[@code='H']]/h:value",
+        "attribute": "value"
+      },
+      "F.r.6": {
+        "label": "Comments (free text)",
+        "element": "F.r.6",
+        "type": "text",
+        "xpath": "h:outboundRelationship2/h:observation[h:code[@code='10'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": null
+      },
+      "F.r.7": {
+        "label": "More Information Available",
+        "element": "F.r.7",
+        "type": "boolean",
+        "xpath": "h:outboundRelationship2/h:observation[h:code[@code='25'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "value"
+      }
+    },
+    "source": "ICH IG 5.03 / I(G) 1.03, 18 July 2025",
+    "label": "Исследование / анализ"
+  },
+  "literature": {
+    "xpath": "/h:MCCI_IN200100UV01/h:PORR_IN049016UV/h:controlActProcess/h:subject/h:investigationEvent/h:reference/h:document[h:code[@code='2'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.27']]",
+    "fields": {
+      "C.4.r.1": {
+        "label": "Literature Reference(s)",
+        "element": "C.4.r.1",
+        "type": "text",
+        "xpath": "h:bibliographicDesignationText",
+        "attribute": null
+      },
+      "C.4.r.2": {
+        "label": "Included Documents",
+        "element": "C.4.r.2",
+        "type": "document",
+        "xpath": "h:text",
+        "attribute": null
+      }
+    },
+    "source": "ICH IG 5.03 / I(G) 1.03, 18 July 2025",
+    "label": "Литература"
+  },
+  "source_document": {
+    "xpath": "/h:MCCI_IN200100UV01/h:PORR_IN049016UV/h:controlActProcess/h:subject/h:investigationEvent/h:reference/h:document[h:code[@code='1'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.27']]",
+    "fields": {
+      "C.1.6.1.r.1": {
+        "label": "Documents Held by Sender",
+        "element": "C.1.6.1.r.1",
+        "type": "text",
+        "xpath": "h:title",
+        "attribute": null
+      },
+      "C.1.6.1.r.2": {
+        "label": "Included Documents",
+        "element": "C.1.6.1.r.2",
+        "type": "document",
+        "xpath": "h:text",
+        "attribute": null
+      }
+    },
+    "source": "ICH IG 5.03 / I(G) 1.03, 18 July 2025",
+    "label": "Документ источника"
+  },
+  "narrative": {
+    "xpath": "/h:MCCI_IN200100UV01/h:PORR_IN049016UV/h:controlActProcess/h:subject/h:investigationEvent",
+    "fields": {
+      "H.1": {
+        "label": "Case Narrative Including Clinical Course, Therapeutic Measures, Outcome and Additional Relevant Information",
+        "element": "H.1",
+        "type": "text",
+        "xpath": "h:text",
+        "attribute": null
+      },
+      "local.legacy_text": {
+        "label": "Исторический текст с неустановленным назначением H.1/H.2/H.4",
+        "type": "text",
+        "xpath": null,
+        "attribute": null
+      }
+    },
+    "source": "ICH IG 5.03 / I(G) 1.03, 18 July 2025",
+    "label": "Описание случая"
+  },
+  "reporter_comment": {
+    "xpath": "/h:MCCI_IN200100UV01/h:PORR_IN049016UV/h:controlActProcess/h:subject/h:investigationEvent/h:component/h:adverseEventAssessment/h:component1/h:observationEvent[h:code[@code='10'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']][h:author/h:assignedEntity/h:code[@code='3'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.21']]",
+    "fields": {
+      "H.2": {
+        "label": "Reporter's Comments",
+        "element": "H.2",
+        "type": "text",
+        "xpath": "h:value",
+        "attribute": null
+      }
+    },
+    "source": "ICH IG 5.03 / I(G) 1.03, 18 July 2025",
+    "label": "Комментарий первичного источника"
+  },
+  "sender_diagnosis": {
+    "xpath": "/h:MCCI_IN200100UV01/h:PORR_IN049016UV/h:controlActProcess/h:subject/h:investigationEvent/h:component/h:adverseEventAssessment/h:component1/h:observationEvent[h:code[@code='15'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]",
+    "fields": {
+      "H.3.r.1a": {
+        "label": "MedDRA Version for Sender's Diagnosis / Syndrome and / or Reclassification of Reaction / Event",
+        "element": "H.3.r.1a",
+        "type": "text",
+        "xpath": "h:value",
+        "attribute": "codeSystemVersion",
+        "system": "2.16.840.1.113883.6.163"
+      },
+      "H.3.r.1b": {
+        "label": "Sender's Diagnosis / Syndrome and / or Reclassification of Reaction / Event (MedDRA code)",
+        "element": "H.3.r.1b",
+        "type": "code",
+        "xpath": "h:value",
+        "attribute": "code",
+        "system": "2.16.840.1.113883.6.163"
+      }
+    },
+    "source": "ICH IG 5.03 / I(G) 1.03, 18 July 2025",
+    "label": "Диагноз отправителя"
+  },
+  "sender_comment": {
+    "xpath": "/h:MCCI_IN200100UV01/h:PORR_IN049016UV/h:controlActProcess/h:subject/h:investigationEvent/h:component/h:adverseEventAssessment/h:component1/h:observationEvent[h:code[@code='10'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']][h:author/h:assignedEntity/h:code[@code='1'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.21']]",
+    "fields": {
+      "H.4": {
+        "label": "Sender's Comments",
+        "element": "H.4",
+        "type": "text",
+        "xpath": "h:value",
+        "attribute": null
+      }
+    },
+    "source": "ICH IG 5.03 / I(G) 1.03, 18 July 2025",
+    "label": "Комментарий отправителя"
+  },
+  "summary": {
+    "xpath": "/h:MCCI_IN200100UV01/h:PORR_IN049016UV/h:controlActProcess/h:subject/h:investigationEvent/h:component/h:observationEvent[h:code[@code='36'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]",
+    "fields": {
+      "H.5.r.1a": {
+        "label": "Case Summary and Reporter’s Comments Text",
+        "element": "H.5.r.1a",
+        "type": "text",
+        "xpath": "h:value",
+        "attribute": null
+      },
+      "H.5.r.1b": {
+        "label": "Case Summary and Reporter’s Comments Language",
+        "element": "H.5.r.1b",
+        "type": "text",
+        "xpath": "h:value",
+        "attribute": "language"
+      }
+    },
+    "source": "ICH IG 5.03 / I(G) 1.03, 18 July 2025",
+    "label": "Языковое резюме"
+  },
+  "drug_extra": {
+    "xpath": "/h:MCCI_IN200100UV01/h:PORR_IN049016UV/h:controlActProcess/h:subject/h:investigationEvent/h:component/h:adverseEventAssessment/h:subject1/h:primaryRole/h:subjectOf2/h:organizer[h:code[@code='4'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.20']]/h:component/h:substanceAdministration",
+    "fields": {
+      "G.k.2.4": {
+        "label": "Identification of the Country Where the Drug Was Obtained",
+        "element": "G.k.2.4",
+        "type": "text",
+        "xpath": "h:consumable/h:instanceOfKind/h:subjectOf/h:productEvent/h:performer/h:assignedEntity/h:representedOrganization/h:addr/h:country",
+        "attribute": null
+      },
+      "G.k.2.5": {
+        "label": "Investigational Product Blinded",
+        "element": "G.k.2.5",
+        "type": "boolean",
+        "xpath": "h:outboundRelationship2/h:observation[h:code[@code='6'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "value"
+      },
+      "G.k.5a": {
+        "label": "Cumulative Dose to First Reaction (number)",
+        "element": "G.k.5a",
+        "type": "decimal",
+        "xpath": "h:outboundRelationship2/h:observation[h:code[@code='14'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "value"
+      },
+      "G.k.5b": {
+        "label": "Cumulative Dose to First Reaction (unit)",
+        "element": "G.k.5b",
+        "type": "text",
+        "xpath": "h:outboundRelationship2/h:observation[h:code[@code='14'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "unit"
+      },
+      "G.k.6a": {
+        "label": "Gestation Period at Time of Exposure (number)",
+        "element": "G.k.6a",
+        "type": "decimal",
+        "xpath": "h:outboundRelationship2/h:observation[h:code[@code='16'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "value"
+      },
+      "G.k.6b": {
+        "label": "Gestation Period at Time of Exposure (unit)",
+        "element": "G.k.6b",
+        "type": "text",
+        "xpath": "h:outboundRelationship2/h:observation[h:code[@code='16'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "unit"
+      },
+      "G.k.8": {
+        "label": "Action(s) Taken with Drug",
+        "element": "G.k.8",
+        "type": "code",
+        "xpath": "h:inboundRelationship/h:act/h:code",
+        "attribute": "code",
+        "system": "2.16.840.1.113883.3.989.2.1.1.15"
+      },
+      "G.k.11": {
+        "label": "Additional Information on Drug (free text)",
+        "element": "G.k.11",
+        "type": "text",
+        "xpath": "h:outboundRelationship2/h:observation[h:code[@code='2'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": null
+      }
+    },
+    "source": "ICH IG 5.03 / I(G) 1.03, 18 July 2025",
+    "label": "Дополнительные данные препарата"
+  },
+  "drug_additional": {
+    "xpath": "/h:MCCI_IN200100UV01/h:PORR_IN049016UV/h:controlActProcess/h:subject/h:investigationEvent/h:component/h:adverseEventAssessment/h:subject1/h:primaryRole/h:subjectOf2/h:organizer[h:code[@code='4'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.20']]/h:component/h:substanceAdministration/h:outboundRelationship2/h:observation[h:code[@code='9'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]",
+    "fields": {
+      "G.k.10.r": {
+        "label": "Additional Information on Drug (coded) (repeat as necessary)",
+        "element": "G.k.10.r",
+        "type": "code",
+        "xpath": "h:value",
+        "attribute": "code",
+        "system": "2.16.840.1.113883.3.989.2.1.1.17"
+      }
+    },
+    "source": "ICH IG 5.03 / I(G) 1.03, 18 July 2025",
+    "label": "Дополнительная кодированная характеристика препарата"
+  },
+  "reaction_extra": {
+    "xpath": "/h:MCCI_IN200100UV01/h:PORR_IN049016UV/h:controlActProcess/h:subject/h:investigationEvent/h:component/h:adverseEventAssessment/h:subject1/h:primaryRole/h:subjectOf2/h:observation[h:code[@code='29'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]",
+    "fields": {
+      "E.i.1.1b": {
+        "label": "Reaction / Event as Reported by the Primary Source Language",
+        "element": "E.i.1.1b",
+        "type": "text",
+        "xpath": "h:value/h:originalText",
+        "attribute": "language"
+      },
+      "E.i.1.2": {
+        "label": "Reaction / Event as Reported by the Primary Source for Translation",
+        "element": "E.i.1.2",
+        "type": "text",
+        "xpath": "h:outboundRelationship2/h:observation[h:code[@code='30'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": null
+      },
+      "E.i.3.1": {
+        "label": "Term Highlighted by the Reporter",
+        "element": "E.i.3.1",
+        "type": "code",
+        "xpath": "h:outboundRelationship2/h:observation[h:code[@code='37'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "code",
+        "system": "2.16.840.1.113883.3.989.2.1.1.10"
+      },
+      "E.i.4": {
+        "label": "Date of Start of Reaction / Event",
+        "element": "E.i.4",
+        "type": "date",
+        "xpath": "h:effectiveTime//h:low",
+        "attribute": "value"
+      },
+      "E.i.5": {
+        "label": "Date of End of Reaction / Event",
+        "element": "E.i.5",
+        "type": "date",
+        "xpath": "h:effectiveTime//h:high",
+        "attribute": "value"
+      },
+      "E.i.6a": {
+        "label": "Duration of Reaction / Event (number)",
+        "element": "E.i.6a",
+        "type": "decimal",
+        "xpath": "h:effectiveTime//h:width",
+        "attribute": "value"
+      },
+      "E.i.6b": {
+        "label": "Duration of Reaction / Event (unit)",
+        "element": "E.i.6b",
+        "type": "text",
+        "xpath": "h:effectiveTime//h:width",
+        "attribute": "unit"
+      },
+      "E.i.8": {
+        "label": "Medical Confirmation by Healthcare Professional",
+        "element": "E.i.8",
+        "type": "boolean",
+        "xpath": "h:outboundRelationship2/h:observation[h:code[@code='24'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.19']]/h:value",
+        "attribute": "value"
+      },
+      "E.i.9": {
+        "label": "Identification of the Country Where the Reaction / Event Occurred",
+        "element": "E.i.9",
+        "type": "code",
+        "xpath": "h:location/h:locatedEntity/h:locatedPlace/h:code",
+        "attribute": "code",
+        "system": "1.0.3166.1.2.2"
+      }
+    },
+    "source": "ICH IG 5.03 / I(G) 1.03, 18 July 2025",
+    "label": "Дополнительные данные реакции"
+  },
+  "pair_interval": {
+    "xpath": "/h:MCCI_IN200100UV01/h:PORR_IN049016UV/h:controlActProcess/h:subject/h:investigationEvent/h:component/h:adverseEventAssessment/h:subject1/h:primaryRole/h:subjectOf2/h:organizer[h:code[@code='4'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.20']]/h:component/h:substanceAdministration/h:outboundRelationship1[@typeCode='SAS']",
+    "fields": {
+      "G.k.9.i.3.1a": {
+        "label": "Time Interval between Beginning of Drug Administration and Start of Reaction / Event (number)",
+        "element": "G.k.9.i.3.1a",
+        "type": "decimal",
+        "xpath": "h:pauseQuantity",
+        "attribute": "value"
+      },
+      "G.k.9.i.3.1b": {
+        "label": "Time Interval between Beginning of Drug Administration and Start of Reaction / Event (unit)",
+        "element": "G.k.9.i.3.1b",
+        "type": "text",
+        "xpath": "h:pauseQuantity",
+        "attribute": "unit"
+      }
+    },
+    "source": "ICH IG 5.03 / I(G) 1.03, 18 July 2025",
+    "label": "Интервал от начала применения"
+  },
+  "case_identifier": {
+    "xpath": "/h:MCCI_IN200100UV01/h:PORR_IN049016UV/h:controlActProcess/h:subject/h:investigationEvent/h:subjectOf1/h:controlActEvent/h:id[@root='2.16.840.1.113883.3.989.2.1.3.3']",
+    "fields": {
+      "C.1.9.1.r.1": {
+        "label": "Source(s) of the Case Identifier",
+        "element": "C.1.9.1.r.1",
+        "type": "text",
+        "xpath": ".",
+        "attribute": "assigningAuthorityName"
+      },
+      "C.1.9.1.r.2": {
+        "label": "Case Identifier(s)",
+        "element": "C.1.9.1.r.2",
+        "type": "text",
+        "xpath": ".",
+        "attribute": "extension"
+      }
+    },
+    "source": "ICH IG 5.03 / I(G) 1.03, 18 July 2025",
+    "label": "Другой идентификатор случая"
+  },
+  "linked_case": {
+    "xpath": "/h:MCCI_IN200100UV01/h:PORR_IN049016UV/h:controlActProcess/h:subject/h:investigationEvent/h:outboundRelationship/h:relatedInvestigation/h:subjectOf2/h:controlActEvent/h:id[@root='2.16.840.1.113883.3.989.2.1.3.2']",
+    "fields": {
+      "C.1.10.r": {
+        "label": "Identification Number of the Report Which Is Linked to This Report",
+        "element": "C.1.10.r",
+        "type": "text",
+        "xpath": ".",
+        "attribute": "extension"
+      }
+    },
+    "source": "ICH IG 5.03 / I(G) 1.03, 18 July 2025",
+    "label": "Связанный случай"
+  },
+  "pair_last_interval": {
+    "xpath": "/h:MCCI_IN200100UV01/h:PORR_IN049016UV/h:controlActProcess/h:subject/h:investigationEvent/h:component/h:adverseEventAssessment/h:subject1/h:primaryRole/h:subjectOf2/h:organizer[h:code[@code='4'][@codeSystem='2.16.840.1.113883.3.989.2.1.1.20']]/h:component/h:substanceAdministration/h:outboundRelationship1[@typeCode='SAE']",
+    "fields": {
+      "G.k.9.i.3.2a": {
+        "label": "Time Interval between Last Dose of Drug and Start of Reaction / Event (number)",
+        "element": "G.k.9.i.3.2a",
+        "type": "decimal",
+        "xpath": "h:pauseQuantity",
+        "attribute": "value"
+      },
+      "G.k.9.i.3.2b": {
+        "label": "Time Interval between Last Dose of Drug and Start of Reaction / Event (unit)",
+        "element": "G.k.9.i.3.2b",
+        "type": "text",
+        "xpath": "h:pauseQuantity",
+        "attribute": "unit"
+      }
+    },
+    "source": "ICH IG 5.03 / I(G) 1.03, 18 July 2025",
+    "label": "Интервал от последней дозы"
+  },
+  "study_site": {
+    "label": "Участник и центр исследования",
+    "xpath": null,
+    "source": "PV1 internal workflow v1; not a regional ICH rule",
+    "fields": {
+      "local.subject_id": {
+        "label": "Номер участника",
+        "type": "text",
+        "xpath": null,
+        "attribute": null
+      },
+      "local.site_id": {
+        "label": "Номер центра",
+        "type": "text",
+        "xpath": null,
+        "attribute": null
+      },
+      "local.site_name": {
+        "label": "Наименование центра",
+        "type": "text",
+        "xpath": null,
+        "attribute": null
+      },
+      "local.sponsor": {
+        "label": "Спонсор",
+        "type": "text",
+        "xpath": null,
+        "attribute": null
+      },
+      "local.blinding": {
+        "label": "Ослепление: blinded / open / unknown",
+        "type": "text",
+        "xpath": null,
+        "attribute": null
+      }
+    }
+  },
+  "pv_decision": {
+    "label": "Решение ответственного ФН",
+    "xpath": null,
+    "source": "PV1 internal workflow v1; not a regional ICH rule",
+    "fields": {
+      "local.expectedness": {
+        "label": "Ожидаемость: expected / unexpected / unknown",
+        "type": "text",
+        "xpath": null,
+        "attribute": null
+      },
+      "local.reportability": {
+        "label": "Представляемость: submit / not_submit / undecided",
+        "type": "text",
+        "xpath": null,
+        "attribute": null
+      },
+      "local.route": {
+        "label": "Назначенный маршрут",
+        "type": "text",
+        "xpath": null,
+        "attribute": null
+      },
+      "local.basis": {
+        "label": "Основание решения",
+        "type": "text",
+        "xpath": null,
+        "attribute": null
+      },
+      "local.document_version": {
+        "label": "Версия документа / RSI",
+        "type": "text",
+        "xpath": null,
+        "attribute": null
+      },
+      "local.document_reference": {
+        "label": "Ссылка на документ / RSI",
+        "type": "text",
+        "xpath": null,
+        "attribute": null
+      },
+      "local.scope": {
+        "label": "Направление: registered / study / unknown",
+        "type": "text",
+        "xpath": null,
+        "attribute": null
+      }
+    }
+  }
+}

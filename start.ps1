@@ -1,12 +1,15 @@
+param(
+    [int]$Port = 8000,
+    [switch]$InstallDependencies,
+    [switch]$Reload
+)
 $ErrorActionPreference = "Stop"
 
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ProjectRoot
 
 $HostAddress = "127.0.0.1"
-$Port = 8000
 $Url = "http://${HostAddress}:${Port}/"
-$CurrentProcessId = [System.Diagnostics.Process]::GetCurrentProcess().Id
 $LocalUv = Join-Path $ProjectRoot ".tools\uv\uv.exe"
 $UvCommand = $null
 
@@ -23,24 +26,17 @@ Write-Host "Starting PV MVP from: $ProjectRoot"
 Write-Host "Checking port $Port..."
 
 $Listeners = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
-$ProcessIds = $Listeners | Select-Object -ExpandProperty OwningProcess -Unique
-
-foreach ($ProcessId in $ProcessIds) {
-    if ($ProcessId -and $ProcessId -ne $CurrentProcessId) {
-        $Process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
-        if ($Process) {
-            Write-Host "Port $Port is busy. Stopping process $($Process.Id) ($($Process.ProcessName))..."
-            Stop-Process -Id $Process.Id -Force
-        }
-    }
+if ($Listeners) {
+    throw "Port $Port is busy. Stop your PV1 server explicitly or use start.ps1 -Port 8001."
 }
-
-Start-Sleep -Milliseconds 500
 
 $VenvPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
 $Python = $VenvPython
 
 if (-not (Test-Path -LiteralPath $Python)) {
+    if (-not $InstallDependencies) {
+        throw "Run start.ps1 -InstallDependencies to set up the environment, then initialize the database as described in README."
+    }
     Write-Host "Virtual environment was not found. Creating .venv..."
 
     if ($UvCommand) {
@@ -65,9 +61,10 @@ if (-not (Test-Path -LiteralPath $Python)) {
     }
 }
 
-Write-Host "Installing/updating dependencies from requirements.txt..."
+if ($InstallDependencies) {
+Write-Host "Installing dependencies from requirements.lock.txt..."
 if ($UvCommand) {
-    & $UvCommand pip install -r "requirements.txt" --python $Python
+    & $UvCommand pip install -r "requirements.lock.txt" --python $Python
     if ($LASTEXITCODE -ne 0) {
         throw "Dependency installation failed with uv."
     }
@@ -81,13 +78,16 @@ if ($UvCommand) {
         }
     }
 
-    & $Python -m pip install -r "requirements.txt"
+    & $Python -m pip install -r "requirements.lock.txt"
     if ($LASTEXITCODE -ne 0) {
         throw "Dependency installation failed."
     }
+}
 }
 
 Write-Host "Opening site at $Url"
 Write-Host "Press Ctrl+C to stop the server."
 
-& $Python -m uvicorn app.main:app --host $HostAddress --port $Port --reload
+$ServerArguments = @("-m", "uvicorn", "app.main:app", "--host", $HostAddress, "--port", $Port)
+if ($Reload) { $ServerArguments += "--reload" }
+& $Python @ServerArguments

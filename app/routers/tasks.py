@@ -1,6 +1,9 @@
+from app import models
+from app.concurrency import protect_record
+from app.unit_of_work import atomic_write
 from datetime import date
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, Request, HTTPException
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
@@ -67,6 +70,16 @@ def tasks_page(
             "active_page": "tasks",
             "tasks": page_tasks,
             "users": crud.list_users(db),
+            "related_objects": [
+                (kind, record.id, label(record), record.version)
+                for kind, model, label in (
+                    ('Case', models.Case, lambda row: row.case_number),
+                    ('Partner', models.Partner, lambda row: row.partner_name),
+                    ('PSUR', models.PSURPlan, lambda row: f'{row.psur_type}: {row.reporting_period_start}'),
+                    ('PartnerReconciliation', models.PartnerReconciliation, lambda row: row.id),
+                )
+                for record in db.query(model).filter(model.is_deleted.is_(False)).all()
+            ],
             "status_options": TASK_STATUS_OPTIONS,
             "legacy_status_options": LEGACY_TASK_STATUS_OPTIONS,
             "priority_options": TASK_PRIORITY_OPTIONS,
@@ -87,6 +100,7 @@ def tasks_page(
     "/tasks",
     dependencies=[Depends(require_any_permission("create", "create_related_requests", "comment"))],
 )
+@atomic_write
 def create_task_form(
     request: Request,
     title: str = Form(...),
@@ -99,8 +113,18 @@ def create_task_form(
     related_entity_type: str | None = Form(None),
     related_entity_id: str | None = Form(None),
     comment: str | None = Form(None),
+    expected_related_version: int | None = Form(None, gt=0),
     db: Session = Depends(get_db),
 ):
+    if related_entity_id or related_entity_type:
+        parent_models = {'Case': models.Case, 'Partner': models.Partner,
+                         'PSUR': models.PSURPlan, 'PartnerReconciliation': models.PartnerReconciliation}
+        model = parent_models.get(related_entity_type)
+        if not model or not related_entity_id or expected_related_version is None:
+            raise HTTPException(status_code=422, detail='Select a related object and its version')
+        parent = protect_record(db, model, related_entity_id, expected_related_version)
+        if model is models.Case and crud.case_is_controlled(parent):
+            raise HTTPException(status_code=409, detail='Case is locked. Reload before saving.')
     if not title.strip():
         return redirect_with_message("/tasks", validation="Task title is required.")
     assigned_user = crud.get_user(db, assigned_to_user_id) if assigned_to_user_id else None
@@ -129,12 +153,15 @@ def create_task_form(
     "/tasks/{task_id}/status",
     dependencies=[Depends(require_any_permission("edit", "comment"))],
 )
+@atomic_write
 def update_task_status_form(
     task_id: str,
     request: Request,
     status_value: str = Form(...),
+    expected_version: int = Form(..., gt=0),
     db: Session = Depends(get_db),
 ):
+    protect_record(db, models.Task, task_id, expected_version)
     task = crud.get_task(db, task_id)
     if not task:
         return redirect_with_message("/tasks", error="Task not found.")
