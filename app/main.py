@@ -43,8 +43,10 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
-    yield
+    from app.local_runtime import runtime_guard
+    with runtime_guard():
+        init_db()
+        yield
 
 
 app = FastAPI(
@@ -80,6 +82,16 @@ app.include_router(authentication.router)
 app.include_router(dashboard.router)
 app.include_router(safety_reports.router)
 app.include_router(cases.router)
+from app.routers import drug_blocks
+app.include_router(drug_blocks.router)
+from app.routers import clinical
+app.include_router(clinical.router)
+from app.routers import r3_exports
+app.include_router(r3_exports.router)
+from app.routers import as2
+app.include_router(as2.router)
+from app.routers import operations
+app.include_router(operations.router)
 app.include_router(partners.router)
 app.include_router(partner_onboarding.router)
 app.include_router(partner_reconciliation.router)

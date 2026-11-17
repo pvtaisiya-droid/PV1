@@ -1,0 +1,25 @@
+# Синтетический блок препаратов: основания этапа 2.4
+
+`source.xml` содержит два препарата с одинаковым названием, разными XML ID и ролями, три режима, три показания, три вещества, две реакции, три оценки причинности и два rechallenge. Это синтетические сведения для локальных проверок, не полный ICSR, не XSD-эталон и не принятое РЗН сообщение. Коды терминов и вымышленные системы `urn:synthetic:*` не подтверждают наличие записи в словаре. XML не зависит от `.tmp-stage-1`, PDF или внешних сервисов.
+
+Основания:
+
+- [ICH Implementation Guide 5.03, 18.07.2025](https://database.ich.org/sites/default/files/ICH_E2B%28R3%29_EWG_IWG_ICSR_Implementation_Guide_%28QA%20integration%29_Step3_2025_0718_Assembly_Approved_0.pdf), разделы G.k.1–G.k.4.r, G.k.7.r, G.k.9.i.1/2/4. Режимы, вещества, показания и оценки повторяются независимо. G.k.7.r.2b — MedDRA LLT; PT по коду показания не выводится. Содержание вещества, доза препарата и доза вещества пациенту — разные факты.
+- [Appendix I(G), ICH ICSR Technical Information 1.03, 18.07.2025](https://database.ich.org/sites/default/files/ICH_E2B%28R3%29_EWG_IWG_Appendix_I%28G%29_Step3_2025_0718_Assembly_Approved_0.pdf), таблицы тех же элементов, в частности физические страницы PDF 114–120 (контекст препаратов, роли и идентификаторы), 125–128 (доза и интервал), раздел 2.1 (варианты представления времени). Подтверждение путей — таблицы, а не только один пример.
+- Reference instance `00_ICH_ICSR_Reference_Instance_variation_v3_1.xml`, [полный пакет ICH 1.11](https://admin.ich.org/sites/default/files/inline-files/IG_Complete_Package_v1_11_1.zip), SHA-256 `a3e3f4e2fbec61abec6a3166cb96cc8236f496b08554f71ff661e4ae8172ff72`. Полный пакет в репозиторий не добавляется.
+
+Namespace всех путей ниже — `urn:hl7-org:v3`; база A от `PORR_IN049016UV`: `controlActProcess/subject/investigationEvent/component/adverseEventAssessment`.
+
+| Сведения | Контекст и правило |
+|---|---|
+| Препарат k | A/subject1/primaryRole/subjectOf2/organizer с code=4, OID `2.16.840.1.113883.3.989.2.1.1.20`, версия 1.0; component/substanceAdministration. ID — точные root+extension; префикс DID не имеет значения. |
+| Роль G.k.1 | A/component/causalityAssessment с code=20 в OID наблюдений `2.16.840.1.113883.3.989.2.1.1.19`, версия 1.1. subject2/productUseReference/id указывает препарат. value/@code, OID `…1.13`, версия 1.0: 1 suspect, 2 concomitant, 3 interacting, 4 not_administered. Отсутствующий/неподдержанный код остаётся unknown с исходными атрибутами; версия не подставляется. |
+| Название, коды, авторизация | consumable/instanceOfKind/kindOfProduct: name, code (codeSystem и codeSystemVersion). В I(G) MPID/PhPID имеют системы TBD-MPID/TBD-PhPID: это не действующие региональные OID. PV1 хранит код+систему+версию без выдуманного назначения. asManufacturedProduct/subjectOf/approval содержит id, holder/role/playingOrganization/name и author/territorialAuthority/territory/code. |
+| Состав G.k.2.3.r | kindOfProduct/ingredient (ACTI): ingredientSubstance/name и code; quantity/numerator и denominator с исходными value/unit/nullFlavor. Числитель не становится дозой. |
+| Режим G.k.4.r | substanceAdministration/outboundRelationship2 (COMP)/substanceAdministration: doseQuantity value/unit либо numerator/denominator (включая вариант Total с неизвестным знаменателем); effectiveTime/comp PIVL_TS/period — значение/единица интервала; IVL_TS low/high/width — начало/конец/длительность. При единственном IVL_TS low/high читаются непосредственно. Исходный effectiveTime сохраняется целиком; неоднозначные повторные одиночные элементы блокируют импорт. Текст — text; routeCode и formCode сохраняют свои системы/версии. |
+| Родительский путь | Внутри режима inboundRelationship/observation code=28 в OID …1.19, value и originalText. Он не заменяет путь пациента. |
+| Показания G.k.7.r | На препарате inboundRelationship/observation code=19 в OID …1.19; value/originalText, value/@code (LLT) и @codeSystemVersion. MedDRA OID `2.16.840.1.113883.6.163`. |
+| Оценки G.k.9.i.2.r | A/component/causalityAssessment code=39 в OID …1.19: subject1/adverseEffectReference/id и subject2/productUseReference/id должны разрешиться однозначно; author/assignedEntity/code/originalText — источник, methodCode/originalText — метод, value — результат. Любой исходный текст метода не считается вычислением WHO-UMC/Naranjo. |
+| Rechallenge G.k.9.i.4 | На препарате outboundRelationship2/observation code=31 в OID …1.19; outboundRelationship1/actReference/id указывает реакцию. value/@code, OID `2.16.840.1.113883.3.989.2.1.1.16`, версия 1.0: 1 повторное назначение да/реакция да; 2 да/нет; 3 да/неизвестно; 4 повторного назначения не было, результат неприменим. |
+
+Отсутствие версии системы не дополняется; исходная система/версия остаётся доступной. Неизвестный nullFlavor хранится без признания его разрешённым для отправки. Для дат применяется уже существующий ограниченный разбор HL7 TS этапа 2.1 без дополнения месяца/дня. Синтаксический разбор не заменяет словарь, XSD, клиническую проверку или профиль РЗН.

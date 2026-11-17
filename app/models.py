@@ -1,4 +1,5 @@
 import uuid
+import json
 from datetime import date, datetime, timezone
 
 from sqlalchemy import (
@@ -14,10 +15,12 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import declared_attr, relationship
 
 from app.database import Base
+from app.e2b_r3_identity import transmission_facts, PROFILE as R3_IDENTITY_PROFILE
 
 
 def utcnow() -> datetime:
@@ -885,6 +888,11 @@ class SafetyReport(CommonMixin, Base):
         back_populates="safety_reports",
     )
     e2b_import_item = relationship("E2BImportItem", foreign_keys=[import_item_id])
+    e2b_transmissions = relationship("E2BTransmission", back_populates="safety_report")
+
+    @property
+    def e2b_source_facts(self):
+        return transmission_facts(self.e2b_transmissions)
 
     @property
     def product_ids(self) -> list[str]:
@@ -971,6 +979,7 @@ class Case(CommonMixin, Base):
         ),
         Index("ix_case_status_due", "workflow_status", "due_date"),
         Index("ix_case_seriousness_received", "seriousness", "initial_received_date"),
+        Index("uq_case_e2b_sender_local", "e2b_sender_scope", "local_sender_case_id", unique=True),
     )
 
     case_number = Column(String(50), index=True, nullable=False)
@@ -1005,7 +1014,10 @@ class Case(CommonMixin, Base):
     narrative = Column(Text, nullable=True)
     company_comment = Column(Text, nullable=True)
     medical_review_comment = Column(Text, nullable=True)
-    local_sender_case_id = Column(String(255), unique=True, nullable=True, index=True)
+    local_sender_case_id = Column(String(255), nullable=True, index=True)
+    # NULL means unverified interpretation, not an invalid historical record.
+    e2b_identity_profile = Column(String(64), nullable=True)
+    e2b_sender_scope = Column(Text, nullable=True)
     source_country_code = Column(String(2), nullable=True)
     data_review_status = Column(String(100), nullable=True)
     e2b_import_batch_id = Column(String(36), ForeignKey("tblE2BImportBatches.id"), nullable=True, index=True)
@@ -1088,6 +1100,10 @@ class Case(CommonMixin, Base):
             return "UNASSIGNED"
         code = (self.numbering_partner.partner_code if self.numbering_partner else "") or ""
         return code.strip() or f"PARTNER{self.numbering_partner_id}"
+
+    @property
+    def e2b_source_facts(self):
+        return transmission_facts(self.e2b_transmissions)
 
     @property
     def full_case_code(self) -> str:
@@ -1477,15 +1493,29 @@ class Patient(CommonMixin, Base):
     import_batch = relationship("E2BImportBatch")
 
 
-class CaseProduct(CommonMixin, Base):
+class DrugSourceMixin:
+    interpretation_profile = Column(String(64), nullable=True)
+    source_facts_json = Column(Text, nullable=True)
+    reviewed_fields_json = Column(Text, nullable=True)
+    current_sources_json = Column(Text, nullable=True)
+
+    @property
+    def drug_provenance(self):
+        from app.drug_data import provenance
+        return provenance(self)
+
+
+class CaseProduct(DrugSourceMixin, CommonMixin, Base):
     __tablename__ = "tblCaseProducts"
+
+    coded_identifiers_json = Column(Text, nullable=True)
 
     case_id = Column(String(36), ForeignKey("tblCases.id"), nullable=False, index=True)
     product_id = Column(String(36), ForeignKey("tblProducts.id"), nullable=True)
     reported_product_name = Column(String(255), nullable=True)
     normalized_product_name = Column(String(255), nullable=True)
     active_substance_text = Column(String(255), nullable=True)
-    drug_role = Column(String(50), default="suspect", nullable=False)
+    drug_role = Column(String(50), default="unknown", nullable=False)
     product_match_status = Column(String(50), nullable=True)
     substance_match_status = Column(String(50), nullable=True)
     indication_text = Column(Text, nullable=True)
@@ -1515,6 +1545,14 @@ class CaseProduct(CommonMixin, Base):
     batch_lot_number = Column(String(100), nullable=True)
     import_batch_id = Column(String(36), ForeignKey("tblE2BImportBatches.id"), nullable=True, index=True)
 
+    @property
+    def coded_identifiers(self):
+        return json.loads(self.coded_identifiers_json or "[]")
+
+    dosages = relationship("CaseDrugDosage", back_populates="case_product", order_by="CaseDrugDosage.created_at")
+    indications = relationship("CaseDrugIndication", back_populates="case_product", order_by="CaseDrugIndication.created_at")
+    rechallenges = relationship("CaseDrugRechallenge", back_populates="case_product", order_by="CaseDrugRechallenge.created_at")
+
     case = relationship("Case", back_populates="case_products")
     product = relationship("Product", back_populates="case_products")
     import_batch = relationship("E2BImportBatch")
@@ -1530,12 +1568,19 @@ class CaseProduct(CommonMixin, Base):
     )
 
 
-class CaseDrugSubstance(CommonMixin, Base):
+class CaseDrugSubstance(DrugSourceMixin, CommonMixin, Base):
     __tablename__ = "tblCaseDrugSubstances"
     __table_args__ = (
         Index("ix_case_drug_substance_case_product", "case_product_id"),
         Index("ix_case_drug_substance_substance", "substance_id"),
     )
+
+    identifier_code = Column(Text, nullable=True)
+    identifier_system = Column(Text, nullable=True)
+    identifier_version = Column(Text, nullable=True)
+    denominator_value = Column(Text, nullable=True)
+    denominator_unit = Column(Text, nullable=True)
+    quantity_null_flavor = Column(Text, nullable=True)
 
     case_product_id = Column(String(36), ForeignKey("tblCaseProducts.id"), nullable=False)
     substance_id = Column(String(36), ForeignKey("tblSubstances.id"), nullable=True)
@@ -1552,6 +1597,66 @@ class CaseDrugSubstance(CommonMixin, Base):
     import_batch = relationship("E2BImportBatch")
 
 
+class CaseDrugDosage(DrugSourceMixin, CommonMixin, Base):
+    __tablename__ = "tblCaseDrugDosages"
+    case_product_id = Column(String(36), ForeignKey("tblCaseProducts.id"), nullable=False, index=True)
+    dose_value = Column(Text, nullable=True)
+    dose_unit = Column(Text, nullable=True)
+    dose_numerator_value = Column(Text, nullable=True)
+    dose_numerator_unit = Column(Text, nullable=True)
+    dose_denominator_value = Column(Text, nullable=True)
+    dose_denominator_unit = Column(Text, nullable=True)
+    interval_value = Column(Text, nullable=True)
+    interval_unit = Column(Text, nullable=True)
+    frequency_text = Column(Text, nullable=True)
+    route_text = Column(Text, nullable=True)
+    route_code = Column(Text, nullable=True)
+    route_system = Column(Text, nullable=True)
+    route_version = Column(Text, nullable=True)
+    route_null_flavor = Column(Text, nullable=True)
+    start_raw = Column(Text, nullable=True)
+    start_null_flavor = Column(Text, nullable=True)
+    end_raw = Column(Text, nullable=True)
+    end_null_flavor = Column(Text, nullable=True)
+    duration_value = Column(Text, nullable=True)
+    duration_unit = Column(Text, nullable=True)
+    dosage_text = Column(Text, nullable=True)
+    dosage_form_text = Column(Text, nullable=True)
+    dosage_form_code = Column(Text, nullable=True)
+    dosage_form_system = Column(Text, nullable=True)
+    dosage_form_version = Column(Text, nullable=True)
+    batch_lot_number = Column(Text, nullable=True)
+    parent_route_text = Column(Text, nullable=True)
+    parent_route_code = Column(Text, nullable=True)
+    parent_route_system = Column(Text, nullable=True)
+    parent_route_version = Column(Text, nullable=True)
+    case_product = relationship("CaseProduct", back_populates="dosages")
+
+
+class CaseDrugIndication(DrugSourceMixin, CommonMixin, Base):
+    __tablename__ = "tblCaseDrugIndications"
+    case_product_id = Column(String(36), ForeignKey("tblCaseProducts.id"), nullable=False, index=True)
+    reported_text = Column(Text, nullable=True)
+    meddra_llt_code = Column(Text, nullable=True)
+    meddra_version = Column(Text, nullable=True)
+    legacy_meddra_pt_code = Column(Text, nullable=True)
+    null_flavor = Column(Text, nullable=True)
+    case_product = relationship("CaseProduct", back_populates="indications")
+
+
+class CaseDrugRechallenge(DrugSourceMixin, CommonMixin, Base):
+    __tablename__ = "tblCaseDrugRechallenges"
+    case_product_id = Column(String(36), ForeignKey("tblCaseProducts.id"), nullable=False, index=True)
+    reaction_id = Column(String(36), ForeignKey("tblReactions.id"), nullable=False, index=True)
+    rechallenge_code = Column(Text, nullable=True)
+    code_system = Column(Text, nullable=True)
+    code_version = Column(Text, nullable=True)
+    null_flavor = Column(Text, nullable=True)
+    reported_text = Column(Text, nullable=True)
+    case_product = relationship("CaseProduct", back_populates="rechallenges")
+    reaction = relationship("Reaction")
+
+
 class Reaction(CommonMixin, Base):
     __tablename__ = "tblReactions"
     __table_args__ = (
@@ -1560,7 +1665,7 @@ class Reaction(CommonMixin, Base):
     )
 
     case_id = Column(String(36), ForeignKey("tblCases.id"), nullable=False, index=True)
-    reported_term = Column(String(255), index=True, nullable=False)
+    reported_term = Column(String(255), index=True, nullable=True)
     verbatim_term = Column(String(255), nullable=True)
     meddra_llt_code = Column(String(50), nullable=True)
     meddra_llt_name = Column(String(255), nullable=True)
@@ -1579,13 +1684,24 @@ class Reaction(CommonMixin, Base):
     end_date_precision = Column(String(20), nullable=True)
     duration_text = Column(String(255), nullable=True)
     outcome = Column(String(100), nullable=True)
-    is_serious = Column(Boolean, default=False, index=True, nullable=False)
-    seriousness_death = Column(Boolean, default=False, nullable=False)
-    seriousness_life_threatening = Column(Boolean, default=False, nullable=False)
-    seriousness_hospitalization = Column(Boolean, default=False, nullable=False)
-    seriousness_disability = Column(Boolean, default=False, nullable=False)
-    seriousness_congenital_anomaly = Column(Boolean, default=False, nullable=False)
-    seriousness_other_medically_important = Column(Boolean, default=False, nullable=False)
+    is_serious = Column(Boolean, index=True, nullable=True)
+    seriousness_death = Column(Boolean, nullable=True)
+    seriousness_life_threatening = Column(Boolean, nullable=True)
+    seriousness_hospitalization = Column(Boolean, nullable=True)
+    seriousness_disability = Column(Boolean, nullable=True)
+    seriousness_congenital_anomaly = Column(Boolean, nullable=True)
+    seriousness_other_medically_important = Column(Boolean, nullable=True)
+    reported_seriousness = Column(Boolean, nullable=True)
+    interpretation_profile = Column(String(64), nullable=True)
+    source_facts_json = Column(Text, nullable=True)
+    reviewed_fields_json = Column(Text, nullable=True)
+    current_sources_json = Column(Text, nullable=True)
+
+    @property
+    def reaction_provenance(self):
+        from app.reaction_semantics import provenance
+        return provenance(self)
+
     medically_confirmed = Column(Boolean, nullable=True)
     reporter_comment = Column(Text, nullable=True)
     null_flavor = Column(String(50), nullable=True)
@@ -1600,7 +1716,7 @@ class Reaction(CommonMixin, Base):
     )
 
 
-class CaseProductReactionAssessment(CommonMixin, Base):
+class CaseProductReactionAssessment(DrugSourceMixin, CommonMixin, Base):
     __tablename__ = "tblCaseProductReactionAssessments"
     __table_args__ = (
         Index("ix_case_assessment_method_result", "causality_method", "relatedness"),
@@ -1609,6 +1725,9 @@ class CaseProductReactionAssessment(CommonMixin, Base):
 
     case_product_id = Column(String(36), ForeignKey("tblCaseProducts.id"), nullable=False)
     reaction_id = Column(String(36), ForeignKey("tblReactions.id"), nullable=False)
+    assessment_source = Column(Text, nullable=True)
+    assessment_method_text = Column(Text, nullable=True)
+
     causality_reporter = Column(String(100), nullable=True)
     causality_company = Column(String(100), nullable=True)
     causality_method = Column(String(100), nullable=True)
@@ -1852,6 +1971,26 @@ class SOPVersion(CommonMixin, Base):
 
 class IncomingRequest(CommonMixin, Base):
     __tablename__ = "tblIncomingRequests"
+
+    @property
+    def e2b_source_message(self):
+        try:
+            parsed = json.loads(self.gpt_json_output or "{}")
+        except (ValueError, TypeError):
+            return {}
+        if not isinstance(parsed, dict):
+            return {}
+        messages = [parsed.get("message", {})] + [
+            f.get("normalized", {}).get("message", {}) for f in parsed.get("files", [])]
+        return next((m for m in messages if m.get("identity_profile") == R3_IDENTITY_PROFILE), {})
+
+    @property
+    def received_date_basis(self):
+        return "pv1_registration" if self.e2b_source_message else "legacy_or_manual"
+
+    def source_received_date(self, key):
+        value = self.e2b_source_message.get(key, {}).get("value")
+        return date.fromisoformat(value) if value else None
     __table_args__ = (
         Index("ix_incoming_request_status", "status"),
         Index("ix_incoming_request_partner", "partner_id"),
@@ -2143,11 +2282,14 @@ class E2BTransmission(CommonMixin, Base):
     __table_args__ = (
         Index("ix_e2b_transmission_case", "case_id"),
         Index("ix_e2b_transmission_message", "message_identifier", "message_version"),
-        UniqueConstraint("import_item_id", name="uq_e2b_transmission_import_item"),
+        UniqueConstraint("import_message_id", name="uq_e2b_transmission_import_message"),
+        Index("uq_e2b_transmission_legacy_item", "import_item_id", unique=True,
+              sqlite_where=text("import_message_id IS NULL"), postgresql_where=text("import_message_id IS NULL")),
     )
 
     batch_id = Column(String(36), ForeignKey("tblE2BImportBatches.id"), nullable=False, index=True)
     import_item_id = Column(String(36), ForeignKey("tblE2BImportItems.id"), nullable=False, index=True)
+    import_message_id = Column(String(36), ForeignKey("tblIcsrMessages.id"), nullable=True)
     case_id = Column(String(36), ForeignKey("tblCases.id"), nullable=True, index=True)
     safety_report_id = Column(String(36), ForeignKey("tblSafetyReports.id"), nullable=True, index=True)
     incoming_request_id = Column(String(36), ForeignKey("tblIncomingRequests.id"), nullable=True, index=True)
@@ -2165,8 +2307,315 @@ class E2BTransmission(CommonMixin, Base):
     batch = relationship("E2BImportBatch", back_populates="transmissions")
     item = relationship("E2BImportItem", back_populates="transmissions")
     case = relationship("Case", back_populates="e2b_transmissions")
-    safety_report = relationship("SafetyReport")
+    safety_report = relationship("SafetyReport", back_populates="e2b_transmissions")
     incoming_request = relationship("IncomingRequest")
+
+
+class CaseClinicalRecord(CommonMixin, Base):
+    """Typed clinical repeats; fields are restricted by clinical_contract v1.
+
+    parent_id links patient/parent, histories and study registrations. Existing
+    drug/reaction rows remain authoritative; these records hold their extensions.
+    """
+    __tablename__ = "tblCaseClinicalRecords"
+    case_id = Column(String(36), ForeignKey("tblCases.id"), nullable=False, index=True)
+    kind = Column(String(50), nullable=False, index=True)
+    parent_id = Column(String(36), ForeignKey("tblCaseClinicalRecords.id"), nullable=True, index=True)
+    patient_id = Column(String(36), ForeignKey("tblPatients.id"), nullable=True, index=True)
+    case_product_id = Column(String(36), ForeignKey("tblCaseProducts.id"), nullable=True, index=True)
+    reaction_id = Column(String(36), ForeignKey("tblReactions.id"), nullable=True, index=True)
+    literature_id = Column(String(36), ForeignKey("tblCaseLiteratureReferences.id"), nullable=True)
+    narrative_id = Column(String(36), ForeignKey("tblCaseNarratives.id"), nullable=True)
+    attachment_id = Column(String(36), ForeignKey("tblAttachments.id"), nullable=True)
+    fields_json = Column(Text, nullable=False, default="{}")
+    source_facts_json = Column(Text, nullable=True)
+    interpretation_profile = Column(String(64), nullable=False, default="clinical-v1")
+    reviewed_fields_json = Column(Text, nullable=True)
+
+
+class IcsrMessage(CommonMixin, Base):
+    """One independent incoming ICSR; never an outgoing transport attempt."""
+    __tablename__ = "tblIcsrMessages"
+    __table_args__ = (UniqueConstraint("item_id", "ordinal", name="uq_icsr_message_item_ordinal"),)
+    batch_id = Column(String(36), ForeignKey("tblE2BImportBatches.id"), nullable=False, index=True)
+    item_id = Column(String(36), ForeignKey("tblE2BImportItems.id"), nullable=False, index=True)
+    ordinal = Column(Integer, nullable=False)
+    source_checksum = Column(String(64), nullable=False)
+    fragment_checksum = Column(String(64), nullable=False)
+    source_xml = Column(Text, nullable=False)
+    normalized_json = Column(Text, nullable=True)
+    issues_json = Column(Text, nullable=False, default="[]")
+    status = Column(String(30), nullable=False, default="review")
+    case_id = Column(String(36), ForeignKey("tblCases.id"), nullable=True, index=True)
+    applied_at = Column(DateTime(timezone=True), nullable=True)
+    applied_by = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+    decision_json = Column(Text, nullable=True)
+
+
+class OpsSubmission(Base):
+    __tablename__ = 'tblOpsSubmissions'
+    __table_args__ = (UniqueConstraint('artifact_id','contour','recipient',name='uq_ops_artifact_recipient'),)
+    id = Column(String(36),primary_key=True,default=new_uuid)
+    case_id = Column(String(36),ForeignKey('tblCases.id'),nullable=False)
+    artifact_id = Column(String(36),ForeignKey('tblIcsrExportArtifacts.id'),nullable=False)
+    dispatch_id = Column(String(36),ForeignKey('tblAS2Dispatches.id'),nullable=True)
+    contour = Column(String(30),nullable=False)
+    recipient = Column(String(100),nullable=False)
+    config_version = Column(String(50),nullable=False)
+    config_hash = Column(String(64),nullable=False)
+    manual_hold = Column(Boolean,nullable=False,default=False)
+    owner_id = Column(String(36),ForeignKey('tblUsers.id'),nullable=False)
+    deadline_raw = Column(String(50),nullable=True)
+    deadline_utc = Column(DateTime(timezone=True),nullable=True)
+    deadline_precision = Column(String(10),nullable=True)
+    deadline_basis = Column(Text,nullable=True)
+    version = Column(Integer,nullable=False,default=1)
+    author_id = Column(String(36),ForeignKey('tblUsers.id'),nullable=False)
+    created_at = Column(DateTime(timezone=True),nullable=False,default=utcnow)
+
+
+class OpsPolicy(Base):
+    __tablename__ = 'tblOpsPolicies'
+    __table_args__ = (UniqueConstraint('config_version','number',name='uq_ops_policy_version'),)
+    id = Column(String(36),primary_key=True,default=new_uuid)
+    config_version = Column(String(50),nullable=False)
+    config_hash = Column(String(64),nullable=False)
+    number = Column(Integer,nullable=False)
+    autopublish = Column(String(15),nullable=False)
+    mdn_seconds = Column(Integer,nullable=False)
+    ack_seconds = Column(Integer,nullable=False)
+    publication_seconds = Column(Integer,nullable=False)
+    approaching_seconds = Column(Integer,nullable=False)
+    certificate_days = Column(Integer,nullable=False)
+    health_seconds = Column(Integer,nullable=False)
+    reminder_seconds = Column(Integer,nullable=False)
+    reminder_limit = Column(Integer,nullable=False)
+    owner_id = Column(String(36),ForeignKey('tblUsers.id'),nullable=False)
+    author_id = Column(String(36),ForeignKey('tblUsers.id'),nullable=False)
+    reason = Column(Text,nullable=False)
+    created_at = Column(DateTime(timezone=True),nullable=False,default=utcnow)
+
+
+class OpsIncident(Base):
+    __tablename__ = 'tblOpsIncidents'
+    __table_args__ = (UniqueConstraint('scope','rule','cycle',name='uq_ops_incident_cycle'),)
+    id = Column(String(36),primary_key=True,default=new_uuid)
+    scope = Column(String(100),nullable=False)
+    submission_id = Column(String(36),ForeignKey('tblOpsSubmissions.id'),nullable=True)
+    policy_id = Column(String(36),ForeignKey('tblOpsPolicies.id'),nullable=True)
+    rule = Column(String(60),nullable=False)
+    cycle = Column(Integer,nullable=False)
+    status = Column(String(20),nullable=False,default='open')
+    active_condition = Column(Boolean,nullable=False,default=True)
+    severity = Column(String(15),nullable=False)
+    owner_id = Column(String(36),ForeignKey('tblUsers.id'),nullable=False)
+    summary = Column(Text,nullable=False)
+    basis = Column(Text,nullable=False)
+    required_action = Column(Text,nullable=False)
+    since = Column(DateTime(timezone=True),nullable=False)
+    last_seen = Column(DateTime(timezone=True),nullable=False)
+    last_reminder = Column(DateTime(timezone=True),nullable=False)
+    reminder_count = Column(Integer,nullable=False,default=0)
+    version = Column(Integer,nullable=False,default=1)
+
+
+class OpsAction(Base):
+    __tablename__ = 'tblOpsActions'
+    id = Column(String(36),primary_key=True,default=new_uuid)
+    submission_id = Column(String(36),ForeignKey('tblOpsSubmissions.id'),nullable=True,index=True)
+    incident_id = Column(String(36),ForeignKey('tblOpsIncidents.id'),nullable=True)
+    kind = Column(String(40),nullable=False)
+    actor_id = Column(String(36),ForeignKey('tblUsers.id'),nullable=True)
+    occurred_at = Column(DateTime(timezone=True),nullable=False,default=utcnow)
+    facts_json = Column(Text,nullable=False)
+    reason = Column(Text,nullable=False)
+
+
+class OpsPublication(Base):
+    __tablename__ = 'tblOpsPublications'
+    id = Column(String(36),primary_key=True,default=new_uuid)
+    submission_id = Column(String(36),ForeignKey('tblOpsSubmissions.id'),nullable=False,index=True)
+    source_key = Column(String(90),nullable=False)
+    previous_id = Column(String(36),ForeignKey('tblOpsPublications.id'),nullable=True)
+    status = Column(String(25),nullable=False)
+    actor_id = Column(String(36),ForeignKey('tblUsers.id'),nullable=False)
+    checked_at = Column(DateTime(timezone=True),nullable=False,default=utcnow)
+    published_at = Column(DateTime(timezone=True),nullable=True)
+    published_raw = Column(String(50),nullable=True)
+    source = Column(Text,nullable=False)
+    registration_number = Column(String(255),nullable=True)
+    attachment_id = Column(String(36),ForeignKey('tblAttachments.id'),nullable=True)
+    evidence_reference = Column(Text,nullable=True)
+    reason = Column(Text,nullable=False)
+
+
+class OpsSignal(Base):
+    __tablename__ = 'tblOpsSignals'
+    key = Column(String(100),primary_key=True)
+    observed_at = Column(DateTime(timezone=True),nullable=False)
+    facts_json = Column(Text,nullable=False)
+
+
+class AS2Dispatch(Base):
+    __tablename__ = 'tblAS2Dispatches'
+    __table_args__ = (UniqueConstraint('artifact_id','contour','recipient',name='uq_as2_intent_recipient'),)
+    id = Column(String(36),primary_key=True,default=new_uuid)
+    case_id = Column(String(36),ForeignKey('tblCases.id'),nullable=False,index=True)
+    artifact_id = Column(String(36),ForeignKey('tblIcsrExportArtifacts.id'),nullable=False)
+    command_key = Column(String(36),nullable=False,unique=True)
+    command_hash = Column(String(64),nullable=False)
+    contour = Column(String(30),nullable=False)
+    recipient = Column(String(100),nullable=False)
+    config_version = Column(String(50),nullable=False)
+    config_hash = Column(String(64),nullable=False)
+    config_json = Column(Text,nullable=False)
+    state = Column(String(40),nullable=False,default='queued')
+    transport_state = Column(String(40),nullable=False,default='not_started')
+    ack_state = Column(String(40),nullable=False,default='not_received')
+    lease_owner = Column(String(36),nullable=True)
+    send_hold = Column(Boolean,nullable=False,default=False)
+    hold_state = Column(String(30),nullable=False,default='none')
+    lease_until = Column(Float,nullable=True)
+    next_at = Column(Float,nullable=False,default=0)
+    version = Column(Integer,nullable=False,default=1)
+    last_error = Column(Text,nullable=True)
+    author_id = Column(String(36),ForeignKey('tblUsers.id'),nullable=False)
+    reason = Column(Text,nullable=False)
+    created_at = Column(DateTime(timezone=True),nullable=False,default=utcnow)
+    updated_at = Column(DateTime(timezone=True),nullable=False,default=utcnow)
+
+
+class AS2Attempt(Base):
+    __tablename__ = 'tblAS2Attempts'
+    __table_args__ = (UniqueConstraint('dispatch_id','number',name='uq_as2_attempt_number'),)
+    id = Column(String(36),primary_key=True,default=new_uuid)
+    dispatch_id = Column(String(36),ForeignKey('tblAS2Dispatches.id'),nullable=False,index=True)
+    number = Column(Integer,nullable=False)
+    state = Column(String(40),nullable=False,default='prepared')
+    engine_id = Column(String(36),nullable=True)
+    message_id = Column(String(255),nullable=True,index=True)
+    send_count = Column(Integer,nullable=False,default=0)
+    mic = Column(Text,nullable=True)
+    mic_algorithm = Column(String(30),nullable=True)
+    error = Column(Text,nullable=True)
+    created_at = Column(DateTime(timezone=True),nullable=False,default=utcnow)
+    updated_at = Column(DateTime(timezone=True),nullable=False,default=utcnow)
+
+
+class AS2Event(Base):
+    __tablename__ = 'tblAS2Events'
+    __table_args__ = (UniqueConstraint('engine_id','sequence',name='uq_as2_engine_event'),)
+    id = Column(String(36),primary_key=True,default=new_uuid)
+    engine_id = Column(String(36),nullable=False)
+    sequence = Column(Integer,nullable=False)
+    event_key = Column(String(150),nullable=False)
+    kind = Column(String(30),nullable=False)
+    dispatch_id = Column(String(36),ForeignKey('tblAS2Dispatches.id'),nullable=True,index=True)
+    attempt_id = Column(String(36),ForeignKey('tblAS2Attempts.id'),nullable=True)
+    metadata_json = Column(Text,nullable=False)
+    raw_path = Column(Text,nullable=True)
+    raw_sha256 = Column(String(64),nullable=True)
+    payload_path = Column(Text,nullable=True)
+    payload_sha256 = Column(String(64),nullable=True)
+    processing_state = Column(String(30),nullable=False,default='unmatched')
+    review_reason = Column(Text,nullable=True)
+    created_at = Column(DateTime(timezone=True),nullable=False,default=utcnow)
+
+
+class AS2AckResult(Base):
+    __tablename__ = 'tblAS2AckResults'
+    __table_args__ = (UniqueConstraint('event_id','ordinal',name='uq_as2_ack_ordinal'),)
+    id = Column(String(36),primary_key=True,default=new_uuid)
+    event_id = Column(String(36),ForeignKey('tblAS2Events.id'),nullable=False,index=True)
+    ordinal = Column(Integer,nullable=False)
+    message_id = Column(String(255),nullable=False)
+    code = Column(String(50),nullable=False)
+    interpretation = Column(String(30),nullable=False)
+    detail = Column(Text,nullable=False)
+
+
+class IcsrExportArtifact(Base):
+    """Immutable local XML artifact; never an AS2 delivery or submission."""
+    __tablename__ = "tblIcsrExportArtifacts"
+    id = Column(String(36), primary_key=True, default=new_uuid)
+    case_id = Column(String(36), ForeignKey("tblCases.id"), nullable=False, index=True)
+    revision_id = Column(String(36), ForeignKey("tblIcsrRevisions.id"), nullable=False, index=True)
+    previous_artifact_id = Column(String(36), ForeignKey("tblIcsrExportArtifacts.id"), nullable=True)
+    idempotency_key = Column(String(36), nullable=False, unique=True)
+    request_checksum = Column(String(64), nullable=False)
+    revision_checksum = Column(String(64), nullable=False)
+    snapshot_schema = Column(String(30), nullable=False)
+    profile_id = Column(String(80), nullable=False)
+    profile_manifest_sha256 = Column(String(64), nullable=False)
+    profile_json = Column(Text, nullable=False)
+    exporter_version = Column(String(50), nullable=False)
+    rules_version = Column(String(50), nullable=False)
+    envelope_json = Column(Text, nullable=False)
+    validation_json = Column(Text, nullable=False)
+    xml_sha256 = Column(String(64), nullable=False)
+    storage_path = Column(Text, nullable=False)
+    byte_length = Column(Integer, nullable=False)
+    locally_valid = Column(Boolean, nullable=False)
+    xsd_valid = Column(Boolean, nullable=False)
+    author_id = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    reason = Column(Text, nullable=False)
+
+
+class IcsrRevision(Base):
+    """Append-only clinical snapshot, independent of subsequent ORM mutations."""
+    __tablename__ = "tblIcsrRevisions"
+    __table_args__ = (
+        UniqueConstraint("case_id", "revision_number", name="uq_icsr_case_revision"),
+        UniqueConstraint("source_message_id", name="uq_icsr_revision_message"),
+    )
+    id = Column(String(36), primary_key=True, default=new_uuid)
+    case_id = Column(String(36), ForeignKey("tblCases.id"), nullable=False, index=True)
+    revision_number = Column(Integer, nullable=False)
+    schema_version = Column(String(30), nullable=False)
+    snapshot_json = Column(Text, nullable=False)
+    checksum_sha256 = Column(String(64), nullable=False)
+    validation_json = Column(Text, nullable=False)
+    source_message_id = Column(String(36), ForeignKey("tblIcsrMessages.id"), nullable=True)
+    author_id = Column(String(36), ForeignKey("tblUsers.id"), nullable=False)
+    reason = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class IcsrReviewPlan(CommonMixin, Base):
+    __tablename__ = "tblIcsrReviewPlans"
+    source_message_id = Column(String(36), ForeignKey("tblIcsrMessages.id"), nullable=False, index=True)
+    case_id = Column(String(36), ForeignKey("tblCases.id"), nullable=True, index=True)
+    source_version = Column(Integer, nullable=False)
+    case_token = Column(String(80), nullable=False)
+    current_checksum = Column(String(64), nullable=False)
+    incoming_checksum = Column(String(64), nullable=False)
+    preview_json = Column(Text, nullable=False)
+    decision_json = Column(Text, nullable=True)
+    applied_at = Column(DateTime(timezone=True), nullable=True)
+    author_id = Column(String(36), ForeignKey("tblUsers.id"), nullable=False)
+
+
+class CaseIdentityDecision(Base):
+    """Append-only interpretation of a legacy identity, not an import override."""
+    __tablename__ = "tblCaseIdentityDecisions"
+    __table_args__ = (
+        UniqueConstraint("case_id", "case_version_before", name="uq_identity_decision_version"),
+        UniqueConstraint("supersedes_id", name="uq_identity_decision_supersedes"),
+    )
+    id = Column(String(36), primary_key=True, default=new_uuid)
+    case_id = Column(String(36), ForeignKey("tblCases.id"), nullable=False, index=True)
+    case_version_before = Column(Integer, nullable=False)
+    batch_id = Column(String(36), ForeignKey("tblE2BImportBatches.id"), nullable=False)
+    evidence_transmission_id = Column(String(36), ForeignKey("tblE2BTransmissions.id"), nullable=False)
+    evidence_checksum = Column(String(64), nullable=False)
+    before_json = Column(Text, nullable=False)
+    confirmed_json = Column(Text, nullable=False)
+    evidence_json = Column(Text, nullable=False)
+    reason = Column(Text, nullable=False)
+    author_id = Column(String(36), ForeignKey("tblUsers.id"), nullable=False)
+    decided_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    supersedes_id = Column(String(36), ForeignKey("tblCaseIdentityDecisions.id"), nullable=True)
 
 
 class CaseLiteratureReference(CommonMixin, Base):

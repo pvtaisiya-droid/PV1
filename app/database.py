@@ -16,6 +16,16 @@ if DATABASE_URL.startswith("sqlite"):
     connect_args = {"check_same_thread": False}
 
 engine = create_engine(DATABASE_URL, connect_args=connect_args, future=True)
+@event.listens_for(engine,'checkout')
+def guard_runtime(dbapi_connection,connection_record,connection_proxy):
+    if os.environ.get('PV_AS2_CONFIG') and 'runtime_guard' not in connection_record.info:
+        from app.local_runtime import runtime_guard
+        connection_record.info['runtime_guard']=runtime_guard()
+
+@event.listens_for(engine,'close')
+def release_runtime(dbapi_connection,connection_record):
+    guard=connection_record.info.pop('runtime_guard',None)
+    if guard:guard.close()
 if engine.dialect.name == "sqlite":
     @event.listens_for(engine, "connect")
     def configure_sqlite(dbapi_connection, connection_record):

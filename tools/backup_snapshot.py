@@ -18,6 +18,7 @@ FILE_COLUMNS = {
     "storage_path", "document_path", "file_path", "docx_file_path",
     "pdf_file_path", "package_file_path", "source_zip_path", "stored_path",
     "storage_dir",
+    "raw_path", "payload_path",
 }
 SOURCE_DIRS = {"app", "alembic", "migration_support", "tests", "examples"}
 SOURCE_FILES = {
@@ -25,6 +26,7 @@ SOURCE_FILES = {
     "alembic.ini", "requirements.txt", "requirements.lock.txt",
     "requirements-dev.txt", "requirements-dev.lock.txt", "run.py",
     "start.ps1", "start.cmd", "open-ais-rzn.cmd",
+    "tools/as2-requirements.lock.txt", "config/as2-contours.example.json",
 }
 
 
@@ -122,7 +124,7 @@ def database_state(database: Path) -> dict:
 
 
 def create_snapshot(root: Path, database: Path, storage: Path, destination: Path,
-                    *, offline: bool = False) -> dict:
+                    *, offline: bool = False, reference_storage: Path | None = None) -> dict:
     if not offline:
         raise ValueError("Stop all application/import writers and specify --offline")
     root, database, storage, destination = [p.resolve() for p in (root, database, storage, destination)]
@@ -151,12 +153,13 @@ def create_snapshot(root: Path, database: Path, storage: Path, destination: Path
     for name in included:
         if digest(root / name) != digest(destination / "source" / name):
             raise ValueError("Source code changed while copying; snapshot is incomplete")
-    report = database_report(destination / "database.sqlite3", root, storage, destination / "storage")
+    reference_storage=(reference_storage or storage).resolve()
+    report = database_report(destination / "database.sqlite3", root, reference_storage, destination / "storage")
     write_json(destination / "recovery-report.json", report)
     status = subprocess.check_output(["git", "status", "--porcelain=v1", "-uall"], cwd=root).decode("utf-8")
     manifest = {
         "format": 1, "created_at": datetime.now(timezone.utc).isoformat(),
-        "original_root": str(root), "original_database": str(database), "original_storage": str(storage),
+        "original_root": str(root), "original_database": str(database), "original_storage": str(reference_storage), "source_storage": str(storage),
         "git_head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root).decode().strip(),
         "git_status": status.splitlines(), "excluded_from_source": excluded,
         "source_database_state": before_database, "recovery_complete": report["recovery_complete"],
@@ -194,6 +197,11 @@ def restore_snapshot(snapshot: Path, destination: Path) -> dict:
 
 
 def main() -> int:
+    import sys
+    if len(sys.argv)>1 and sys.argv[1].startswith('integration-'):
+        sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+        from tools.integration_snapshot import main as integration_main
+        return integration_main(sys.argv[1:])
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     create = commands.add_parser("create")

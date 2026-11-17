@@ -4023,7 +4023,6 @@ def create_manual_case(
         product_data["reported_product_name"] = (
             product_data.get("reported_product_name") or product.product_name
         )
-        product_data["route"] = product_data.get("route") or product.route
         if not product_data.get("active_substance_text") and product.substance_links:
             product_data["active_substance_text"] = ", ".join(
                 link.substance.substance_name
@@ -4031,19 +4030,9 @@ def create_manual_case(
                 if link.substance
             )
 
-    serious_fields = (
-        "seriousness_death",
-        "seriousness_life_threatening",
-        "seriousness_hospitalization",
-        "seriousness_disability",
-        "seriousness_congenital_anomaly",
-        "seriousness_other_medically_important",
-    )
-    reaction_is_serious = bool(
-        reaction_data.get("is_serious")
-        or any(reaction_data.get(field) for field in serious_fields)
-    )
-    reaction_data["is_serious"] = reaction_is_serious
+    from app.reaction_semantics import prepare_manual
+    reaction_data = prepare_manual(reaction_data)
+    reaction_is_serious = reaction_data["is_serious"]
 
     actor_id = audit_user_id(db)
     try:
@@ -4136,7 +4125,7 @@ def create_manual_case(
         case_data["country_of_occurrence"] = (
             case_data.get("country_of_occurrence") or report.reporter_country_code
         )
-        case_data["seriousness"] = "serious" if reaction_is_serious else "non-serious"
+        case_data["seriousness"] = "serious" if reaction_is_serious is True else ("non-serious" if reaction_is_serious is False else "unknown")
         case_data["workflow_status"] = validate_case_status(
             case_data.get("workflow_status") or "data_entry"
         )
@@ -4158,6 +4147,8 @@ def create_manual_case(
         reaction = Reaction(case_id=case.id, **reaction_data)
         db.add_all([patient, case_product, reaction])
         db.flush()
+        from app.drug_data import promote_single
+        promote_single(db, case_product, "manual_single_input")
 
         log_create_event(
             db,
@@ -4358,6 +4349,8 @@ def add_patient(db: Session, case: Case, payload: schemas.PatientCreate) -> Pati
     patient = Patient(case_id=case.id, **data)
     db.add(patient)
     db.flush()
+    from app.clinical_data import adopt_patient
+    adopt_patient(db, patient, audit_user_id(db))
     log_create_event(
         db,
         entity_type="Patient",
@@ -4378,16 +4371,11 @@ def add_case_product(db: Session, case: Case, payload: schemas.CaseProductCreate
         product = get_product(db, data["product_id"])
     if product:
         data["reported_product_name"] = data.get("reported_product_name") or product.product_name
-        data["route"] = data.get("route") or product.route
-        if not data.get("active_substance_text") and product.substance_links:
-            data["active_substance_text"] = ", ".join(
-                link.substance.substance_name
-                for link in product.substance_links
-                if link.substance
-            )
     case_product = CaseProduct(case_id=case.id, **data)
     db.add(case_product)
     db.flush()
+    from app.drug_data import promote_single
+    promote_single(db, case_product, "manual_single_input")
     log_create_event(
         db,
         entity_type="CaseProduct",
@@ -4402,7 +4390,8 @@ def add_case_product(db: Session, case: Case, payload: schemas.CaseProductCreate
 
 def add_reaction(db: Session, case: Case, payload: schemas.ReactionCreate) -> Reaction:
     assert_case_editable(case)
-    data = clean_form_data(model_data(payload))
+    from app.reaction_semantics import prepare_manual
+    data = prepare_manual(clean_form_data(model_data(payload)))
     reaction = Reaction(case_id=case.id, **data)
     db.add(reaction)
     if reaction.is_serious:
@@ -4415,6 +4404,48 @@ def add_reaction(db: Session, case: Case, payload: schemas.ReactionCreate) -> Re
         case_id=case.id,
         data=data,
     )
+    db.commit()
+    db.refresh(reaction)
+    return reaction
+
+
+def update_reaction(db: Session, case: Case, reaction: Reaction, payload: schemas.ReactionUpdate) -> Reaction:
+    from app.reaction_semantics import CRITERIA, aggregate
+    assert_case_editable(case)
+    data = clean_form_data(payload.model_dump(exclude_unset=True))
+    reason = data.pop("change_reason")
+    before = {k:getattr(reaction,k) for k in data}
+    before["interpretation_profile"] = reaction.interpretation_profile
+    before["reviewed_fields_json"] = reaction.reviewed_fields_json
+    before["reported_seriousness"] = reaction.reported_seriousness
+    before["is_serious"] = reaction.is_serious
+    reviewed = set(json.loads(reaction.reviewed_fields_json or "[]"))
+    for key,value in data.items():
+        if key == "is_serious":
+            reaction.reported_seriousness = value
+            reviewed.add("reported_seriousness")
+        else:
+            setattr(reaction,key,value)
+        reviewed.add(key)
+    if "is_serious" in data or any(k in data for k in CRITERIA):
+        values = [getattr(reaction,k) if reaction.source_facts_json or k in reviewed else None for k in CRITERIA]
+        reaction.is_serious = aggregate(values,reaction.reported_seriousness)
+    reaction.reviewed_fields_json = json.dumps(sorted(reviewed))
+    reaction.interpretation_profile = "manual-reaction-v1"
+    origins=json.loads(reaction.current_sources_json or '{}')
+    origins.update({k:dict(origin='manual',author_id=audit_user_id(db),confirmed_at=utcnow().isoformat(),reason=reason) for k in data})
+    reaction.current_sources_json=json.dumps(origins,ensure_ascii=False)
+    from app.clinical_data import sync_reaction_edit
+    sync_reaction_edit(db, reaction, data, audit_user_id(db))
+    if reaction.is_serious is True:
+        case.seriousness = "serious"
+    db.flush()
+    after = {k:getattr(reaction,k) for k in before}
+    after.update(reported_seriousness=reaction.reported_seriousness,is_serious=reaction.is_serious)
+    log_audit(db, entity_type="Reaction", entity_id=reaction.id, action="update",
+        case_id=case.id, old_value=json.dumps(before,default=str,ensure_ascii=False),
+        new_value=json.dumps(after,default=str,ensure_ascii=False), change_reason=reason,
+        user_id=audit_user_id(db), source_module="reaction_review")
     db.commit()
     db.refresh(reaction)
     return reaction
@@ -5828,13 +5859,14 @@ def create_incoming_request_case_link(
     if link_type == "follow_up":
         current_count = db.query(FollowUp).filter(FollowUp.case_id == case.id).count()
         case.case_version += 1
-        if row.received_date:
-            case.latest_received_date = row.received_date
+        received = row.source_received_date("latest_received_date") if row.received_date_basis == "pv1_registration" else row.received_date
+        if received or row.received_date_basis == "pv1_registration":
+            case.latest_received_date = received
         db.add(
             FollowUp(
                 case_id=case.id,
                 follow_up_number=current_count + 1,
-                received_date=row.received_date,
+                received_date=received,
                 source_type="safety_message",
                 message_direction="needs_review",
                 description=incoming_request_case_narrative(row),
@@ -5950,6 +5982,10 @@ def create_case_from_incoming_request(
     actor_id = audit_user_id(db)
     case_data = clean_form_data(case_data or {})
     received_date = row.received_date or (row.created_at.date() if row.created_at else date.today())
+    latest_date = received_date
+    if row.received_date_basis == "pv1_registration":
+        received_date = row.source_received_date("first_received_date")
+        latest_date = row.source_received_date("latest_received_date")
     seriousness = "serious" if normalized_status(row.seriousness) == "serious" else "non-serious"
     case = Case(
         case_number="",
@@ -5957,7 +5993,7 @@ def create_case_from_incoming_request(
         case_type=case_data.get("case_type") or "spontaneous",
         report_type=case_data.get("report_type") or row.request_type or "safety_message",
         initial_received_date=case_data.get("initial_received_date") or received_date,
-        latest_received_date=case_data.get("latest_received_date") or received_date,
+        latest_received_date=case_data.get("latest_received_date") or latest_date,
         seriousness=case_data.get("seriousness") or seriousness,
         narrative=case_data.get("narrative") or incoming_request_case_narrative(row),
         workflow_status=case_data.get("workflow_status") or "data_entry",
@@ -7980,9 +8016,9 @@ def dashboard_recent_changes(db: Session) -> list[AuditTrail]:
 def case_overview(case: Case) -> schemas.CaseOverview:
     return schemas.CaseOverview(
         case=case,
-        patients=case.patients,
-        products=case.case_products,
-        reactions=case.reactions,
+        patients=[r for r in case.patients if not r.is_deleted],
+        products=[r for r in case.case_products if not r.is_deleted],
+        reactions=[r for r in case.reactions if not r.is_deleted],
         followups=case.followups,
         submissions=case.submissions,
     )

@@ -3,7 +3,8 @@ from app.concurrency import snapshot_token, protect_snapshot, ONBOARDING_INPUTS
 from datetime import date
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
@@ -22,6 +23,8 @@ from app.security import require_csrf
 from app.statuses import status_codes
 from app.templating import templates
 from app.ui_helpers import active_filters, redirect_with_message
+from app.unit_of_work import atomic_write
+from app import identity_review, models
 
 
 router = APIRouter()
@@ -193,6 +196,12 @@ def e2b_import_preview_page(
     )
     if not batch:
         raise HTTPException(status_code=404, detail="E2B import batch not found")
+    matching_error = None
+    try:
+        related_case = E2BImportService().preview_case(db, batch)
+    except ValueError as exc:
+        related_case = None
+        matching_error = str(exc)
     return templates.TemplateResponse(
         request,
         "e2b_import_preview.html",
@@ -201,7 +210,8 @@ def e2b_import_preview_page(
             "batch": batch,
             "preview": batch_preview_context(batch),
             "case_input_snapshot": snapshot_token(db, CASE_INPUTS),
-            "expected_case_token": E2BImportService.case_token(E2BImportService().preview_case(db, batch)),
+            "expected_case_token": E2BImportService.case_token(related_case),
+            "matching_error": matching_error,
             "message": request.query_params.get("message"),
             "error": request.query_params.get("error"),
             "validation": request.query_params.get("validation"),
@@ -209,6 +219,59 @@ def e2b_import_preview_page(
             "active_page": "safety_reports",
         },
     )
+
+
+@router.get("/safety-reports/e2b-imports/{batch_id}/identity-review", response_class=HTMLResponse,
+            dependencies=[Depends(require_permission("icsr_workflow"))])
+def identity_review_page(batch_id: str, request: Request, db: Session = Depends(get_db)):
+    batch = db.get(E2BImportBatch, batch_id)
+    if not batch or batch.is_deleted:
+        raise HTTPException(404, "Import batch not found")
+    return templates.TemplateResponse(request, "identity_review.html", dict(
+        request=request, batch=batch, review=identity_review.review_context(db, batch),
+        input_snapshot=snapshot_token(db, identity_review.INPUTS),
+        validation=request.query_params.get("validation"), active_page="safety_reports"))
+
+
+@router.get("/safety-reports/e2b-imports/{batch_id}/identity-review/sources/{transmission_id}",
+            dependencies=[Depends(require_permission("icsr_workflow"))])
+def identity_review_source(batch_id: str, transmission_id: str, db: Session = Depends(get_db)):
+    batch = db.get(E2BImportBatch, batch_id)
+    if not batch or batch.is_deleted:
+        raise HTTPException(404, "Import batch not found")
+    context = identity_review.review_context(db, batch)
+    tx = db.get(models.E2BTransmission, transmission_id)
+    if not tx or tx.case_id not in {c["case"].id for c in context["candidates"]}:
+        raise HTTPException(404, "Related source not found")
+    try:
+        path, _, _, _ = identity_review.evidence(tx, tx.case_id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from None
+    return FileResponse(path, media_type="application/xml", filename="source.xml",
+                        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+
+
+@router.post("/safety-reports/e2b-imports/{batch_id}/identity-review",
+             dependencies=[Depends(require_permission("icsr_workflow")), Depends(require_csrf)])
+@atomic_write
+def identity_review_save(batch_id: str, request: Request, case_id: str = Form(...),
+        transmission_id: str = Form(...), reason: str = Form(..., max_length=4000),
+        expected_case_version: int = Form(..., gt=0), expected_batch_version: int = Form(..., gt=0),
+        expected_snapshot: str = Form(...), supersedes_id: str = Form(""),
+        db: Session = Depends(get_db)):
+    try:
+        _, message = identity_review.save_decision(db, batch_id=batch_id, case_id=case_id,
+            transmission_id=transmission_id, reason=reason, author_id=current_user_id(request),
+            expected_case_version=expected_case_version, expected_batch_version=expected_batch_version,
+            expected_snapshot=expected_snapshot, supersedes_id=supersedes_id)
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        return redirect_with_message(f"/safety-reports/e2b-imports/{batch_id}/identity-review", validation=str(exc))
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "Решение конфликтует с сохранёнными данными. Откройте форму заново.") from None
+    return redirect_with_message(f"/safety-reports/e2b-imports/{batch_id}", message=message)
 
 
 @router.post(

@@ -1,0 +1,3 @@
+{% extends 'base.html' %}{% block content %}<h1 class="h3">Отдельные сообщения пакета</h1>
+<p>Каждое подтверждение — одна транзакция и один случай. Ошибка соседнего сообщения не означает успех всего пакета. Порядок файлов не задаёт порядок follow-up.</p>
+{% for item in messages %}<div class="card p-3 mb-2"><a href="/e2b/messages/{{ item.id }}">Сообщение {{ item.ordinal }} · файл {{ item.item_id }}</a><p>{{ item.status }}</p>{% if item.case_id %}<a href="/cases/{{ item.case_id }}/clinical">Случай</a>{% endif %}{% for issue in item.issues %}<p>{{ issue.message }}</p>{% endfor %}</div>{% endfor %}{% endblock %}

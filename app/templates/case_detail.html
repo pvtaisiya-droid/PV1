@@ -1,7 +1,12 @@
 {% extends "base.html" %}
+{% from "_e2b_source_facts.html" import e2b_source_facts %}
 {% block title %}{{ case.case_number }} - {{ _('PV System') }}{% endblock %}
 
 {% block content %}
+<p>{% if has_permission('export') %}<a class="btn btn-outline-primary" href="/cases/{{ case.id }}/r3-export">Подготовить R3 из ревизии</a>{% endif %}
+<a class="btn btn-outline-primary" href="/cases/{{ case.id }}/clinical">Клинические блоки, решения ФН и ревизии</a>
+{% if has_permission('export') %}<a class="btn btn-outline-primary" href="/cases/{{ case.id }}/as2">Локальная очередь AS2</a>{% endif %}</p>
+{{ e2b_source_facts(case.e2b_source_facts) }}
 {% set case_needs_review = case.workflow_status in ['new', 'triage', 'data_entry', 'medical_review', 'qc', 'reopened'] %}
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
     <div>
@@ -132,7 +137,7 @@
                     <div class="row g-3">
                         <div class="col-md-4">
                             <span class="text-secondary small">{{ _('Patient') }}</span>
-                            {% set patient = case.patients[0] if case.patients else none %}
+                            {% set active_patients = case.patients|rejectattr('is_deleted')|selectattr('patient_role','equalto','patient')|list %}{% set patient = active_patients[0] if active_patients|length == 1 else none %}
                             <div class="fw-semibold">{% if patient %}{{ patient.patient_initials or patient.patient_identifier or _('Patient') }}{% else %}{{ _('No patients.') }}{% endif %}</div>
                             {% if patient %}<div class="small">{{ _(patient.sex) }} {{ patient.age_value or "" }} {{ patient.age_unit or "" }}</div>{% endif %}
                         </div>
@@ -219,7 +224,7 @@
                 <table class="table table-sm align-middle mb-0">
                     <thead><tr><th>{{ _('Initials') }}</th><th>{{ _('Identifier') }}</th><th>{{ _('Sex') }}</th><th>{{ _('Age') }}</th><th>{{ _('Weight kg') }}</th><th>{{ _('Height cm') }}</th><th>{{ _('Pregnancy') }}</th><th>{{ _('Medical history') }}</th></tr></thead>
                     <tbody>
-                    {% for patient in case.patients %}
+                    {% for patient in case.patients if not patient.is_deleted %}
                     <tr><td>{{ patient.patient_initials or "" }}</td><td>{{ patient.patient_identifier or "" }}</td><td>{{ _(patient.sex) }}</td><td>{{ patient.age_value or "" }} {{ patient.age_unit or "" }}</td><td>{{ patient.weight_kg or "" }}</td><td>{{ patient.height_cm or "" }}</td><td>{{ patient.pregnancy_status or "" }}</td><td>{{ patient.medical_history_text or "" }}</td></tr>
                     {% else %}
                     <tr><td colspan="8" class="text-secondary">{{ _('No patients.') }}</td></tr>
@@ -231,50 +236,11 @@
     </div>
 
     <div class="tab-pane fade" id="product" role="tabpanel" aria-labelledby="product-tab" tabindex="0">
-        {% if has_permission('create') %}
-        <div class="row g-4">
-            <div class="col-lg-6">
-                <section class="surface h-100">
-                    <h2 class="h6 section-title">{{ _('Add Case Product') }}</h2>
-                    <form class="row g-3" method="post" action="/cases/{{ case.id }}/products">
-<input type="hidden" name="expected_version" value="{{ case.version }}">
-                        <div class="col-12">
-                            <label class="form-label">{{ _('Product') }}</label>
-                            <select class="form-select" name="product_id">
-                                <option value="">{{ _('Free text') }}</option>
-                                {% for product in products %}
-                                <option value="{{ product.id }}">{{ product.product_name }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        <div class="col-12"><label class="form-label">{{ _('Reported name') }}</label><input class="form-control" name="reported_product_name"></div>
-                        <div class="col-12"><label class="form-label">{{ _('Active substance') }}</label><input class="form-control" name="active_substance_text"></div>
-                        <div class="col-md-6"><label class="form-label">{{ _('Role') }}</label><select class="form-select" name="drug_role"><option value="suspect">{{ _('suspect') }}</option><option value="concomitant">{{ _('concomitant') }}</option><option value="interacting">{{ _('interacting') }}</option><option value="treatment">{{ _('treatment') }}</option><option value="unknown">{{ _('unknown') }}</option></select></div>
-                        <div class="col-md-3"><label class="form-label">{{ _('Dose') }}</label><input class="form-control" name="dose_value"></div>
-                        <div class="col-md-3"><label class="form-label">{{ _('Unit') }}</label><input class="form-control" name="dose_unit"></div>
-                        <div class="col-md-6"><label class="form-label">{{ _('Route') }}</label><input class="form-control" name="route"></div>
-                        <div class="col-md-6"><label class="form-label">{{ _('Frequency') }}</label><input class="form-control" name="frequency"></div>
-                        <div class="col-12"><button class="btn btn-outline-primary w-100 icon-button" type="submit"><i data-lucide="plus"></i><span>{{ _('Add Product') }}</span></button></div>
-                    </form>
-                </section>
-            </div>
-        </div>
-        {% endif %}
-
-        <section class="surface mt-4">
-            <h2 class="h6 section-title">{{ _('Products') }}</h2>
-            <div class="table-responsive">
-                <table class="table table-sm align-middle mb-0">
-                    <thead><tr><th>{{ _('Reported name') }}</th><th>{{ _('Product') }}</th><th>{{ _('Active substance') }}</th><th>{{ _('Role') }}</th><th>{{ _('Dose') }}</th><th>{{ _('Route') }}</th><th>{{ _('Frequency') }}</th></tr></thead>
-                    <tbody>
-                    {% for case_product in case.case_products %}
-                    <tr><td>{{ case_product.reported_product_name or "" }}</td><td>{{ case_product.product.product_name if case_product.product else "" }}</td><td>{{ case_product.active_substance_text or "" }}</td><td>{{ _(case_product.drug_role) }}</td><td>{{ case_product.dose_value or "" }} {{ case_product.dose_unit or "" }}</td><td>{{ case_product.route or "" }}</td><td>{{ case_product.frequency or "" }}</td></tr>
-                    {% else %}
-                    <tr><td colspan="7" class="text-secondary">{{ _('No products.') }}</td></tr>
-                    {% endfor %}
-                    </tbody>
-                </table>
-            </div>
+        <section class="surface">
+            <h2 class="h6">Препараты и повторяемые сведения</h2>
+            <a class="btn btn-primary" href="/cases/{{ case.id }}/drug-products">Открыть препараты, режимы, показания и оценки</a>
+            <p class="mt-3">Режимы дозирования и показания читаются из дочерних записей. Старые одиночные поля доступны как исторический снимок.</p>
+            {% for p in case.case_products if not p.is_deleted %}<p>{{ p.reported_product_name or 'Название не указано' }} · {{ _(p.drug_role) }} · {{ p.id }}</p>{% else %}<p>Препараты отсутствуют.</p>{% endfor %}
         </section>
     </div>
 
@@ -288,17 +254,20 @@
 <input type="hidden" name="expected_version" value="{{ case.version }}">
                         <div class="col-12"><label class="form-label">{{ _('Reported term') }}</label><input class="form-control" name="reported_term" required></div>
                         <div class="col-12"><label class="form-label">{{ _('Verbatim') }}</label><input class="form-control" name="verbatim_term"></div>
-                        <div class="col-md-6"><label class="form-label">{{ _('MedDRA PT code') }}</label><input class="form-control" name="meddra_pt_code"></div>
+<div class="col-md-4"><label>MedDRA LLT код<input class="form-control" name="meddra_llt_code"></label></div>
+<div class="col-md-4"><label>LLT название (не проверено)<input class="form-control" name="meddra_llt_name"></label></div>
+<div class="col-md-4"><label>Версия MedDRA<input class="form-control" name="meddra_version"></label></div>
+<p class="small text-secondary">LLT и PT вводятся отдельно. Словарная проверка и соответствие LLT → PT не выполнялись.</p>                        <div class="col-md-6"><label class="form-label">{{ _('MedDRA PT code') }}</label><input class="form-control" name="meddra_pt_code"></div>
                         <div class="col-md-6"><label class="form-label">{{ _('MedDRA PT name') }}</label><input class="form-control" name="meddra_pt_name"></div>
                         <div class="col-12"><label class="form-label">{{ _('Outcome') }}</label><input class="form-control" name="outcome"></div>
-                        <div class="col-12"><label class="form-check"><input class="form-check-input" type="checkbox" name="is_serious" value="true"> {{ _('Serious') }}</label></div>
+<div class="col-md-6"><label class="form-label">Общая оценка серьёзности (со слов источника/пользователя)<select class="form-select" name="is_serious"><option value="">Неизвестно / не указано</option><option value="true">Да</option><option value="false">Нет</option></select></label></div>
                         <div class="col-12 small-check-grid">
-                            <label class="form-check"><input class="form-check-input" type="checkbox" name="seriousness_death" value="true"> {{ _('Death') }}</label>
-                            <label class="form-check"><input class="form-check-input" type="checkbox" name="seriousness_life_threatening" value="true"> {{ _('Life threatening') }}</label>
-                            <label class="form-check"><input class="form-check-input" type="checkbox" name="seriousness_hospitalization" value="true"> {{ _('Hospitalization') }}</label>
-                            <label class="form-check"><input class="form-check-input" type="checkbox" name="seriousness_disability" value="true"> {{ _('Disability') }}</label>
-                            <label class="form-check"><input class="form-check-input" type="checkbox" name="seriousness_congenital_anomaly" value="true"> {{ _('Congenital anomaly') }}</label>
-                            <label class="form-check"><input class="form-check-input" type="checkbox" name="seriousness_other_medically_important" value="true"> {{ _('Other medically important') }}</label>
+<div class="col-md-6"><label class="form-label">Смерть<select class="form-select" name="seriousness_death"><option value="">Неизвестно / не указано</option><option value="true">Да</option><option value="false">Нет</option></select></label></div>
+<div class="col-md-6"><label class="form-label">Угроза жизни<select class="form-select" name="seriousness_life_threatening"><option value="">Неизвестно / не указано</option><option value="true">Да</option><option value="false">Нет</option></select></label></div>
+<div class="col-md-6"><label class="form-label">Госпитализация<select class="form-select" name="seriousness_hospitalization"><option value="">Неизвестно / не указано</option><option value="true">Да</option><option value="false">Нет</option></select></label></div>
+<div class="col-md-6"><label class="form-label">Инвалидизация<select class="form-select" name="seriousness_disability"><option value="">Неизвестно / не указано</option><option value="true">Да</option><option value="false">Нет</option></select></label></div>
+<div class="col-md-6"><label class="form-label">Врождённая аномалия<select class="form-select" name="seriousness_congenital_anomaly"><option value="">Неизвестно / не указано</option><option value="true">Да</option><option value="false">Нет</option></select></label></div>
+<div class="col-md-6"><label class="form-label">Другое медицински важное состояние<select class="form-select" name="seriousness_other_medically_important"><option value="">Неизвестно / не указано</option><option value="true">Да</option><option value="false">Нет</option></select></label></div>
                         </div>
                         <div class="col-12"><button class="btn btn-outline-primary w-100 icon-button" type="submit"><i data-lucide="plus"></i><span>{{ _('Add Reaction') }}</span></button></div>
                     </form>
@@ -314,7 +283,17 @@
                     <thead><tr><th>{{ _('Reported term') }}</th><th>{{ _('Verbatim') }}</th><th>{{ _('MedDRA PT code') }}</th><th>{{ _('MedDRA PT name') }}</th><th>{{ _('Outcome') }}</th><th>{{ _('Seriousness') }}</th></tr></thead>
                     <tbody>
                     {% for reaction in case.reactions %}
-                    <tr><td>{{ reaction.reported_term }}</td><td>{{ reaction.verbatim_term or "" }}</td><td>{{ reaction.meddra_pt_code or "" }}</td><td>{{ reaction.meddra_pt_name or "" }}</td><td>{{ reaction.outcome or "" }}</td><td>{% if reaction.is_serious %}{{ _('Serious') }}{% else %}{{ _('Non-serious') }}{% endif %}</td></tr>
+                    <tr><td>{{ reaction.reported_term }}<br>LLT: {{ reaction.meddra_llt_code or 'не задан' }} {{ reaction.meddra_llt_name or '' }}<br>MedDRA: {{ reaction.meddra_version or 'версия неизвестна' }}</td><td>{{ reaction.verbatim_term or "" }}</td><td>{{ reaction.meddra_pt_code or "не установлен" }}</td><td>{{ reaction.meddra_pt_name or "" }}</td><td>{{ reaction.outcome or "не указан" }}</td><td>{{ 'Да' if reaction.is_serious is sameas true else ('Нет' if reaction.is_serious is sameas false else 'Неизвестно') }}<br>{{ reaction.reaction_provenance.profile }}<br>Словарь не проверен
+{% if has_permission('edit') %}<a href="/cases/{{ case.id }}/reactions/{{ reaction.id }}/edit">Просмотреть источник / исправить</a>{% endif %}
+{% for warning in reaction.reaction_provenance.warnings %}<div class="text-warning">{{ warning }}</div>{% endfor %}
+<details><summary>Критерии и происхождение</summary>
+{% for field,label in [('seriousness_death','Смерть'),('seriousness_life_threatening','Угроза жизни'),('seriousness_hospitalization','Госпитализация'),('seriousness_disability','Инвалидизация'),('seriousness_congenital_anomaly','Врождённая аномалия'),('seriousness_other_medically_important','Другое медицински важное состояние')] %}
+{% set value = reaction|attr(field) %}<div>{{ label }}: {{ 'Да' if value is sameas true else ('Нет' if value is sameas false else 'Неизвестно') }} — {{ reaction.reaction_provenance.field_statuses[field] }}</div>
+{% endfor %}
+<div>Общая оценка: {{ 'Да' if reaction.reported_seriousness is sameas true else ('Нет' if reaction.reported_seriousness is sameas false else 'Неизвестно') }}</div>
+<div>Агрегат: {{ reaction.reaction_provenance.field_statuses.is_serious }}</div>
+<pre class="text-wrap">{{ reaction.reaction_provenance.source | tojson(indent=2) }}</pre></details>
+</td></tr>
                     {% else %}
                     <tr><td colspan="6" class="text-secondary">{{ _('No reactions.') }}</td></tr>
                     {% endfor %}
@@ -361,7 +340,7 @@
             <div class="table-responsive">
                 <table class="table table-sm align-middle mb-0">
                     <thead><tr><th>{{ _('Type') }}</th><th>{{ _('Source') }}</th><th>Язык</th><th>{{ _('Description') }}</th></tr></thead>
-                    <tbody>{% for narrative in case.narratives %}<tr><td>{{ narrative.narrative_type }}</td><td>{{ narrative.source or "" }}</td><td>{{ narrative.language or "" }}</td><td class="raw-text">{{ narrative.narrative_text or "" }}</td></tr>{% endfor %}</tbody>
+                    <tbody>{% for narrative in case.narratives if not narrative.is_deleted %}<tr><td>{{ narrative.narrative_type }}</td><td>{{ narrative.source or "" }}</td><td>{{ narrative.language or "" }}</td><td class="raw-text">{{ narrative.narrative_text or "" }}</td></tr>{% endfor %}</tbody>
                 </table>
             </div>
         </section>
@@ -406,7 +385,7 @@
                     {% for link in case.incoming_request_links if not link.is_deleted %}
                     <tr>
                         <td>{{ link.incoming_request.message_number or link.incoming_request.id[:8] }}</td>
-                        <td>{{ link.incoming_request.received_date or link.incoming_request.created_at.date() }}</td>
+                        <td>{{ link.incoming_request.received_date or link.incoming_request.created_at.date() }}{% if link.incoming_request.received_date_basis == 'pv1_registration' %}<div class="small text-secondary">Регистрация в PV1</div>{% endif %}</td>
                         <td>{{ link.incoming_request.source_type or link.incoming_request.channel or link.incoming_request.request_type or "" }}</td>
                         <td>{{ _(link.link_type) }}</td>
                         <td><span class="status-pill">{{ _(link.incoming_request.status) }}</span></td>
@@ -425,7 +404,7 @@
             <div class="table-responsive">
                 <table class="table table-sm align-middle mb-0">
                     <thead><tr><th>{{ _('Title') }}</th><th>{{ _('Journal') }}</th><th>{{ _('Year') }}</th><th>{{ _('PMID') }}</th><th>{{ _('DOI') }}</th></tr></thead>
-                    <tbody>{% for literature in case.literature_references %}<tr><td>{{ literature.title or literature.citation or "" }}</td><td>{{ literature.journal or "" }}</td><td>{{ literature.publication_year or "" }}</td><td>{{ literature.pmid or "" }}</td><td>{{ literature.doi or "" }}</td></tr>{% endfor %}</tbody>
+                    <tbody>{% for literature in case.literature_references if not literature.is_deleted %}<tr><td>{{ literature.title or literature.citation or "" }}</td><td>{{ literature.journal or "" }}</td><td>{{ literature.publication_year or "" }}</td><td>{{ literature.pmid or "" }}</td><td>{{ literature.doi or "" }}</td></tr>{% endfor %}</tbody>
                 </table>
             </div>
         </section>

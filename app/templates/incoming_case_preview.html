@@ -26,7 +26,7 @@
             <h2 class="h6 section-title">{{ _('Source message') }}</h2>
             <dl class="row compact-dl">
                 <dt class="col-sm-4">{{ _('Message no.') }}</dt><dd class="col-sm-8">{{ item.message_number or item.id[:8] }}</dd>
-                <dt class="col-sm-4">{{ _('Received') }}</dt><dd class="col-sm-8">{{ item.received_date or item.created_at.date() }}</dd>
+                <dt class="col-sm-4">{% if item.received_date_basis == 'pv1_registration' %}Регистрация в PV1{% else %}{{ _('Received') }}{% endif %}</dt><dd class="col-sm-8">{{ item.received_date or item.created_at.date() }}</dd>
                 <dt class="col-sm-4">{{ _('Partner') }}</dt><dd class="col-sm-8">{{ item.partner.partner_name if item.partner else "" }}</dd>
                 <dt class="col-sm-4">{{ _('Products') }}</dt><dd class="col-sm-8">{{ item.product_names|join(', ') }}</dd>
                 <dt class="col-sm-4">{{ _('Triage result') }}</dt><dd class="col-sm-8">{{ _(item.triage_result or "") }}</dd>

@@ -37,6 +37,11 @@ templates.env.globals["has_permission"] = template_has_permission
 templates.env.globals["sidebar_menu"] = template_sidebar_menu
 templates.env.globals["page_url"] = page_url
 templates.env.globals["csrf_token"] = csrf_token
+from app import clinical_presentation as clinical_ui
+templates.env.globals.update(clinical_label=clinical_ui.label,clinical_kind=clinical_ui.kind_label,
+    clinical_display=clinical_ui.display,clinical_brief=clinical_ui.brief,clinical_structured=clinical_ui.structured,
+    clinical_options=clinical_ui.OPTIONS)
+templates.env.filters['from_json']=clinical_ui.decoded
 templates.env.globals["pv_partner_quality"] = partner_quality
 templates.env.globals["pv_partner_attention"] = partner_attention
 templates.env.globals["pv_partner_next_actions"] = partner_next_actions

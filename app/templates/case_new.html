@@ -70,7 +70,7 @@
                     <div class="col-md-4"><label class="form-label">Действующее вещество</label><input class="form-control" name="active_substance_text"></div>
                     <div class="col-md-2">
                         <label class="form-label">{{ _('Role') }}</label>
-                        <select class="form-select" name="drug_role"><option value="suspect" selected>{{ _('suspect') }}</option><option value="concomitant">{{ _('concomitant') }}</option><option value="interacting">{{ _('interacting') }}</option></select>
+                        <select class="form-select" name="drug_role"><option value="unknown" selected>Роль не установлена</option><option value="suspect">{{ _('suspect') }}</option><option value="concomitant">{{ _('concomitant') }}</option><option value="interacting">{{ _('interacting') }}</option></select>
                     </div>
                     <div class="col-md-3"><label class="form-label">Показание</label><input class="form-control" name="indication_text"></div>
                     <div class="col-md-2"><label class="form-label">{{ _('Dose') }}</label><input class="form-control" name="dose_value"></div>
@@ -93,21 +93,24 @@
                 <div class="row g-3">
                     <div class="col-md-4"><label class="form-label">{{ _('Reported term') }} *</label><input class="form-control" name="reported_term" required></div>
                     <div class="col-md-3"><label class="form-label">{{ _('Verbatim') }}</label><input class="form-control" name="verbatim_term"></div>
-                    <div class="col-md-2"><label class="form-label">{{ _('MedDRA PT code') }}</label><input class="form-control" name="meddra_pt_code"></div>
+<div class="col-md-4"><label>MedDRA LLT код<input class="form-control" name="meddra_llt_code"></label></div>
+<div class="col-md-4"><label>LLT название (не проверено)<input class="form-control" name="meddra_llt_name"></label></div>
+<div class="col-md-4"><label>Версия MedDRA<input class="form-control" name="meddra_version"></label></div>
+<p class="small text-secondary">LLT и PT вводятся отдельно. Словарная проверка и соответствие LLT → PT не выполнялись.</p>                    <div class="col-md-2"><label class="form-label">{{ _('MedDRA PT code') }}</label><input class="form-control" name="meddra_pt_code"></div>
                     <div class="col-md-3"><label class="form-label">{{ _('MedDRA PT name') }}</label><input class="form-control" name="meddra_pt_name"></div>
                     <div class="col-md-2"><label class="form-label">Начало реакции</label><input class="form-control" type="date" name="onset_date"></div>
                     <div class="col-md-2"><label class="form-label">Окончание реакции</label><input class="form-control" type="date" name="end_date"></div>
                     <div class="col-md-3"><label class="form-label">{{ _('Outcome') }}</label><input class="form-control" name="reaction_outcome"></div>
-                    <div class="col-md-5 d-flex align-items-end"><div class="form-check mb-2"><input class="form-check-input" type="checkbox" name="is_serious" value="true" id="manual-serious"><label class="form-check-label" for="manual-serious">{{ _('Serious') }}</label></div></div>
+<div class="col-md-6"><label class="form-label">Общая оценка серьёзности (со слов источника/пользователя)<select class="form-select" name="is_serious"><option value="">Неизвестно / не указано</option><option value="true">Да</option><option value="false">Нет</option></select></label></div>
                     <div class="col-12">
                         <div class="small text-secondary mb-2">Критерии серьёзности</div>
                         <div class="d-flex flex-wrap gap-3">
-                            <div class="form-check"><input class="form-check-input" type="checkbox" name="seriousness_death" value="true" id="manual-death"><label class="form-check-label" for="manual-death">{{ _('Death') }}</label></div>
-                            <div class="form-check"><input class="form-check-input" type="checkbox" name="seriousness_life_threatening" value="true" id="manual-life"><label class="form-check-label" for="manual-life">{{ _('Life threatening') }}</label></div>
-                            <div class="form-check"><input class="form-check-input" type="checkbox" name="seriousness_hospitalization" value="true" id="manual-hospital"><label class="form-check-label" for="manual-hospital">{{ _('Hospitalization') }}</label></div>
-                            <div class="form-check"><input class="form-check-input" type="checkbox" name="seriousness_disability" value="true" id="manual-disability"><label class="form-check-label" for="manual-disability">{{ _('Disability') }}</label></div>
-                            <div class="form-check"><input class="form-check-input" type="checkbox" name="seriousness_congenital_anomaly" value="true" id="manual-congenital"><label class="form-check-label" for="manual-congenital">{{ _('Congenital anomaly') }}</label></div>
-                            <div class="form-check"><input class="form-check-input" type="checkbox" name="seriousness_other_medically_important" value="true" id="manual-important"><label class="form-check-label" for="manual-important">{{ _('Other medically important') }}</label></div>
+<div class="col-md-6"><label class="form-label">Смерть<select class="form-select" name="seriousness_death"><option value="">Неизвестно / не указано</option><option value="true">Да</option><option value="false">Нет</option></select></label></div>
+<div class="col-md-6"><label class="form-label">Угроза жизни<select class="form-select" name="seriousness_life_threatening"><option value="">Неизвестно / не указано</option><option value="true">Да</option><option value="false">Нет</option></select></label></div>
+<div class="col-md-6"><label class="form-label">Госпитализация<select class="form-select" name="seriousness_hospitalization"><option value="">Неизвестно / не указано</option><option value="true">Да</option><option value="false">Нет</option></select></label></div>
+<div class="col-md-6"><label class="form-label">Инвалидизация<select class="form-select" name="seriousness_disability"><option value="">Неизвестно / не указано</option><option value="true">Да</option><option value="false">Нет</option></select></label></div>
+<div class="col-md-6"><label class="form-label">Врождённая аномалия<select class="form-select" name="seriousness_congenital_anomaly"><option value="">Неизвестно / не указано</option><option value="true">Да</option><option value="false">Нет</option></select></label></div>
+<div class="col-md-6"><label class="form-label">Другое медицински важное состояние<select class="form-select" name="seriousness_other_medically_important"><option value="">Неизвестно / не указано</option><option value="true">Да</option><option value="false">Нет</option></select></label></div>
                         </div>
                     </div>
                 </div>

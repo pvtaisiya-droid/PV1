@@ -1,0 +1,7 @@
+{% extends 'base.html' %}{% from '_clinical_values.html' import value,fields with context %}{% block content %}
+<h1 class="h3">Сохранённая ревизия · {{ case.case_number }}</h1><a href="/cases/{{ case.id }}/clinical">Текущие данные</a> · <a href="/cases/{{ case.id }}/r3-export?revision_id={{ revision.id }}">Подготовить XML этой ревизии</a>
+<p>Это неизменяемый снимок. Исправления текущей карточки его не меняют.</p><p>SHA-256: <code>{{ revision.checksum }}</code></p>
+<details><summary>Проверки снимка</summary>{{ value(revision.validation) }}</details>
+{% for record in revision.snapshot.records.get('CaseClinicalRecord',[]) %}{% if not record.is_deleted %}<h2 class="h5 mt-3">{{ clinical_kind(record.kind) }}</h2>{{ fields(record.fields_json|from_json) }}{% endif %}{% endfor %}
+{% for name in ['Reaction','CaseProduct','CaseDrugDosage','CaseDrugSubstance','CaseDrugIndication','CaseProductReactionAssessment'] %}<details class="mt-3"><summary>{{ {'Reaction':'Реакции','CaseProduct':'Препараты','CaseDrugDosage':'Дозирование','CaseDrugSubstance':'Вещества','CaseDrugIndication':'Показания','CaseProductReactionAssessment':'Причинность'}[name] }}</summary>{% for record in revision.snapshot.records.get(name,[]) %}{{ fields(record) }}{% endfor %}</details>{% endfor %}
+{% endblock %}

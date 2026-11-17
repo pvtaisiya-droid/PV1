@@ -1,8 +1,11 @@
 {% extends "base.html" %}
+{% from "_e2b_source_facts.html" import e2b_source_facts %}
 {% from "_immutable_documents.html" import immutable_documents_block with context %}
 {% block title %}{{ report.safety_report_number }} - {{ _('PV System') }}{% endblock %}
 
 {% block content %}
+{{ e2b_source_facts(report.e2b_source_facts) }}
+{% if report.e2b_source_facts and report.e2b_source_facts[0].interpretation != 'legacy_unverified' %}<p class="small">Внутренняя регистрация сообщения в PV1: {{ report.received_at }}. Исходная дата C.1.4 для нового R3: {{ report.received_date or 'не установлена' }}.</p>{% endif %}
 {% set minimum_criteria_complete = report.minimum_criteria_patient and report.minimum_criteria_reporter and report.minimum_criteria_product and report.minimum_criteria_event %}
 {% set triage_needs_completion = report.triage_status in ['new', 'in_triage'] or not minimum_criteria_complete %}
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">

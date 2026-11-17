@@ -19,12 +19,14 @@ from uuid import uuid4
 from xml.etree import ElementTree as ET
 
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from sqlalchemy.orm.exc import StaleDataError
 
 from app import schemas
 from app.audit import log_audit
 from app.case_numbering import assign_case_number
 from app.config import get_settings
+from app.e2b_r3_identity import PROFILE as R3_IDENTITY_PROFILE, extract_identity
 from app.crud import assert_case_editable, generate_number
 from app.models import (
     Attachment,
@@ -51,7 +53,7 @@ from app.models import (
 )
 
 
-IMPORTER_VERSION = "e2b-importer-2"
+IMPORTER_VERSION = "e2b-importer-3"
 DEFAULT_MAX_ZIP_BYTES = 100 * 1024 * 1024
 DEFAULT_MAX_UNPACKED_BYTES = 500 * 1024 * 1024
 DEFAULT_MAX_SINGLE_FILE_BYTES = 50 * 1024 * 1024
@@ -282,6 +284,10 @@ def normalize_drug_role(value: str | None) -> str:
 
 
 def normalize_seriousness(message: dict[str, Any], reactions: list[dict[str, Any]]) -> str:
+    if message.get("identity_profile") == R3_IDENTITY_PROFILE:
+        values = [r.get("is_serious") for r in reactions]
+        return "serious" if any(v is True for v in values) else (
+            "non-serious" if values and all(v is False for v in values) else "unknown")
     serious_values = [
         message.get("seriousness"),
         *(reaction.get("is_serious") for reaction in reactions),
@@ -316,7 +322,11 @@ def parsed_case_flags(parsed: dict[str, Any]) -> dict[str, Any]:
     is_serious = normalize_seriousness(message, reactions) == "serious" or is_death
     received = message_received_date(message)
     due_days = 15 if is_serious else 90
-    due_date = received + timedelta(days=due_days) if received else None
+    if (message.get("identity_profile") == R3_IDENTITY_PROFILE
+            and normalize_seriousness(message, reactions) == "unknown" and not is_death):
+        is_serious = None
+        due_days = None  # Unknown must not select the existing non-serious branch.
+    due_date = received + timedelta(days=due_days) if received and due_days is not None else None
     return {
         "is_serious": is_serious,
         "has_death": is_death,
@@ -374,6 +384,7 @@ class ParsedXml:
     embedded_documents: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[dict[str, str]] = field(default_factory=list)
     e2b_version: str | None = None
+    clinical_records: list[dict[str, Any]] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -387,6 +398,7 @@ class ParsedXml:
             "embedded_documents": self.embedded_documents,
             "warnings": self.warnings,
             "e2b_version": self.e2b_version,
+            "clinical_records": self.clinical_records,
         }
 
 
@@ -421,7 +433,29 @@ class E2BParser:
             literature = self.extract_literature(root)
             narrative = self.extract_narrative(root)
             embedded = self.extract_embedded_documents(root)
-        warnings = []
+        clinical_records = []
+        clinical_warnings = []
+        if version == "E2B(R3)":
+            from app.clinical_import import extract
+            clinical_records, clinical_warnings = extract(xml_bytes)
+            # Compatibility summaries are derived from the same scoped records.
+            # Several sources are shown in the clinical view, never conflated with the sender.
+            patients = [r for r in clinical_records if r['kind'] == 'patient']
+            reporters = [r for r in clinical_records if r['kind'] == 'reporter']
+            pf = patients[0]['fields'] if len(patients) == 1 else {}
+            def lexical(code):
+                v = pf.get(code, {})
+                return v.get('raw') if v.get('state') not in ('invalid','unsupported','ambiguous','null_flavor') else None
+            patient.update(initials=lexical('D.1'), age_value=to_float(lexical('D.2.2a')), age_unit=lexical('D.2.2b'),
+                           country=None, medical_history=lexical('D.7.2'), birth_date=parse_partial_date(lexical('D.2.1')))
+            reporter = {'name': reporters[0]['fields'].get('local.name_line', {}).get('raw')} if len(reporters) == 1 else {}
+            message['country'] = None
+        warnings = list(message.get("identity_warnings", [])) + clinical_warnings
+        for reaction in reactions:
+            warnings.extend({"type":"reaction_interpretation", "message":w}
+                for w in reaction.get("source_facts", {}).get("warnings", []))
+        for product in products:
+            warnings.extend(product.get("warnings", []))
         if not message.get("message_identifier"):
             warnings.append({"type": "missing_message_identifier", "message": "Message identifier was not found."})
         if not message.get("worldwide_case_id") and not message.get("local_sender_case_id"):
@@ -441,11 +475,12 @@ class E2BParser:
             embedded_documents=embedded,
             warnings=warnings,
             e2b_version=version,
+            clinical_records=clinical_records,
         )
 
     def detect_version(self, root: ET.Element) -> str:
         names = {canonical_name(element.tag) for element in root.iter()}
-        root_text = local_name(root.tag).lower()
+        root_text = canonical_name(root.tag)
         if "ichicsr" in names or "safetyreport" in names:
             return "E2B(R2)"
         if "porrin049016uv" in root_text or "mcci" in root_text or any("icsr" in name for name in names):
@@ -508,49 +543,36 @@ class E2BParser:
 
     def extract_message_r3(self, root: ET.Element) -> dict[str, Any]:
         porr = self.porr_root(root)
-        investigation = self.investigation_event(root)
-        root_id = first_child(root, "id")
-        porr_id = first_child(porr, "id")
-        inv_ids = child_elements(investigation, "id")
-        message_identifier = root_id.attrib.get("extension") if root_id is not None else None
-        worldwide_case_id = (
-            inv_ids[0].attrib.get("extension")
-            if inv_ids
-            else (porr_id.attrib.get("extension") if porr_id is not None else None)
-        )
-        local_sender_case_id = inv_ids[1].attrib.get("extension") if len(inv_ids) > 1 else worldwide_case_id
+        identity = extract_identity(root)
+        from app.e2b_r3_identity import identifier_fact as select_id, source_date
+        ns = {'h':'urn:hl7-org:v3'}
+        batch_nodes = [root] if root.tag == '{urn:hl7-org:v3}MCCI_IN200100UV01' else []
+        envelope = {
+            'N.1.1': [dict(n.attrib) for b in batch_nodes for n in b.findall('h:name',ns)],
+            'N.1.3': select_id(batch_nodes, 'h:sender/h:device/h:id', 'N.1.3', '13', 'MCCI_IN200100UV01/sender/device/id'),
+            'N.1.4': select_id(batch_nodes, 'h:receiver/h:device/h:id', 'N.1.4', '14', 'MCCI_IN200100UV01/receiver/device/id'),
+            'N.1.5': source_date([n for b in batch_nodes for n in b.findall('h:creationTime',ns)], 'MCCI_IN200100UV01/creationTime', 'N.1.5'),
+            'N.2.r.4': source_date(porr.findall('h:creationTime',ns), 'PORR_IN049016UV/creationTime', 'N.2.r.4'),
+        }
         message_date = parse_partial_date(
-            child_attr(root, "value", "creationTime")
-            or child_attr(porr, "value", "creationTime")
+            child_attr(porr, "value", "creationTime")
         )
-        received_raw = child_attr(investigation, "value", "availabilityTime")
-        effective = first_child(investigation, "effectiveTime")
-        received_raw = child_attr(effective, "value", "low") or received_raw
-        received = parse_partial_date(received_raw)
         followup_type = None
         for related in all_elements(root, {"relatedinvestigation"}):
             code_element = first_child(related, "code")
             if code_element is not None and code_element.attrib.get("displayName"):
                 followup_type = code_element.attrib["displayName"]
                 break
-        sender = self.party_device_id(porr, "sender") or self.party_device_id(root, "sender")
-        receiver = self.party_device_id(porr, "receiver") or self.party_device_id(root, "receiver")
         return {
-            "message_identifier": message_identifier,
-            "message_number": message_identifier,
-            "message_version": message_identifier.rsplit("-", 1)[-1] if message_identifier and "-" in message_identifier else None,
-            "worldwide_case_id": worldwide_case_id,
-            "local_sender_case_id": local_sender_case_id,
+            **identity,
+            'envelope_facts': envelope,
+            "message_number": identity["message_identifier"],
             "message_type": "ICHICSR",
             "followup_type": followup_type,
             "message_date": message_date,
-            "first_received_date": received,
-            "latest_received_date": received,
-            "company_received_date": received,
+            "company_received_date": identity["first_received_date"],
             "country": self.extract_country_r3(root),
             "sender_country": None,
-            "sender": sender,
-            "receiver": receiver,
             "source": followup_type,
             "seriousness": None,
             "is_literature": first_element(root, "bibliographicDesignationText") is not None,
@@ -572,7 +594,7 @@ class E2BParser:
             "identifier": None,
             "sex": normalize_sex(gender.attrib.get("code") if gender is not None else None),
             "age_value": to_float(self.observation_value(age_obs)),
-            "age_unit": "years" if age_obs is not None else None,
+            "age_unit": child_attr(age_obs, "unit", "value"),
             "birth_date": parse_partial_date(None),
             "age_group": self.observation_value(age_group_obs),
             "weight": None,
@@ -597,140 +619,12 @@ class E2BParser:
         return "; ".join(values) or None
 
     def extract_reactions_r3(self, root: ET.Element) -> list[dict[str, Any]]:
-        reactions = []
-        for observation in all_elements(root, {"observation"}):
-            code_element = first_child(observation, "code")
-            if code_element is None:
-                continue
-            if code_element.attrib.get("displayName") != "reaction" and code_element.attrib.get("code") != "29":
-                continue
-            value = first_child(observation, "value")
-            if value is None:
-                continue
-            effective = first_child(observation, "effectiveTime")
-            low = first_child(effective, "low")
-            high = first_child(effective, "high")
-            onset = parse_partial_date(low.attrib.get("value") if low is not None else None)
-            end = parse_partial_date(high.attrib.get("value") if high is not None else None)
-            if low is not None and low.attrib.get("nullFlavor") and not onset["raw"]:
-                onset["null_flavor"] = low.attrib.get("nullFlavor")
-            if high is not None and high.attrib.get("nullFlavor") and not end["raw"]:
-                end["null_flavor"] = high.attrib.get("nullFlavor")
-            subobservations = [sub for sub in all_elements(observation, {"observation"}) if sub is not observation]
-
-            def sub_bool(display: str) -> bool:
-                for sub in subobservations:
-                    sub_code = first_child(sub, "code")
-                    if sub_code is None or sub_code.attrib.get("displayName") != display:
-                        continue
-                    sub_value = first_child(sub, "value")
-                    return bool_from_code(sub_value.attrib.get("value") if sub_value is not None else None)
-                return False
-
-            outcome = None
-            for sub in subobservations:
-                sub_code = first_child(sub, "code")
-                if sub_code is not None and sub_code.attrib.get("displayName") == "outcome":
-                    outcome = self.observation_value(sub)
-                    break
-            term = element_text(value) or value.attrib.get("displayName") or value.attrib.get("code")
-            serious_flags = {
-                "seriousness_death": sub_bool("resultsInDeath"),
-                "seriousness_life_threatening": sub_bool("isLifeThreatening"),
-                "seriousness_hospitalization": sub_bool("requiresInpatientHospitalization"),
-                "seriousness_disability": sub_bool("resultsInPersistentOrSignificantDisability"),
-                "seriousness_congenital_anomaly": sub_bool("congenitalAnomalyBirthDefect"),
-                "seriousness_other_medically_important": sub_bool("otherMedicallyImportantCondition"),
-            }
-            reactions.append(
-                {
-                    "reported_term": term or "Unknown reaction",
-                    "verbatim_term": term,
-                    "meddra_llt_code": None,
-                    "meddra_llt_name": None,
-                    "meddra_pt_code": value.attrib.get("code"),
-                    "meddra_pt_name": value.attrib.get("displayName"),
-                    "meddra_version": value.attrib.get("codeSystemVersion"),
-                    "term_language": None,
-                    "term_country_code": self.extract_country_r3(observation),
-                    "onset_date": onset,
-                    "end_date": end,
-                    "duration_text": None,
-                    "outcome": outcome,
-                    "is_serious": any(serious_flags.values()),
-                    **serious_flags,
-                    "medically_confirmed": None,
-                    "comment": None,
-                    "null_flavor": element_null_flavor(value),
-                }
-            )
-        return reactions
+        from app.reaction_semantics import extract_reactions
+        return extract_reactions(root, parse_partial_date)
 
     def extract_products_r3(self, root: ET.Element) -> list[dict[str, Any]]:
-        products = []
-        for administration in all_elements(root, {"substanceadministration"}):
-            identifier = first_child(administration, "id")
-            if identifier is None or not (identifier.attrib.get("root") or "").startswith("DID"):
-                continue
-            product_names = []
-            for kind in all_elements(administration, {"kindofproduct"}):
-                name = first_child(kind, "name")
-                if name is not None and element_text(name):
-                    product_names.append(element_text(name))
-            if not product_names:
-                continue
-            start = parse_partial_date(None)
-            end = parse_partial_date(None)
-            for relationship in child_elements(administration, "outboundRelationship2"):
-                nested_admin = first_element(relationship, "substanceAdministration")
-                effective = first_child(nested_admin, "effectiveTime")
-                if effective is None:
-                    continue
-                low = first_child(effective, "low")
-                high = first_child(effective, "high")
-                start = parse_partial_date(low.attrib.get("value") if low is not None else None)
-                end = parse_partial_date(high.attrib.get("value") if high is not None else None)
-                if low is not None and low.attrib.get("nullFlavor") and not start["raw"]:
-                    start["null_flavor"] = low.attrib.get("nullFlavor")
-                if high is not None and high.attrib.get("nullFlavor") and not end["raw"]:
-                    end["null_flavor"] = high.attrib.get("nullFlavor")
-                break
-            indication = None
-            for relationship in child_elements(administration, "inboundRelationship"):
-                observation = first_element(relationship, "observation")
-                obs_code = first_child(observation, "code")
-                if obs_code is not None and obs_code.attrib.get("displayName") == "indication":
-                    indication = self.observation_value(observation)
-                    break
-            products.append(
-                {
-                    "reported_product_name": product_names[0],
-                    "normalized_product_name": product_names[0],
-                    "active_substances": product_names[1:],
-                    "drug_role": "suspect",
-                    "indication": indication,
-                    "dose_value": None,
-                    "dose_unit": None,
-                    "frequency": None,
-                    "route": None,
-                    "dosage_form": None,
-                    "therapy_start_date": start,
-                    "therapy_end_date": end,
-                    "duration_text": None,
-                    "batch_lot_number": first_text(administration, "lotNumberText"),
-                    "expiry_date": parse_partial_date(None),
-                    "authorization_country_code": self.extract_country_r3(administration),
-                    "authorization_number": None,
-                    "authorization_holder": None,
-                    "action_taken": None,
-                    "dechallenge_result": None,
-                    "rechallenge_result": None,
-                    "causality_text": None,
-                    "comment": None,
-                    "null_flavor": None,
-                }
-            )
-        return products
+        from app.drug_import import extract_products
+        return extract_products(root)
 
     def extract_reporter_r3(self, root: ET.Element) -> dict[str, Any]:
         assigned = first_element(root, "assignedEntity")
@@ -1147,6 +1041,9 @@ class E2BPackageService:
         *,
         checked_by_user_id: str | None,
     ) -> E2BImportBatch:
+        from app.models import IcsrMessage
+        if db.query(IcsrMessage).filter_by(batch_id=batch.id).count():
+            raise ValueError("Пакет уже разделён на сохраняемые сообщения R3. Его источники не перезаписываются; исправленный файл загрузите отдельным пакетом.")
         if batch.status in {"imported", "not_pv_ars"}:
             raise ValueError("Finalized batch cannot be re-checked.")
         if not batch.source_zip_path or not Path(batch.source_zip_path).exists():
@@ -1377,6 +1274,15 @@ class E2BPackageService:
         path: Path,
         record: dict[str, Any],
     ) -> None:
+        from app.clinical_messages import ingest
+        if ingest(db, self, batch, item, path.read_bytes()):
+            from app.models import IcsrMessage
+            db.flush()
+            incoming = db.query(IcsrMessage).filter_by(item_id=item.id).all()
+            record.update(status="messages", e2b_version="E2B(R3)", message_count=len(incoming),
+                          message_errors=sum(r.status == 'error' for r in incoming),
+                          case_keys=[self.case_group_key(json.loads(r.normalized_json)['message']) for r in incoming if r.normalized_json])
+            return
         try:
             parsed = self.parser.parse(path.read_bytes())
         except ValueError as exc:
@@ -1385,6 +1291,10 @@ class E2BPackageService:
             record["status"] = "error"
             return
         normalized = parsed.as_dict()
+        normalized["message"]["import_source"] = {
+            "batch_id": batch.id, "item_id": item.id,
+            "checksum_sha256": item.checksum_sha256,
+        }
         item.status = "parsed"
         item.e2b_version = parsed.e2b_version
         item.message_identifier = parsed.message.get("message_identifier")
@@ -1406,7 +1316,8 @@ class E2BPackageService:
             }
         )
         for warning in parsed.warnings:
-            self.add_issue(db, batch, item, "warning", warning["type"], warning["message"], False)
+            blocking = warning.get("blocking", False)
+            self.add_issue(db, batch, item, "error" if blocking else "warning", warning["type"], warning["message"], blocking)
         if not item.message_identifier:
             self.add_issue(db, batch, item, "error", "missing_message_identifier", "Message identifier is required.", True)
 
@@ -1422,9 +1333,9 @@ class E2BPackageService:
         batch.detected_xml_count = len(xml_records)
         batch.detected_pdf_count = len([record for record in discovered if record["role"] in {"pdf", "cioms", "literature_pdf"}])
         batch.detected_other_count = len([record for record in discovered if record["role"] == "other"])
-        batch.detected_case_count = len(case_keys)
-        batch.detected_message_count = len(parsed_records)
-        batch.error_count = len([issue for issue in batch.issues if issue.severity == "error"])
+        batch.detected_case_count = len(case_keys | {key for r in discovered for key in r.get('case_keys', [])})
+        batch.detected_message_count = len(parsed_records) + sum(r.get('message_count', 0) for r in discovered)
+        batch.error_count = len([issue for issue in batch.issues if issue.severity == "error"]) + sum(r.get('message_errors', 0) for r in discovered)
         batch.warning_count = len([issue for issue in batch.issues if issue.severity == "warning"])
         batch.normalized_json = json_dumps(
             {
@@ -1608,6 +1519,11 @@ class E2BPackageService:
         }
 
     def case_group_key(self, message: dict[str, Any]) -> str:
+        if message.get("identity_profile") == R3_IDENTITY_PROFILE:
+            # Preserve case and whitespace; include both IDs to prevent merging
+            # conflicting messages within a package before database matching.
+            return json_dumps([message.get("worldwide_case_id"), message.get("sender_scope"),
+                               message.get("local_sender_case_id")])
         return (
             message.get("worldwide_case_id")
             or message.get("local_sender_case_id")
@@ -1713,10 +1629,22 @@ class E2BImportService:
         self.matching = E2BMatchingService()
 
     def preview_case(self, db: Session, batch: E2BImportBatch) -> Case | None:
+        if batch.status == "imported":
+            return batch.created_case
+        candidates = set()
+        keys = set()
         for item in batch.items:
             if item.file_role == "xml" and item.status == "parsed" and item.normalized_json:
-                return self.find_existing_case(db, json.loads(item.normalized_json).get("message", {}))
-        return None
+                message = json.loads(item.normalized_json).get("message", {})
+                if item.e2b_version == "E2B(R3)" and message.get("identity_profile") != R3_IDENTITY_PROFILE:
+                    raise ValueError("Старый предпросмотр R3: выполните повторную проверку исходного файла. Исторические записи не переинтерпретированы.")
+                keys.add(E2BPackageService().case_group_key(message))
+                candidate = self.find_existing_case(db, message)
+                if candidate:
+                    candidates.add(candidate.id)
+        if len(keys) > 1 or len(candidates) > 1:
+            raise ValueError("В пакете неоднозначные идентификаторы случаев. Разделите сообщения и проверьте источник; объединение остановлено.")
+        return db.get(Case, next(iter(candidates))) if candidates else None
 
     @staticmethod
     def case_token(case: Case | None) -> str:
@@ -1730,6 +1658,9 @@ class E2BImportService:
         confirmed_by_user_id: str | None,
         expected_case_token: str,
     ) -> dict[str, Any]:
+        from app.models import IcsrMessage
+        if db.query(IcsrMessage).filter_by(batch_id=batch.id).count():
+            raise ValueError("R3: откройте отдельные сообщения пакета и подтвердите сопоставление клинических повторов.")
         if batch.status == "imported":
             return json.loads(batch.import_summary_json or "{}")
         with transaction_directory(db, batch, "embedded") as embedded_dir:
@@ -1754,7 +1685,14 @@ class E2BImportService:
             raise ValueError("No parsed XML messages are available for import.")
         primary = json.loads(xml_items[0].normalized_json)
         partner_id, partner_match_status = self.matching.find_partner(db, primary)
-        existing_case = self.find_existing_case(db, primary["message"])
+        existing_case = self.preview_case(db, batch)
+        if primary.get("e2b_version") == "E2B(R3)":
+            if len(xml_items) != 1:
+                raise ValueError("Новый блок препаратов R3 требует одного XML на импорт: иначе клинические повторы других сообщений потеряются.")
+            if any(p.get("drug_profile") != "ich-r3-drug-v1" for p in primary.get("products", [])):
+                raise ValueError("Старый предпросмотр препаратов R3: перепроверьте исходный файл.")
+            if existing_case:
+                raise ValueError("Клинический follow-up R3 с блоком препаратов пока не поддержан безопасно. Источник сохранён; повторное добавление/перезапись не выполнены.")
         if expected_case_token != self.case_token(existing_case):
             raise StaleDataError("Related case has changed. Reload the E2B preview.")
         if existing_case:
@@ -1890,16 +1828,63 @@ class E2BImportService:
         return False
 
     def find_existing_case(self, db: Session, message: dict[str, Any]) -> Case | None:
-        worldwide = clean_text(message.get("worldwide_case_id"))
-        local = clean_text(message.get("local_sender_case_id"))
+        r3 = message.get("identity_profile") == R3_IDENTITY_PROFILE
+        if r3 and any(w.get("blocking") for w in message.get("identity_warnings", [])):
+            raise ValueError("R3: назначение идентификаторов неоднозначно. Исходный файл сохранён, автоматическое сопоставление остановлено.")
+        worldwide = message.get("worldwide_case_id") if r3 else clean_text(message.get("worldwide_case_id"))
+        local = message.get("local_sender_case_id") if r3 else clean_text(message.get("local_sender_case_id"))
+        scope = message.get("sender_scope")
         query = db.query(Case).filter(Case.is_deleted.is_(False))
-        if worldwide:
-            existing = query.filter(Case.worldwide_case_id == worldwide).first()
-            if existing:
-                return existing
-        if local:
-            return query.filter(Case.local_sender_case_id == local).first()
-        return None
+        matches = {}
+        values = [v for v in (worldwide, local) if v is not None]
+        if r3 and values:
+            legacy = query.filter(Case.e2b_identity_profile.is_(None), or_(
+                Case.worldwide_case_id.in_(values), Case.local_sender_case_id.in_(values))).all()
+            if legacy:
+                raise ValueError("ID пересекается с историческим случаем с непроверенным назначением ID. Нужна сверка исходников; объединение остановлено.")
+        if worldwide is not None:
+            for case in query.filter(Case.worldwide_case_id == worldwide).all():
+                matches[case.id] = case
+        if local is not None:
+            local_cases = query.filter(Case.local_sender_case_id == local).all()
+            for case in local_cases:
+                if r3 and not scope:
+                    raise ValueError("Не установлено пространство отправителя для совпадающего ID случая; сопоставление остановлено.")
+                if not r3 or case.e2b_sender_scope == scope:
+                    if not r3 and case.e2b_identity_profile and case.worldwide_case_id != worldwide:
+                        raise ValueError("ID относится к пространству отправителя R3; глобальное сопоставление запрещено.")
+                    matches[case.id] = case
+            if r3 and scope:
+                # A later sender's scoped ID is an alias recorded in its source
+                # transmission, not an overwrite of the original case ID.
+                transmissions = db.query(E2BTransmission).join(Case, E2BTransmission.case_id == Case.id).filter(
+                    Case.is_deleted.is_(False), E2BTransmission.is_deleted.is_(False),
+                    E2BTransmission.local_sender_case_id == local).all()
+                for tx in transmissions:
+                    source = json.loads(tx.normalized_json or "{}").get("message", {})
+                    if source.get("identity_profile") == R3_IDENTITY_PROFILE and source.get("sender_scope") == scope:
+                        matches[tx.case_id] = db.get(Case, tx.case_id)
+        if len(matches) > 1:
+            raise ValueError("Идентификаторы указывают на разные случаи или несколько кандидатов. Автоматическое объединение остановлено.")
+        case = next(iter(matches.values()), None)
+        if case and case.e2b_identity_profile == "manual-r3-identity-v1":
+            from app.identity_review import validate_manual_case
+            validate_manual_case(db, case)
+        if r3 and case:
+            if worldwide and case.worldwide_case_id != worldwide:
+                raise ValueError("Конфликт worldwide ID и ID случая у отправителя. Автоматическое объединение остановлено.")
+            if scope and scope == case.e2b_sender_scope and local and case.local_sender_case_id != local:
+                raise ValueError("У известного worldwide ID другой ID того же отправителя. Требуется сверка источника.")
+            if scope and local:
+                for tx in case.e2b_transmissions:
+                    if tx.is_deleted:
+                        continue
+                    source = json.loads(tx.normalized_json or "{}").get("message", {})
+                    if (source.get("identity_profile") == R3_IDENTITY_PROFILE
+                            and source.get("sender_scope") == scope
+                            and source.get("local_sender_case_id") not in (None, local)):
+                        raise ValueError("ID отправителя конфликтует с предыдущим источником этого случая. Сопоставление остановлено.")
+        return case
 
     def create_safety_report(
         self,
@@ -1909,7 +1894,8 @@ class E2BImportService:
         partner_id: str | None,
     ) -> SafetyReport:
         message = parsed["message"]
-        received = date_field(message.get("company_received_date")) or date_field(message.get("first_received_date")) or date.today()
+        received = date_field(message.get("first_received_date")) if message.get("identity_profile") == R3_IDENTITY_PROFILE else (
+            date_field(message.get("company_received_date")) or date_field(message.get("first_received_date")) or date.today())
         report = SafetyReport(
             safety_report_number=generate_number(db, SafetyReport, "safety_report_number", "SR"),
             received_at=utcnow(),
@@ -1946,7 +1932,10 @@ class E2BImportService:
         partner_id: str | None,
     ) -> IncomingRequest:
         message = parsed["message"]
-        received = date_field(message.get("company_received_date")) or date_field(message.get("first_received_date")) or date.today()
+        # IncomingRequest requires an operational date. For new R3 this is
+        # explicitly the PV1 registration date, never C.1.4/C.1.5.
+        received = utcnow().date() if message.get("identity_profile") == R3_IDENTITY_PROFILE else (
+            date_field(message.get("company_received_date")) or date_field(message.get("first_received_date")) or date.today())
         row = IncomingRequest(
             message_number=generate_number(db, IncomingRequest, "message_number", "MSG"),
             received_date=received,
@@ -2020,7 +2009,8 @@ class E2BImportService:
         marked_by_user_id: str | None,
     ) -> IncomingRequest:
         message = parsed["message"]
-        received = date_field(message.get("company_received_date")) or date_field(message.get("first_received_date")) or date.today()
+        received = utcnow().date() if message.get("identity_profile") == R3_IDENTITY_PROFILE else (
+            date_field(message.get("company_received_date")) or date_field(message.get("first_received_date")) or date.today())
         row = IncomingRequest(
             message_number=generate_number(db, IncomingRequest, "message_number", "MSG"),
             received_date=received,
@@ -2076,10 +2066,16 @@ class E2BImportService:
         message = parsed["message"]
         first_received = date_field(message.get("first_received_date")) or date_field(message.get("company_received_date")) or date.today()
         latest_received = date_field(message.get("latest_received_date")) or first_received
+        r3 = message.get("identity_profile") == R3_IDENTITY_PROFILE
+        if r3:
+            first_received = date_field(message.get("first_received_date"))
+            latest_received = date_field(message.get("latest_received_date"))
         case = Case(
             case_number="",
             worldwide_case_id=message.get("worldwide_case_id"),
             local_sender_case_id=message.get("local_sender_case_id"),
+            e2b_identity_profile=R3_IDENTITY_PROFILE if r3 else None,
+            e2b_sender_scope=message.get("sender_scope") if r3 else None,
             safety_report_id=safety_report_id,
             partner_id=partner_id,
             case_version=1,
@@ -2105,7 +2101,9 @@ class E2BImportService:
         message = parsed["message"]
         received = date_field(message.get("latest_received_date")) or date_field(message.get("company_received_date"))
         case.case_version += 1
-        if received:
+        if message.get("identity_profile") == R3_IDENTITY_PROFILE:
+            case.latest_received_date = date_field(message.get("latest_received_date"))
+        elif received:
             case.latest_received_date = received
         db.add(
             CaseNarrative(
@@ -2142,9 +2140,14 @@ class E2BImportService:
                     import_batch_id=batch.id,
                 )
             )
-        for reaction_data in parsed.get("reactions", []):
-            db.add(
-                Reaction(
+        reaction_map = {}
+        for reaction_index, reaction_data in enumerate(parsed.get("reactions", []), 1):
+            r3_reaction = reaction_data.get("interpretation_profile") == "ich-r3-reaction-v1"
+            facts = reaction_data.get("source_facts")
+            if facts:
+                facts = {**facts, "import_source": parsed.get("message", {}).get("import_source"),
+                         "normalized_reaction_index": reaction_index}
+            reaction = Reaction(
                     case_id=case.id,
                     reported_term=reaction_data.get("reported_term") or "Unknown reaction",
                     verbatim_term=reaction_data.get("verbatim_term"),
@@ -2163,19 +2166,30 @@ class E2BImportService:
                     end_date_precision=reaction_data.get("end_date", {}).get("precision"),
                     duration_text=reaction_data.get("duration_text"),
                     outcome=reaction_data.get("outcome"),
-                    is_serious=bool(reaction_data.get("is_serious")),
-                    seriousness_death=bool(reaction_data.get("seriousness_death")),
-                    seriousness_life_threatening=bool(reaction_data.get("seriousness_life_threatening")),
-                    seriousness_hospitalization=bool(reaction_data.get("seriousness_hospitalization")),
-                    seriousness_disability=bool(reaction_data.get("seriousness_disability")),
-                    seriousness_congenital_anomaly=bool(reaction_data.get("seriousness_congenital_anomaly")),
-                    seriousness_other_medically_important=bool(reaction_data.get("seriousness_other_medically_important")),
+                    is_serious=reaction_data.get("is_serious") if r3_reaction else bool(reaction_data.get("is_serious")),
+                    seriousness_death=reaction_data.get("seriousness_death") if r3_reaction else bool(reaction_data.get("seriousness_death")),
+                    seriousness_life_threatening=reaction_data.get("seriousness_life_threatening") if r3_reaction else bool(reaction_data.get("seriousness_life_threatening")),
+                    seriousness_hospitalization=reaction_data.get("seriousness_hospitalization") if r3_reaction else bool(reaction_data.get("seriousness_hospitalization")),
+                    seriousness_disability=reaction_data.get("seriousness_disability") if r3_reaction else bool(reaction_data.get("seriousness_disability")),
+                    seriousness_congenital_anomaly=reaction_data.get("seriousness_congenital_anomaly") if r3_reaction else bool(reaction_data.get("seriousness_congenital_anomaly")),
+                    seriousness_other_medically_important=reaction_data.get("seriousness_other_medically_important") if r3_reaction else bool(reaction_data.get("seriousness_other_medically_important")),
                     medically_confirmed=reaction_data.get("medically_confirmed"),
                     reporter_comment=reaction_data.get("comment"),
                     null_flavor=reaction_data.get("null_flavor"),
                     import_batch_id=batch.id,
+                    reported_seriousness=reaction_data.get("reported_seriousness"),
+                    interpretation_profile=reaction_data.get("interpretation_profile"),
+                    source_facts_json=json_dumps(facts) if facts else None,
                 )
-            )
+            db.add(reaction)
+            db.flush()
+            from app.drug_import import key as xml_id_key
+            for identifier in (facts or {}).get("xml_ids", []):
+                ref = xml_id_key(ET.Element("id", identifier))
+                if ref:
+                    if ref in reaction_map:
+                        raise ValueError("Неоднозначные ID реакций; импорт связей остановлен.")
+                    reaction_map[ref] = reaction.id
         for product_data in parsed.get("products", []):
             product_id, product_match = self.matching.find_product(db, product_data)
             case_product = CaseProduct(
@@ -2214,23 +2228,29 @@ class E2BImportService:
             )
             db.add(case_product)
             db.flush()
-            substance_match_statuses = []
-            for substance_name in product_data.get("active_substances") or []:
-                substance_id, match_status = self.matching.find_substance(db, substance_name)
-                substance_match_statuses.append(match_status)
-                db.add(
-                    CaseDrugSubstance(
-                        case_product_id=case_product.id,
-                        substance_id=substance_id,
-                        reported_substance_name=substance_name,
-                        normalized_substance_name=substance_name,
-                        match_status=match_status,
-                        import_batch_id=batch.id,
+            if product_data.get("drug_profile") == "ich-r3-drug-v1":
+                from app.drug_data import import_children
+                import_children(db, case_product, product_data, parsed.get("message", {}).get("import_source"), reaction_map)
+            else:
+                substance_match_statuses = []
+                for substance_name in product_data.get("active_substances") or []:
+                    substance_id, match_status = self.matching.find_substance(db, substance_name)
+                    substance_match_statuses.append(match_status)
+                    db.add(
+                        CaseDrugSubstance(
+                            case_product_id=case_product.id,
+                            substance_id=substance_id,
+                            reported_substance_name=substance_name,
+                            normalized_substance_name=substance_name,
+                            match_status=match_status,
+                            import_batch_id=batch.id,
+                        )
                     )
+                case_product.substance_match_status = (
+                    "exact" if substance_match_statuses and all(status == "exact" for status in substance_match_statuses) else "not_found"
                 )
-            case_product.substance_match_status = (
-                "exact" if substance_match_statuses and all(status == "exact" for status in substance_match_statuses) else "not_found"
-            )
+                from app.drug_data import promote_single
+                promote_single(db, case_product, "r2_single_unverified")
         literature = parsed.get("literature", {})
         if literature.get("is_literature"):
             db.add(
@@ -2288,9 +2308,14 @@ class E2BImportService:
         safety_report: SafetyReport,
         *,
         embedded_dir: Path,
+        selected_item_id: str | None = None,
+        selected_normalized: dict | None = None,
+        selected_attachment_ids: list[str] | None = None,
     ) -> None:
         checksums_to_attachment: dict[str, Attachment] = {}
         for item in batch.items:
+            if selected_item_id and item.id not in {selected_item_id, *(selected_attachment_ids or [])}:
+                continue
             if item.file_role not in {"xml", "pdf", "cioms", "literature_pdf", "other"}:
                 continue
             duplicate = checksums_to_attachment.get(item.checksum_sha256 or "")
@@ -2323,9 +2348,11 @@ class E2BImportService:
         if upload_root not in resolved_embedded_dir.parents:
             raise ValueError("Embedded attachment path is outside E2B import storage.")
         for item in batch.items:
-            if item.file_role != "xml" or item.status != "parsed" or not item.normalized_json:
+            if selected_item_id and item.id != selected_item_id:
                 continue
-            normalized = json.loads(item.normalized_json)
+            if item.file_role != "xml" or (item.status != "parsed" and not selected_normalized) or not item.normalized_json:
+                continue
+            normalized = selected_normalized if selected_normalized is not None else json.loads(item.normalized_json)
             for document in normalized.get("embedded_documents") or []:
                 checksum = clean_text(document.get("sha256"))
                 duplicate = checksums_to_attachment.get(checksum or "")
@@ -2344,6 +2371,8 @@ class E2BImportService:
                     resolved_target = target.resolve()
                     if resolved_embedded_dir not in resolved_target.parents:
                         raise ValueError("Embedded E2B document path is outside import storage.")
+                    from app.unit_of_work import register_new_file
+                    register_new_file(target)
                     target.write_bytes(content)
                     storage_path = str(target)
                 attachment = Attachment(
@@ -2416,6 +2445,18 @@ def batch_preview_context(batch: E2BImportBatch) -> dict[str, Any]:
     }
     return {
         "files": normalized.get("files", []),
+        "source_facts": [
+            {
+                "interpretation": file.get("normalized", {}).get("message", {}).get("identity_profile") or "legacy_unverified",
+                "import_batch_id": batch.id, "import_item_id": file.get("id"),
+                "checksum_sha256": file.get("checksum_sha256"),
+                "registered_at": batch.created_at,
+                "identifiers": file.get("normalized", {}).get("message", {}).get("identifiers", {}),
+                "dates": {key: file.get("normalized", {}).get("message", {}).get(key) for key in ("first_received_date", "latest_received_date")},
+                "warnings": file.get("normalized", {}).get("message", {}).get("identity_warnings", []),
+            }
+            for file in normalized.get("files", []) if file.get("normalized", {}).get("e2b_version") == "E2B(R3)"
+        ],
         "case_groups": case_groups,
         "case_summaries": case_summaries,
         "product_summary": product_summary,

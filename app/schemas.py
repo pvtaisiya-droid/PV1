@@ -417,6 +417,7 @@ class SafetyReportCreate(SafetyReportBase):
 
 
 class SafetyReportRead(SafetyReportBase, ORMModel):
+    e2b_source_facts: list[dict] = Field(default_factory=list)
     input_snapshot: str | None = None
     id: str
     version: int
@@ -482,6 +483,9 @@ class CaseCreate(CaseBase):
 
 
 class CaseRead(CaseBase, ORMModel):
+    e2b_identity_profile: str | None = None
+    e2b_sender_scope: str | None = None
+    e2b_source_facts: list[dict] = Field(default_factory=list)
     id: str
     version: int
     full_case_code: str
@@ -561,7 +565,7 @@ class CaseProductCreate(BaseModel):
     product_id: str | None = None
     reported_product_name: str | None = None
     active_substance_text: str | None = None
-    drug_role: str = "suspect"
+    drug_role: str = "unknown"
     indication_text: str | None = None
     indication_meddra_pt_code: str | None = None
     dose_value: str | None = None
@@ -578,7 +582,112 @@ class CaseProductCreate(BaseModel):
     batch_lot_number: str | None = None
 
 
+class DrugDosageRead(ORMModel):
+    id: str
+    case_product_id: str
+    version: int
+    is_deleted: bool
+    drug_provenance: dict = Field(default_factory=dict)
+    dose_value: str | None = None
+    dose_unit: str | None = None
+    dose_numerator_value: str | None = None
+    dose_numerator_unit: str | None = None
+    dose_denominator_value: str | None = None
+    dose_denominator_unit: str | None = None
+    interval_value: str | None = None
+    interval_unit: str | None = None
+    frequency_text: str | None = None
+    route_text: str | None = None
+    route_code: str | None = None
+    route_system: str | None = None
+    route_version: str | None = None
+    route_null_flavor: str | None = None
+    start_raw: str | None = None
+    start_null_flavor: str | None = None
+    end_raw: str | None = None
+    end_null_flavor: str | None = None
+    duration_value: str | None = None
+    duration_unit: str | None = None
+    dosage_text: str | None = None
+    dosage_form_text: str | None = None
+    dosage_form_code: str | None = None
+    dosage_form_system: str | None = None
+    dosage_form_version: str | None = None
+    batch_lot_number: str | None = None
+    parent_route_text: str | None = None
+    parent_route_code: str | None = None
+    parent_route_system: str | None = None
+    parent_route_version: str | None = None
+
+
+class DrugIndicationRead(ORMModel):
+    id: str
+    case_product_id: str
+    version: int
+    is_deleted: bool
+    drug_provenance: dict = Field(default_factory=dict)
+    reported_text: str | None = None
+    meddra_llt_code: str | None = None
+    meddra_version: str | None = None
+    legacy_meddra_pt_code: str | None = None
+    null_flavor: str | None = None
+
+
+class DrugSubstanceRead(ORMModel):
+    id: str
+    case_product_id: str
+    version: int
+    is_deleted: bool
+    drug_provenance: dict = Field(default_factory=dict)
+    substance_id: str | None = None
+    reported_substance_name: str | None = None
+    strength_value: str | None = None
+    strength_unit: str | None = None
+    identifier_code: str | None = None
+    identifier_system: str | None = None
+    identifier_version: str | None = None
+    denominator_value: str | None = None
+    denominator_unit: str | None = None
+    quantity_null_flavor: str | None = None
+
+
+class DrugAssessmentRead(ORMModel):
+    id: str
+    case_product_id: str
+    version: int
+    is_deleted: bool
+    drug_provenance: dict = Field(default_factory=dict)
+    reaction_id: str | None = None
+    assessment_source: str | None = None
+    assessment_method_text: str | None = None
+    relatedness: str | None = None
+    assessment_comment: str | None = None
+
+
+class DrugRechallengeRead(ORMModel):
+    id: str
+    case_product_id: str
+    version: int
+    is_deleted: bool
+    drug_provenance: dict = Field(default_factory=dict)
+    reaction_id: str | None = None
+    rechallenge_code: str | None = None
+    code_system: str | None = None
+    code_version: str | None = None
+    null_flavor: str | None = None
+    reported_text: str | None = None
+
+
 class CaseProductRead(CaseProductCreate, ORMModel):
+    version: int
+    drug_provenance: dict = Field(default_factory=dict)
+    coded_identifiers: list[dict] = Field(default_factory=list)
+    dosages: list[DrugDosageRead] = Field(default_factory=list)
+    indications: list[DrugIndicationRead] = Field(default_factory=list)
+    drug_substances: list[DrugSubstanceRead] = Field(default_factory=list)
+    assessments: list[DrugAssessmentRead] = Field(default_factory=list)
+    rechallenges: list[DrugRechallengeRead] = Field(default_factory=list)
+
     id: str
     case_id: str
     created_at: datetime
@@ -592,6 +701,7 @@ class ReactionCreate(BaseModel):
     meddra_llt_name: str | None = None
     meddra_pt_code: str | None = None
     meddra_pt_name: str | None = None
+    meddra_version: str | None = None
     meddra_soc_code: str | None = None
     meddra_soc_name: str | None = None
     onset_date: date | None = None
@@ -599,20 +709,37 @@ class ReactionCreate(BaseModel):
     end_date: date | None = None
     end_date_raw: str | None = None
     outcome: str | None = None
-    is_serious: bool = False
-    seriousness_death: bool = False
-    seriousness_life_threatening: bool = False
-    seriousness_hospitalization: bool = False
-    seriousness_disability: bool = False
-    seriousness_congenital_anomaly: bool = False
-    seriousness_other_medically_important: bool = False
+    is_serious: bool | None = None
+    seriousness_death: bool | None = None
+    seriousness_life_threatening: bool | None = None
+    seriousness_hospitalization: bool | None = None
+    seriousness_disability: bool | None = None
+    seriousness_congenital_anomaly: bool | None = None
+    seriousness_other_medically_important: bool | None = None
 
 
 class ReactionRead(ReactionCreate, ORMModel):
+    reported_term: str | None = None
     id: str
     case_id: str
+    version: int
+    reported_seriousness: bool | None = None
+    reaction_provenance: dict = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
+
+
+class ReactionUpdate(ReactionCreate):
+    reported_term: str | None = None
+    change_reason: str = Field(min_length=10, max_length=2000)
+
+    @model_validator(mode="after")
+    def require_term_when_supplied(self):
+        if "reported_term" in self.model_fields_set and not (self.reported_term or "").strip():
+            raise ValueError("Reported term cannot be empty")
+        if len(self.change_reason.strip()) < 10:
+            raise ValueError("A meaningful change reason is required")
+        return self
 
 
 class CausalityAssessmentCreate(BaseModel):
@@ -905,6 +1032,7 @@ class IncomingRequestCreate(BaseModel):
 
 
 class IncomingRequestRead(IncomingRequestCreate, ORMModel):
+    received_date_basis: str = "legacy_or_manual"
     input_snapshot: str | None = None
     version: int
     id: str

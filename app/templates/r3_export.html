@@ -1,0 +1,32 @@
+{% extends 'base.html' %}{% block content %}
+<h1 class="h3">Подготовка ICH E2B(R3) · {{ case.case_number }}</h1>
+<a href="/cases/{{ case.id }}">Карточка случая</a> · <a href="/cases/{{ case.id }}/clinical">Клинические данные и ревизии</a> · <a href="/cases/{{ case.id }}/as2">Локальная очередь AS2</a> · <a href="/cases/{{ case.id }}/operations">Подача и публикация</a>
+<p class="alert alert-warning">Совместимость с РЗН не подтверждена. Локальная проверка и скачивание не означают отправку, подачу или принятие сообщения.</p>
+<p>Профиль ICH package 1.11 · IG 5.03 · Appendix I(G) 1.03. Используется сохранённая ревизия; текущая карточка её не заменяет.</p>
+<form method="get"><label>Выберите ревизию<select class="form-select" name="revision_id" required><option value="">Выберите</option>{% for r in revisions %}<option value="{{ r.id }}" {% if source and source.id==r.id %}selected{% endif %}>{{ r.revision_number }} · {{ r.created_at }} · {{ r.reason }}</option>{% endfor %}</select></label><button class="btn btn-secondary">Выбрать</button></form>
+{% if not revisions %}<p>Сначала зафиксируйте содержательную ревизию в клиническом экране.</p>{% endif %}
+{% if source and has_permission('icsr_workflow') %}
+<h2 class="h5 mt-3">Параметры подготовки ревизии {{ source.revision_number }}</h2><p>SHA-256 ревизии: <code>{{ source.checksum_sha256 }}</code></p>
+<form method="post" action="/cases/{{ case.id }}/r3-export">
+<input type="hidden" name="csrf" value="{{ csrf_token(request) }}"><input type="hidden" name="revision_id" value="{{ source.id }}"><input type="hidden" name="expected_revision_checksum" value="{{ source.checksum_sha256 }}"><input type="hidden" name="idempotency_key" value="{{ key }}">
+<label>XML ID отправителя (также отправитель пакета)<input class="form-control" name="sender_id" maxlength="100" required></label>
+<label>XML ID получателя (также получатель пакета)<input class="form-control" name="receiver_id" maxlength="100" required></label>
+<p>Введите реальные согласованные либо явно синтетические ID. Зарегистрированные параметры не подставляются; ID случая берутся только из ревизии.</p>
+<label>Назначение<select name="purpose" class="form-select"><option value="local_test">Локальная проверка</option><option value="manual_preparation">Подготовка к ручной выгрузке</option></select></label>
+<label>Сценарий<select name="scenario" class="form-select"><option value="initial">Первичное сообщение</option><option value="followup">Последующая информация (follow-up)</option></select></label>
+<label>Предшествующий локальный артефакт для follow-up<select name="previous_artifact_id" class="form-select"><option value="">Не выбран</option>{% for a in artifacts %}{% if a.locally_valid %}<option value="{{ a.id }}">{{ a.id }} · {{ a.created_at }}</option>{% endif %}{% endfor %}</select></label>
+<p>Выбор follow-up — содержательное решение; номер ревизии его не определяет. Предшествующий артефакт не доказывает подачу. Amendment/nullification в этом локальном сценарии не поддержаны.</p>
+<label>ID пакета (пусто → новый PV1-B-UUID)<input class="form-control" name="batch_id" maxlength="100"></label>
+<label>ID сообщения (пусто → новый PV1-M-UUID)<input class="form-control" name="message_id" maxlength="100"></label>
+<label>Основание подготовки<textarea name="reason" class="form-control" required minlength="10" maxlength="2000"></textarea></label>
+<p>В файл включаются только документы с назначением source_document/literature в ревизии, по сохранённым ссылкам и хешам. Неразобранное клиническое содержимое блокирует готовность.</p>
+<button class="btn btn-primary">Проверить, сформировать и сохранить</button></form>{% endif %}
+{% if result %}<h2 class="h5 mt-4">{{ result.status }}</h2><p>Артефакт {{ result.id }} · ревизия {{ result.revision_id }} · {{ result.byte_length }} байт</p>
+<p>XML SHA-256: <code>{{ result.xml_sha256 }}</code><br>Ревизия SHA-256: <code>{{ result.revision_checksum }}</code></p>
+<p>XSD: {{ 'пройден' if result.xsd_valid else 'не пройден' }} · совместимость с РЗН: не подтверждена.</p>
+<details><summary>Конверт и зафиксированный профиль</summary><pre class="text-wrap">{{ result.envelope | tojson(indent=2) }}</pre><pre class="text-wrap">{{ result.profile | tojson(indent=2) }}</pre></details>
+<table class="table"><thead><tr><th>Уровень / правило</th><th>Элемент / повтор</th><th>Результат</th></tr></thead><tbody>{% for f in result.validation.findings %}<tr><td>{{ f.level }} · {{ f.rule }} v{{ f.version }}</td><td>{{ f.element }}<br>{{ f.path }}</td><td>{{ f.message }}<details><summary>Источник</summary>{{ f.source }}</details></td></tr>{% endfor %}</tbody></table>
+<details><summary>Решения ФН из ревизии (отдельно от технической проверки)</summary><pre class="text-wrap">{{ result.validation.pv_decisions | tojson(indent=2) }}</pre></details>
+{% if result.download_url %}<a class="btn btn-success" href="{{ result.download_url }}">Скачать сохранённый XML</a>{% else %}<p class="alert alert-danger">Выгрузка заблокирована. Исправьте данные, создайте новую ревизию и подготовьте новый артефакт.</p>{% endif %}{% endif %}
+<h2 class="h5 mt-4">Сохранённые подготовки</h2>{% for a in artifacts %}<div><a href="?artifact_id={{ a.id }}">{{ a.created_at }} · {{ a.status }}</a></div>{% endfor %}
+{% endblock %}

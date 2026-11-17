@@ -1,5 +1,7 @@
 from app import models
-from app.concurrency import protect_record
+from app.concurrency import protect_record, require_version
+from app.security import require_csrf
+from pydantic import ValidationError
 from app.unit_of_work import atomic_write
 import json
 from datetime import date
@@ -212,7 +214,7 @@ def create_manual_case_form(
     product_id: str | None = Form(None),
     reported_product_name: str | None = Form(None),
     active_substance_text: str | None = Form(None),
-    drug_role: str = Form("suspect"),
+    drug_role: str = Form("unknown"),
     indication_text: str | None = Form(None),
     dose_value: str | None = Form(None),
     dose_unit: str | None = Form(None),
@@ -224,18 +226,21 @@ def create_manual_case_form(
     batch_lot_number: str | None = Form(None),
     reported_term: str | None = Form(None),
     verbatim_term: str | None = Form(None),
+    meddra_llt_code: str | None = Form(None),
+    meddra_llt_name: str | None = Form(None),
+    meddra_version: str | None = Form(None),
     meddra_pt_code: str | None = Form(None),
     meddra_pt_name: str | None = Form(None),
     onset_date: str | None = Form(None),
     end_date: str | None = Form(None),
     reaction_outcome: str | None = Form(None),
-    is_serious: bool = Form(False),
-    seriousness_death: bool = Form(False),
-    seriousness_life_threatening: bool = Form(False),
-    seriousness_hospitalization: bool = Form(False),
-    seriousness_disability: bool = Form(False),
-    seriousness_congenital_anomaly: bool = Form(False),
-    seriousness_other_medically_important: bool = Form(False),
+    is_serious: bool | None = Form(None),
+    seriousness_death: bool | None = Form(None),
+    seriousness_life_threatening: bool | None = Form(None),
+    seriousness_hospitalization: bool | None = Form(None),
+    seriousness_disability: bool | None = Form(None),
+    seriousness_congenital_anomaly: bool | None = Form(None),
+    seriousness_other_medically_important: bool | None = Form(None),
     document_file: UploadFile | None = File(None),
     document_title: str | None = Form(None),
     document_type: str | None = Form("other"),
@@ -312,6 +317,9 @@ def create_manual_case_form(
             reaction_payload=schemas.ReactionCreate(
                 reported_term=reported_term or "",
                 verbatim_term=verbatim_term,
+                meddra_llt_code=meddra_llt_code,
+                meddra_llt_name=meddra_llt_name,
+                meddra_version=meddra_version,
                 meddra_pt_code=meddra_pt_code,
                 meddra_pt_name=meddra_pt_name,
                 onset_date=onset_date or None,
@@ -759,7 +767,7 @@ def add_case_product_form(
     product_id: str | None = Form(None),
     reported_product_name: str | None = Form(None),
     active_substance_text: str | None = Form(None),
-    drug_role: str = Form("suspect"),
+    drug_role: str = Form("unknown"),
     dose_value: str | None = Form(None),
     dose_unit: str | None = Form(None),
     route: str | None = Form(None),
@@ -797,16 +805,19 @@ def add_reaction_form(
     case_id: str,
     reported_term: str = Form(...),
     verbatim_term: str | None = Form(None),
+    meddra_llt_code: str | None = Form(None),
+    meddra_llt_name: str | None = Form(None),
+    meddra_version: str | None = Form(None),
     meddra_pt_code: str | None = Form(None),
     meddra_pt_name: str | None = Form(None),
     outcome: str | None = Form(None),
-    is_serious: bool = Form(False),
-    seriousness_death: bool = Form(False),
-    seriousness_life_threatening: bool = Form(False),
-    seriousness_hospitalization: bool = Form(False),
-    seriousness_disability: bool = Form(False),
-    seriousness_congenital_anomaly: bool = Form(False),
-    seriousness_other_medically_important: bool = Form(False),
+    is_serious: bool | None = Form(None),
+    seriousness_death: bool | None = Form(None),
+    seriousness_life_threatening: bool | None = Form(None),
+    seriousness_hospitalization: bool | None = Form(None),
+    seriousness_disability: bool | None = Form(None),
+    seriousness_congenital_anomaly: bool | None = Form(None),
+    seriousness_other_medically_important: bool | None = Form(None),
     expected_version: int = Form(..., gt=0),
     db: Session = Depends(get_db),
 ):
@@ -821,6 +832,9 @@ def add_reaction_form(
             schemas.ReactionCreate(
                 reported_term=reported_term,
                 verbatim_term=verbatim_term,
+                meddra_llt_code=meddra_llt_code,
+                meddra_llt_name=meddra_llt_name,
+                meddra_version=meddra_version,
                 meddra_pt_code=meddra_pt_code,
                 meddra_pt_name=meddra_pt_name,
                 outcome=outcome,
@@ -836,6 +850,58 @@ def add_reaction_form(
     except ValueError as exc:
         return redirect_with_message(f"/cases/{case_id}?tab=reactions", validation=str(exc))
     return redirect_with_message(f"/cases/{case_id}?tab=reactions", message="Reaction saved.")
+
+
+def editable_reaction(db, case_id, reaction_id, expected_version, expected_reaction_version):
+    case = protect_record(db, models.Case, case_id, expected_version)
+    reaction = db.get(models.Reaction, reaction_id)
+    if not reaction or reaction.is_deleted or reaction.case_id != case_id:
+        raise HTTPException(404, "Reaction not found")
+    require_version(reaction, expected_reaction_version)
+    return case, reaction
+
+
+@router.get("/cases/{case_id}/reactions/{reaction_id}/edit", dependencies=[Depends(require_permission("edit"))])
+def reaction_edit_page(case_id: str, reaction_id: str, request: Request, db: Session = Depends(get_db)):
+    case = crud.get_case(db, case_id)
+    reaction = db.get(models.Reaction,reaction_id)
+    if not case or not reaction or reaction.is_deleted or reaction.case_id != case_id:
+        raise HTTPException(404, "Reaction not found")
+    from app.reaction_semantics import CRITERIA
+    return templates.TemplateResponse(request,"reaction_edit.html",dict(request=request,case=case,reaction=reaction,
+        criteria=list(CRITERIA),validation=request.query_params.get("validation"),active_page="cases"))
+
+
+@router.post("/cases/{case_id}/reactions/{reaction_id}/edit",
+    dependencies=[Depends(require_permission("edit")), Depends(require_csrf)])
+@atomic_write
+async def reaction_edit_form(case_id: str, reaction_id: str, request: Request,
+        expected_version: int = Form(...,gt=0), expected_reaction_version: int = Form(...,gt=0),
+        db: Session = Depends(get_db)):
+    case, reaction = editable_reaction(db,case_id,reaction_id,expected_version,expected_reaction_version)
+    data = dict(await request.form())
+    data = {k:(None if v == "" else v) for k,v in data.items() if k in schemas.ReactionUpdate.model_fields}
+    try:
+        payload = schemas.ReactionUpdate.model_validate(data)
+        crud.update_reaction(db,case,reaction,payload)
+    except ValidationError:
+        return redirect_with_message(f"/cases/{case_id}/reactions/{reaction_id}/edit", validation="Проверьте поля и укажите содержательное основание правки.")
+    except ValueError as exc:
+        return redirect_with_message(f"/cases/{case_id}/reactions/{reaction_id}/edit",validation=str(exc))
+    return redirect_with_message(f"/cases/{case_id}?tab=reactions",message="Реакция исправлена; источник импорта сохранён.")
+
+
+@router.patch("/api/cases/{case_id}/reactions/{reaction_id}",response_model=schemas.ReactionRead,
+    dependencies=[Depends(require_permission("edit"))])
+@atomic_write
+def api_update_reaction(case_id: str, reaction_id: str, payload: schemas.ReactionUpdate,
+        expected_version: int = Query(...,gt=0), expected_reaction_version: int = Query(...,gt=0),
+        db: Session = Depends(get_db)):
+    case, reaction = editable_reaction(db,case_id,reaction_id,expected_version,expected_reaction_version)
+    try:
+        return crud.update_reaction(db,case,reaction,payload)
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from None
 
 
 @router.post("/cases/{case_id}/followups", dependencies=[Depends(require_permission("create"))])

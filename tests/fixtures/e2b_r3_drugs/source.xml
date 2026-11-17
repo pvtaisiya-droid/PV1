@@ -1,0 +1,394 @@
+<?xml version='1.0' encoding='utf-8'?>
+<MCCI_IN200100UV01 xmlns="urn:hl7-org:v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ITSVersion="XML_1.0">
+  <id root="2.16.840.1.113883.3.989.2.1.3.22" extension="Batch-MixedCase-07" />
+  <creationTime value="20260304120000+0300" />
+  <PORR_IN049016UV>
+    <id root="2.16.840.1.113883.3.989.2.1.3.1" extension="Message-NotVersion-99" />
+    <creationTime value="20260303110000+0300" />
+    <sender>
+      <device>
+        <id root="2.16.840.1.113883.3.989.2.1.3.11" extension="Sender-A" />
+      </device>
+    </sender>
+    <receiver>
+      <device>
+        <id root="2.16.840.1.113883.3.989.2.1.3.12" extension="Receiver-Test" />
+      </device>
+    </receiver>
+    <controlActProcess classCode="CACT" moodCode="EVN">
+      <subject typeCode="SUBJ">
+        <investigationEvent classCode="INVSTG" moodCode="EVN">
+          <id root="2.16.840.1.113883.3.989.2.1.3.1" extension="Sender-Case-X" />
+          <id root="2.16.840.1.113883.3.989.2.1.3.2" extension="ZZ-SYNTH-0001" />
+          <effectiveTime>
+            <low value="20260105" />
+          </effectiveTime>
+          <availabilityTime value="20260203141516.125+0530" />
+          <text>Synthetic case for local import verification.</text>
+          <component>
+            <adverseEventAssessment>
+              <subject1>
+                <primaryRole>
+                  <player1>
+                    <name>SY</name>
+                  </player1>
+                  <subjectOf2>
+                    <observation>
+                      <id root="9c516dc1-f622-4de6-a6a9-3726a83ee611" extension="rx-1" />
+                      <code code="29" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" />
+                      <value code="10000001" codeSystem="2.16.840.1.113883.6.163" codeSystemVersion="29.0">
+                        <originalText>Реакция 1</originalText>
+                      </value>
+                    </observation>
+                  </subjectOf2>
+                  <subjectOf2>
+                    <observation>
+                      <id root="9c516dc1-f622-4de6-a6a9-3726a83ee611" extension="rx-2" />
+                      <code code="29" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" />
+                      <value code="10000002" codeSystem="2.16.840.1.113883.6.163" codeSystemVersion="29.0">
+                        <originalText>Реакция 2</originalText>
+                      </value>
+                    </observation>
+                  </subjectOf2>
+                  <subjectOf2>
+                    <organizer>
+                      <code code="4" codeSystem="2.16.840.1.113883.3.989.2.1.1.20" codeSystemVersion="1.0" />
+                      <component>
+                        <substanceAdministration>
+                          <id root="9c516dc1-f622-4de6-a6a9-3726a83ee611" extension="drug-1" />
+                          <consumable>
+                            <instanceOfKind>
+                              <kindOfProduct>
+                                <code code="synthetic-1" codeSystem="urn:synthetic:product" codeSystemVersion="test-v1" />
+                                <name>Test Product</name>
+                                <asManufacturedProduct>
+                                  <subjectOf>
+                                    <approval>
+                                      <id root="2.16.840.1.113883.3.989.2.1.3.4" extension="SYNTH-AUTH-1" />
+                                      <holder>
+                                        <role>
+                                          <playingOrganization>
+                                            <name>Synthetic holder</name>
+                                          </playingOrganization>
+                                        </role>
+                                      </holder>
+                                      <author>
+                                        <territorialAuthority>
+                                          <territory>
+                                            <code code="ZZ" />
+                                          </territory>
+                                        </territorialAuthority>
+                                      </author>
+                                    </approval>
+                                  </subjectOf>
+                                </asManufacturedProduct>
+                                <ingredient classCode="ACTI">
+                                  <quantity>
+                                    <numerator value="0.1250" unit="mg" />
+                                    <denominator value="1.00" unit="mL" />
+                                  </quantity>
+                                  <ingredientSubstance>
+                                    <code code="sub-1-1" codeSystem="urn:synthetic:substance" codeSystemVersion="test-v1" />
+                                    <name>Veщество 1</name>
+                                  </ingredientSubstance>
+                                </ingredient>
+                                <ingredient classCode="ACTI">
+                                  <quantity>
+                                    <numerator value="0.1250" unit="mg" />
+                                    <denominator value="1.00" unit="mL" />
+                                  </quantity>
+                                  <ingredientSubstance>
+                                    <code code="sub-1-2" codeSystem="urn:synthetic:substance" codeSystemVersion="test-v1" />
+                                    <name>Veщество 2</name>
+                                  </ingredientSubstance>
+                                </ingredient>
+                              </kindOfProduct>
+                            </instanceOfKind>
+                          </consumable>
+                          <outboundRelationship2 typeCode="COMP">
+                            <substanceAdministration>
+                              <text>Исходный режим 1</text>
+                              <doseQuantity value="0.2500" unit="mg" />
+                              <effectiveTime xsi:type="SXPR_TS">
+                                <comp xsi:type="PIVL_TS">
+                                  <period value="12.00" unit="h" />
+                                </comp>
+                                <comp xsi:type="IVL_TS">
+                                  <low value="2025" />
+                                  <high nullFlavor="UNK" />
+                                  <width value="7.0" unit="d" />
+                                </comp>
+                              </effectiveTime>
+                              <routeCode nullFlavor="UNK">
+                                <originalText>исходный путь</originalText>
+                              </routeCode>
+                              <consumable>
+                                <instanceOfKind>
+                                  <kindOfProduct>
+                                    <formCode code="FORM-X" codeSystem="urn:synthetic:form" codeSystemVersion="v1">
+                                      <originalText>Исходная форма</originalText>
+                                    </formCode>
+                                  </kindOfProduct>
+                                </instanceOfKind>
+                              </consumable>
+                            </substanceAdministration>
+                          </outboundRelationship2>
+                          <inboundRelationship>
+                            <observation>
+                              <code code="19" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" />
+                              <value code="10001001" codeSystem="2.16.840.1.113883.6.163" codeSystemVersion="29.0">
+                                <originalText>Показание 1</originalText>
+                              </value>
+                            </observation>
+                          </inboundRelationship>
+                          <outboundRelationship2 typeCode="COMP">
+                            <substanceAdministration>
+                              <text>Исходный режим 2</text>
+                              <doseQuantity value="0.2500" unit="mg" />
+                              <effectiveTime xsi:type="SXPR_TS">
+                                <comp xsi:type="PIVL_TS">
+                                  <period value="12.00" unit="h" />
+                                </comp>
+                                <comp xsi:type="IVL_TS">
+                                  <low value="202503" />
+                                  <high nullFlavor="UNK" />
+                                  <width value="7.0" unit="d" />
+                                </comp>
+                              </effectiveTime>
+                              <routeCode nullFlavor="UNK">
+                                <originalText>исходный путь</originalText>
+                              </routeCode>
+                              <consumable>
+                                <instanceOfKind>
+                                  <kindOfProduct>
+                                    <formCode code="FORM-X" codeSystem="urn:synthetic:form" codeSystemVersion="v1">
+                                      <originalText>Исходная форма</originalText>
+                                    </formCode>
+                                  </kindOfProduct>
+                                </instanceOfKind>
+                              </consumable>
+                            </substanceAdministration>
+                          </outboundRelationship2>
+                          <inboundRelationship>
+                            <observation>
+                              <code code="19" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" />
+                              <value code="10001002" codeSystem="2.16.840.1.113883.6.163" codeSystemVersion="29.0">
+                                <originalText>Показание 2</originalText>
+                              </value>
+                            </observation>
+                          </inboundRelationship>
+                          <outboundRelationship2>
+                            <observation>
+                              <code code="31" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" />
+                              <value code="2" codeSystem="2.16.840.1.113883.3.989.2.1.1.16" codeSystemVersion="1.0" />
+                              <outboundRelationship1>
+                                <actReference>
+                                  <id root="9c516dc1-f622-4de6-a6a9-3726a83ee611" extension="rx-2" />
+                                </actReference>
+                              </outboundRelationship1>
+                            </observation>
+                          </outboundRelationship2>
+                        </substanceAdministration>
+                      </component>
+                      <component>
+                        <substanceAdministration>
+                          <id root="9c516dc1-f622-4de6-a6a9-3726a83ee611" extension="drug-2" />
+                          <consumable>
+                            <instanceOfKind>
+                              <kindOfProduct>
+                                <code code="synthetic-2" codeSystem="urn:synthetic:product" codeSystemVersion="test-v1" />
+                                <name>Test Product</name>
+                                <asManufacturedProduct>
+                                  <subjectOf>
+                                    <approval>
+                                      <id root="2.16.840.1.113883.3.989.2.1.3.4" extension="SYNTH-AUTH-2" />
+                                      <holder>
+                                        <role>
+                                          <playingOrganization>
+                                            <name>Synthetic holder</name>
+                                          </playingOrganization>
+                                        </role>
+                                      </holder>
+                                      <author>
+                                        <territorialAuthority>
+                                          <territory>
+                                            <code code="ZZ" />
+                                          </territory>
+                                        </territorialAuthority>
+                                      </author>
+                                    </approval>
+                                  </subjectOf>
+                                </asManufacturedProduct>
+                                <ingredient classCode="ACTI">
+                                  <quantity>
+                                    <numerator value="0.1250" unit="mg" />
+                                    <denominator value="1.00" unit="mL" />
+                                  </quantity>
+                                  <ingredientSubstance>
+                                    <code code="sub-2-1" codeSystem="urn:synthetic:substance" codeSystemVersion="test-v1" />
+                                    <name>Veщество 1</name>
+                                  </ingredientSubstance>
+                                </ingredient>
+                              </kindOfProduct>
+                            </instanceOfKind>
+                          </consumable>
+                          <outboundRelationship2 typeCode="COMP">
+                            <substanceAdministration>
+                              <text>Исходный режим 1</text>
+                              <doseQuantity value="0.2500" unit="mg" />
+                              <effectiveTime xsi:type="SXPR_TS">
+                                <comp xsi:type="PIVL_TS">
+                                  <period value="12.00" unit="h" />
+                                </comp>
+                                <comp xsi:type="IVL_TS">
+                                  <low value="2025" />
+                                  <high nullFlavor="UNK" />
+                                  <width value="7.0" unit="d" />
+                                </comp>
+                              </effectiveTime>
+                              <routeCode nullFlavor="UNK">
+                                <originalText>исходный путь</originalText>
+                              </routeCode>
+                              <consumable>
+                                <instanceOfKind>
+                                  <kindOfProduct>
+                                    <formCode code="FORM-X" codeSystem="urn:synthetic:form" codeSystemVersion="v1">
+                                      <originalText>Исходная форма</originalText>
+                                    </formCode>
+                                  </kindOfProduct>
+                                </instanceOfKind>
+                              </consumable>
+                            </substanceAdministration>
+                          </outboundRelationship2>
+                          <inboundRelationship>
+                            <observation>
+                              <code code="19" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" />
+                              <value code="10001001" codeSystem="2.16.840.1.113883.6.163" codeSystemVersion="29.0">
+                                <originalText>Показание 1</originalText>
+                              </value>
+                            </observation>
+                          </inboundRelationship>
+                          <outboundRelationship2>
+                            <observation>
+                              <code code="31" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" />
+                              <value code="4" codeSystem="2.16.840.1.113883.3.989.2.1.1.16" codeSystemVersion="1.0" />
+                              <outboundRelationship1>
+                                <actReference>
+                                  <id root="9c516dc1-f622-4de6-a6a9-3726a83ee611" extension="rx-1" />
+                                </actReference>
+                              </outboundRelationship1>
+                            </observation>
+                          </outboundRelationship2>
+                        </substanceAdministration>
+                      </component>
+                    </organizer>
+                  </subjectOf2>
+                </primaryRole>
+              </subject1>
+              <component>
+                <causalityAssessment>
+                  <code code="20" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" />
+                  <value code="1" codeSystem="2.16.840.1.113883.3.989.2.1.1.13" codeSystemVersion="1.0" />
+                  <subject2>
+                    <productUseReference>
+                      <id root="9c516dc1-f622-4de6-a6a9-3726a83ee611" extension="drug-1" />
+                    </productUseReference>
+                  </subject2>
+                </causalityAssessment>
+              </component>
+              <component>
+                <causalityAssessment>
+                  <code code="39" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" />
+                  <value>Результат 1</value>
+                  <methodCode>
+                    <originalText>Метод источника 1</originalText>
+                  </methodCode>
+                  <author>
+                    <assignedEntity>
+                      <code>
+                        <originalText>Источник 1</originalText>
+                      </code>
+                    </assignedEntity>
+                  </author>
+                  <subject1>
+                    <adverseEffectReference>
+                      <id root="9c516dc1-f622-4de6-a6a9-3726a83ee611" extension="rx-2" />
+                    </adverseEffectReference>
+                  </subject1>
+                  <subject2>
+                    <productUseReference>
+                      <id root="9c516dc1-f622-4de6-a6a9-3726a83ee611" extension="drug-1" />
+                    </productUseReference>
+                  </subject2>
+                </causalityAssessment>
+              </component>
+              <component>
+                <causalityAssessment>
+                  <code code="39" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" />
+                  <value>Результат 2</value>
+                  <methodCode>
+                    <originalText>Метод источника 2</originalText>
+                  </methodCode>
+                  <author>
+                    <assignedEntity>
+                      <code>
+                        <originalText>Источник 2</originalText>
+                      </code>
+                    </assignedEntity>
+                  </author>
+                  <subject1>
+                    <adverseEffectReference>
+                      <id root="9c516dc1-f622-4de6-a6a9-3726a83ee611" extension="rx-2" />
+                    </adverseEffectReference>
+                  </subject1>
+                  <subject2>
+                    <productUseReference>
+                      <id root="9c516dc1-f622-4de6-a6a9-3726a83ee611" extension="drug-1" />
+                    </productUseReference>
+                  </subject2>
+                </causalityAssessment>
+              </component>
+              <component>
+                <causalityAssessment>
+                  <code code="20" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" />
+                  <value code="2" codeSystem="2.16.840.1.113883.3.989.2.1.1.13" codeSystemVersion="1.0" />
+                  <subject2>
+                    <productUseReference>
+                      <id root="9c516dc1-f622-4de6-a6a9-3726a83ee611" extension="drug-2" />
+                    </productUseReference>
+                  </subject2>
+                </causalityAssessment>
+              </component>
+              <component>
+                <causalityAssessment>
+                  <code code="39" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" codeSystemVersion="1.1" />
+                  <value>Результат 1</value>
+                  <methodCode>
+                    <originalText>Метод источника 1</originalText>
+                  </methodCode>
+                  <author>
+                    <assignedEntity>
+                      <code>
+                        <originalText>Источник 1</originalText>
+                      </code>
+                    </assignedEntity>
+                  </author>
+                  <subject1>
+                    <adverseEffectReference>
+                      <id root="9c516dc1-f622-4de6-a6a9-3726a83ee611" extension="rx-1" />
+                    </adverseEffectReference>
+                  </subject1>
+                  <subject2>
+                    <productUseReference>
+                      <id root="9c516dc1-f622-4de6-a6a9-3726a83ee611" extension="drug-2" />
+                    </productUseReference>
+                  </subject2>
+                </causalityAssessment>
+              </component>
+            </adverseEventAssessment>
+          </component>
+        </investigationEvent>
+      </subject>
+    </controlActProcess>
+  </PORR_IN049016UV>
+</MCCI_IN200100UV01>

@@ -839,7 +839,9 @@ def store_document_file(
 def resolve_document_path(storage_path: str | None) -> Path | None:
     if not storage_path:
         return None
-    candidate = (Path.cwd() / storage_path).resolve()
+    from app.recovery_paths import resolve_storage
+    try:candidate = resolve_storage(storage_path)
+    except ValueError:return None
     if not is_relative_to(candidate, UPLOAD_ROOT):
         return None
     return candidate

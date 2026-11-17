@@ -77,8 +77,9 @@ def e2b_r3_xml_with_attachment() -> tuple[bytes, bytes]:
   <id extension="MSG-R3-ATT-01" root="2.16.840.1.113883.3.989.2.1.3.22"/>
   <creationTime value="20260714162914+0300"/>
   <PORR_IN049016UV>
-    <receiver><device><id extension="Receiver A"/></device></receiver>
-    <sender><device><id extension="Partner One"/></device></sender>
+    <id extension="MESSAGE-R3-ATT-01" root="2.16.840.1.113883.3.989.2.1.3.1"/>
+    <receiver><device><id extension="Receiver A" root="2.16.840.1.113883.3.989.2.1.3.12"/></device></receiver>
+    <sender><device><id extension="Partner One" root="2.16.840.1.113883.3.989.2.1.3.11"/></device></sender>
     <controlActProcess>
       <subject>
         <investigationEvent>
@@ -92,8 +93,8 @@ def e2b_r3_xml_with_attachment() -> tuple[bytes, bytes]:
                 <primaryRole>
                   <player1><administrativeGenderCode code="2"/></player1>
                   <subjectOf2><observation>
-                    <id root="RID1"/><code code="29" displayName="reaction"/>
-                    <value code="10019211" codeSystemVersion="29.0"><originalText>Headache</originalText></value>
+                    <id root="RID1"/><code code="29" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" displayName="reaction"/>
+                    <value code="10019211" codeSystem="2.16.840.1.113883.6.163" codeSystemVersion="29.0"><originalText>Headache</originalText></value>
                   </observation></subjectOf2>
                   <subjectOf2><organizer><code displayName="drugInformation"/>
                     <component><substanceAdministration>
@@ -399,8 +400,8 @@ def test_parser_reads_hl7_e2b_r3_observations_and_drugs():
   <creationTime value="20260714162914+0530"/>
   <PORR_IN049016UV>
     <id extension="CN-PBT-012178" root="2.16.840.1.113883.3.989.2.1.3.1"/>
-    <receiver><device><id extension="Health Canada"/></device></receiver>
-    <sender><device><id extension="Panacea Biotec Pharma Limited"/></device></sender>
+    <receiver><device><id extension="Health Canada" root="2.16.840.1.113883.3.989.2.1.3.12"/></device></receiver>
+    <sender><device><id extension="Panacea Biotec Pharma Limited" root="2.16.840.1.113883.3.989.2.1.3.11"/></device></sender>
     <controlActProcess>
       <subject>
         <investigationEvent>
@@ -415,10 +416,10 @@ def test_parser_reads_hl7_e2b_r3_observations_and_drugs():
                   <player1><administrativeGenderCode code="1"/></player1>
                   <subjectOf2><observation><code code="3"/><value value="69"/></observation></subjectOf2>
                   <subjectOf2><observation>
-                    <id root="RID1"/><code code="29" displayName="reaction"/>
+                    <id root="RID1"/><code code="29" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" displayName="reaction"/>
                     <effectiveTime><low nullFlavor="NASK"/><high nullFlavor="NASK"/></effectiveTime>
-                    <value code="10080342" codeSystemVersion="29.0"><originalText>Peripheral neuropathy</originalText></value>
-                    <outboundRelationship2><observation><code displayName="otherMedicallyImportantCondition"/><value value="true"/></observation></outboundRelationship2>
+                    <value code="10080342" codeSystem="2.16.840.1.113883.6.163" codeSystemVersion="29.0"><originalText>Peripheral neuropathy</originalText></value>
+                    <outboundRelationship2><observation><code code="26" codeSystem="2.16.840.1.113883.3.989.2.1.1.19" displayName="otherMedicallyImportantCondition"/><value value="true"/></observation></outboundRelationship2>
                   </observation></subjectOf2>
                   <subjectOf2><organizer><code displayName="drugInformation"/>
                     <component><substanceAdministration>
@@ -440,13 +441,20 @@ def test_parser_reads_hl7_e2b_r3_observations_and_drugs():
     parsed = E2BParser().parse(xml)
 
     assert parsed.e2b_version == "E2B(R3)"
-    assert parsed.message["message_identifier"] == "CN-PBT-012178-01"
+    assert parsed.message["batch_identifier"] == "CN-PBT-012178-01"
+    assert parsed.message["message_identifier"] == "CN-PBT-012178"
+    assert parsed.message["message_version"] is None
     assert parsed.message["worldwide_case_id"] == "CN-PBT-012178"
     assert parsed.message["sender"] == "Panacea Biotec Pharma Limited"
     assert parsed.patient["sex"] == "male"
-    assert parsed.reactions[0]["meddra_pt_code"] == "10080342"
+    assert parsed.reactions[0]["meddra_llt_code"] == "10080342"
+    assert parsed.reactions[0]["meddra_pt_code"] is None
     assert parsed.reactions[0]["is_serious"] is True
     assert parsed.products[0]["reported_product_name"] == "PACLITAXEL"
     assert parsed.products[0]["active_substances"] == []
-    assert parsed.products[0]["therapy_start_date"]["precision"] == "year"
-    assert parsed.warnings == []
+    assert parsed.products[0]["dosages"][0]["source_facts"]["start"]["precision"] == "year"
+    assert parsed.products[0]["dosages"][0]["end_null_flavor"] == "NASK"
+    assert parsed.products[0]["drug_role"] == "unknown"
+    assert parsed.products[0]["source_facts"]["role"]["state"] == "missing"
+    assert parsed.message["first_received_date"]["state"] == "missing"
+    assert [w["type"] for w in parsed.warnings] == ["r3_source_date", "drug_block", "drug_block"]

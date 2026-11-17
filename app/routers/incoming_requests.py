@@ -456,6 +456,10 @@ def case_preview_from_incoming_request(
     if validation:
         return redirect_with_message("/incoming-requests", validation=validation)
     received_date = row.received_date or (row.created_at.date() if row.created_at else date.today())
+    latest_date = received_date
+    if row.received_date_basis == "pv1_registration":
+        received_date = row.source_received_date("first_received_date")
+        latest_date = row.source_received_date("latest_received_date")
     seriousness = "serious" if (row.seriousness or "").strip().lower() == "serious" else "non-serious"
     return templates.TemplateResponse(
         request,
@@ -469,7 +473,7 @@ def case_preview_from_incoming_request(
                 "case_type": "spontaneous",
                 "report_type": row.request_type or "safety_message",
                 "initial_received_date": received_date,
-                "latest_received_date": received_date,
+                "latest_received_date": latest_date,
                 "seriousness": seriousness,
                 "workflow_status": "data_entry",
                 "narrative": crud.incoming_request_case_narrative(row),

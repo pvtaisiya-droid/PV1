@@ -1,0 +1,4 @@
+# These resources are verified by byte hashes. Preserve upstream/local pinned bytes
+# on every platform, including Windows with core.autocrlf=true.
+/app/resources/** -text
+/app/static/vendor/** -text
