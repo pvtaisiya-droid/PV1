@@ -108,7 +108,8 @@ def review_context(db, batch):
         if related and tx.case and not tx.case.is_deleted and tx.case not in cases:
             cases.append(tx.case)
     try:
-        E2BImportService().preview_case(db, batch)
+        for message in messages:
+            E2BImportService().find_existing_case(db, message)
         blocking = None
     except ValueError as exc:
         blocking = str(exc)

@@ -1349,6 +1349,168 @@ body {
     border-left: 4px solid var(--pv-amber);
 }
 
+.product-register {
+    min-width: 0;
+}
+
+.product-register-table {
+    width: 100%;
+    table-layout: fixed;
+}
+
+.product-register-table .product-col-dra { width: 19%; }
+.product-register-table .product-col-name { width: 31%; }
+.product-register-table .product-col-dosage { width: 20%; }
+.product-register-table .product-col-ru { width: 17%; }
+.product-register-table .product-col-actions { width: 13%; }
+
+.product-register-table > :not(caption) > * > * {
+    padding: 0.65rem 0.5rem;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.product-register-table thead th {
+    text-transform: none;
+    font-size: 0.78rem;
+    white-space: normal;
+}
+
+.product-register-name {
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-start;
+}
+
+.product-register-name > div {
+    min-width: 0;
+}
+
+.product-trade-name {
+    display: block;
+    color: var(--pv-ink);
+    font-weight: 700;
+}
+
+.product-substance-line {
+    display: block;
+    color: var(--pv-muted);
+    font-size: 0.88em;
+    font-weight: 400;
+    overflow-wrap: anywhere;
+}
+
+.product-status-dot {
+    display: inline-block;
+    flex: 0 0 0.65rem;
+    width: 0.65rem;
+    height: 0.65rem;
+    margin-top: 0.4em;
+    border: 1px solid #606975;
+    border-radius: 50%;
+    background: #6b7280;
+}
+
+.product-status-dot[data-status="registration_active"],
+.product-status-dot[data-status="active"],
+.product-status-dot[data-status="authorized"] {
+    border-color: #146c43;
+    background: #198754;
+}
+
+.product-status-dot[data-status="registration_in_progress"] {
+    border-color: #0757b2;
+    background: #0d6efd;
+}
+
+.product-status-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1rem;
+    margin-bottom: 0.75rem;
+    color: var(--pv-muted);
+    font-size: 0.78rem;
+}
+
+.product-status-legend > span {
+    display: inline-flex;
+    gap: 0.35rem;
+    align-items: baseline;
+}
+
+.product-register-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+}
+
+.product-unlinked-list,
+.product-contract-list {
+    display: grid;
+    gap: 0.65rem;
+}
+
+.product-unlinked-entry,
+.product-contract-entry {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.65rem 0;
+    border-bottom: 1px solid var(--pv-line);
+    overflow-wrap: anywhere;
+}
+
+.product-unlinked-entry > div,
+.product-contract-entry > div {
+    flex: 1 1 12rem;
+    min-width: 0;
+}
+
+.product-unlinked-link-form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    flex: 1 1 20rem;
+    min-width: 0;
+}
+
+.product-unlinked-link-form select {
+    flex: 1 1 12rem;
+    min-width: 0;
+}
+
+.product-unlinked-link-form .btn {
+    max-width: 100%;
+    white-space: normal;
+}
+
+@media (max-width: 640px) {
+    .product-register-table thead,
+    .product-register-table colgroup {
+        display: none;
+    }
+
+    .product-register-table tbody,
+    .product-register-table tr,
+    .product-register-table td {
+        display: block;
+        width: 100%;
+    }
+
+    .product-register-table tr {
+        border-bottom: 1px solid var(--pv-line);
+    }
+
+    .product-register-table td::before {
+        content: attr(data-label);
+        display: block;
+        margin-bottom: 0.2rem;
+        color: var(--pv-muted);
+        font-size: 0.75rem;
+    }
+}
+
 .product-unlinked-row > td {
     background: #fffaf0;
 }
@@ -3262,4 +3424,54 @@ body.pv-guide-active {
     .psmf-editor-side {
         position: static;
     }
+}
+[data-message-intake] [hidden] {
+    display: none !important;
+}
+
+[data-quality-reminder] {
+    position: relative;
+}
+
+.quality-help {
+    display: inline-flex;
+    vertical-align: middle;
+}
+
+.quality-help-trigger {
+    width: 1.4rem;
+    height: 1.4rem;
+    margin-left: .25rem;
+    padding: 0;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+    background: transparent;
+    color: inherit;
+    font-size: .85rem;
+    font-weight: 600;
+    cursor: help;
+}
+
+.quality-help-tooltip {
+    position: absolute;
+    bottom: calc(100% - .5rem);
+    left: 1rem;
+    right: 1rem;
+    z-index: 10;
+    max-width: 42rem;
+    max-height: min(20rem, calc(100dvh - 2rem));
+    overflow-y: auto;
+    padding: .85rem 1rem;
+    border-radius: .5rem;
+    background: #203247;
+    color: #fff;
+    box-shadow: 0 .25rem 1rem #0003;
+    font-size: .875rem;
+    line-height: 1.5;
+    visibility: hidden;
+}
+
+.quality-help:hover .quality-help-tooltip,
+.quality-help:focus-within .quality-help-tooltip {
+    visibility: visible;
 }

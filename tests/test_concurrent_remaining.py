@@ -92,7 +92,9 @@ def specs():
                 continue
             if not isinstance(check.args[3], ast.Name):
                 continue
-            route = next(d for d in node.decorator_list if isinstance(d, ast.Call) and isinstance(d.func, ast.Attribute) and d.func.attr == 'post')
+            route = next((d for d in node.decorator_list if isinstance(d, ast.Call) and isinstance(d.func, ast.Attribute) and d.func.attr == 'post'), None)
+            if route is None:
+                continue  # Shared writer helpers are covered through their HTTP routes.
             model = check.args[1].attr
             yield (path.stem, node.name, route.args[0].value, model, ast.unparse(check.args[2]), check.args[3].id)
 

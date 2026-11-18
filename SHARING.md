@@ -1,7 +1,13 @@
-﻿# Версия программы для просмотра коллегой
+# PV1 source publication
 
-Эта ветка содержит код PV1 и инструкции запуска из README.md. Рабочая база, вложения, выгрузки Access и локальные отчёты с рабочими данными в неё не включены. Три локальных коммита с такими файлами не являются предками этой ветки.
+This branch continues the existing public main history and contains the integrated application.
+The unrelated local repository history and its operational materials are not included.
+Working databases, attachments, Access exports, backups, local operational reports,
+secrets and one-off scripts containing real regulatory identifiers are excluded.
 
-Для просмотра интерфейса установите зависимости, создайте новую базу через `python -m app.manage init-db`, затем создайте администратора через `python -m app.manage bootstrap-admin --login pv.admin` и запустите `start.cmd` (Windows). Пароль задаётся при создании администратора; общего пароля нет.
+GitHub stores source code. The running local installation and its data remain separate.
+A clone requires its own environment and either explicit initialization of a new database
+or verified migration of an existing database with its matching file storage.
+There is no shared working password.
 
-GitHub хранит исходный код. Для доступа к работающему сайту через браузер потребуется отдельно запущенный сервер. Для просмотра реальных случаев нужна отдельно переданная разрешённая копия базы и соответствующего файлового хранилища; эта ветка их не содержит.
+See README.md and docs/merged-release-2026-11-18.md.

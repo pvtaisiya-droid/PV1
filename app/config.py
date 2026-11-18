@@ -34,11 +34,13 @@ class Settings:
     auth_session_hours: int
     auth_cookie_secure: bool
     business_timezone: str
+    e2b_group_import_enabled: bool
 
     def __init__(self) -> None:
         self.storage_root = Path(os.getenv("PV_STORAGE_ROOT", "uploads")).resolve()
         raw_mode = os.getenv("PV_APP_MODE", "prod").strip().lower()
         self.app_mode = "dev" if raw_mode in {"dev", "development", "local"} else "prod"
+        self.e2b_group_import_enabled = env_bool("PV_E2B_MULTI_CASE_IMPORT_ENABLED", default=self.app_mode == "dev")
         self.user_switch_enabled = env_bool(
             "PV_USER_SWITCH_ENABLED",
             default=False,

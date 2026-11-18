@@ -1,0 +1,175 @@
+/* Keep the same compact workspace across every intake step. */
+[data-message-registration] > [hidden] {
+    display: none !important;
+}
+.intake-entry-method .btn {
+    padding: 5px 10px;
+    font-size: 15px;
+}
+[data-e2b-registration] #intake-e2b-file {
+    flex: 1 1 280px;
+    width: auto;
+    min-width: 0;
+}
+body:has([data-message-intake]) .app-content {
+    padding: 8px 12px !important;
+    max-width: none;
+}
+body:has([data-message-intake]) .app-topbar {
+    min-height: 48px;
+    padding: 5px 12px;
+}
+body:has([data-message-intake]) .app-topbar .brand-logo {
+    height: 34px;
+    width: auto;
+}
+body:has([data-message-intake]) .pv-page-guide-summary {
+    display: none;
+}
+[data-intake-page-heading] {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    margin-bottom: 8px;
+}
+[data-intake-page-heading] h1 {
+    margin: 0;
+    font-size: 19px;
+    line-height: 1.3;
+}
+[data-intake-page-heading] .alert {
+    margin: 0;
+    padding: 4px 9px;
+    font-size: 14px;
+    line-height: 1.3;
+}
+[data-intake-page-heading] .btn {
+    margin-left: auto;
+    padding: 4px 9px;
+    font-size: 14px;
+}
+[data-message-intake] {
+    padding: 10px;
+    font-size: 15px;
+}
+[data-message-intake] > nav {
+    gap: 5px !important;
+    padding-bottom: 7px !important;
+    margin-bottom: 9px !important;
+}
+[data-message-intake] > nav button {
+    padding: 4px 8px;
+    font-size: 14px;
+    line-height: 1.4;
+}
+[data-message-intake] .row {
+    --bs-gutter-x: 12px;
+    --bs-gutter-y: 9px;
+}
+[data-message-intake] .form-label,
+[data-message-intake] legend {
+    margin-bottom: 4px;
+}
+[data-message-intake] .form-label {
+    line-height: 1.35;
+}
+[data-message-intake] .form-control,
+[data-message-intake] .form-select {
+    font-size: 15px;
+    line-height: 1.35;
+    padding-top: 5px;
+    padding-bottom: 5px;
+}
+[data-message-intake] .form-text {
+    font-size: 13px;
+    line-height: 1.35;
+}
+[data-message-intake] .form-text:empty {
+    display: none;
+}
+[data-message-intake] [data-route-heading] {
+    display: inline-block;
+    font-size: 17px;
+    margin: 0 12px 5px 0;
+}
+[data-message-intake] [data-route-source] {
+    display: inline;
+    font-size: 13px;
+}
+[data-message-intake] [data-intake-panel] > .row {
+    margin-top: 0 !important;
+}
+[data-message-intake] [data-intake-footer] {
+    justify-content: flex-end;
+    align-items: center;
+    margin-top: 9px !important;
+    padding-top: 8px !important;
+}
+[data-message-intake] [data-intake-footer] .btn {
+    padding: 5px 9px;
+    font-size: 15px;
+}
+[data-message-intake] [data-pv-handoff] {
+    margin-right: auto;
+}
+[data-message-intake] .intake-column {
+    min-width: 0;
+}
+[data-message-intake] .intake-complaints .form-check {
+    margin-bottom: 5px !important;
+    font-size: 14px;
+    line-height: 1.35;
+}
+[data-message-intake] [data-quality-reminder] {
+    padding: 9px 11px;
+    font-size: 14px;
+    line-height: 1.35;
+}
+@media (min-width: 721px) {
+    [data-message-intake] .intake-registration-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 9px 12px;
+        margin: 0;
+    }
+    [data-message-intake] .intake-registration-grid > * {
+        width: auto;
+        margin: 0;
+        padding: 0;
+        min-width: 0;
+    }
+    [data-message-intake] .intake-registration-grid > .col-12 {
+        grid-column: 1 / -1;
+    }
+    [data-message-intake] :is([data-intake-panel="quality"], [data-intake-panel="medical"]) > .row {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+        margin: 0;
+    }
+    [data-message-intake] .intake-column {
+        padding: 0;
+        margin: 0;
+        width: auto;
+    }
+    [data-message-intake] .intake-column > .row {
+        margin-top: -9px;
+    }
+}
+@media (min-width: 721px) and (max-width: 1200px) {
+    body:has([data-message-intake]) .app-sidebar:not(.offcanvas) {
+        display: none !important;
+    }
+    body:has([data-message-intake]) .app-topbar > button[data-bs-toggle="offcanvas"] {
+        display: inline-flex !important;
+    }
+}
+@media (max-width: 720px) {
+    [data-intake-page-heading] h1 {
+        font-size: 18px;
+    }
+    [data-message-intake] .intake-column + .intake-column {
+        margin-top: 12px;
+    }
+}

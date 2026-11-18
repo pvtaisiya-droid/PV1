@@ -1,0 +1,146 @@
+{% extends "embedded_base.html" if embedded else "base.html" %}
+{% from "_message_receiver.html" import receiver_options with context %}
+{% block title %}{{ report.safety_report_number if report else 'Получено новое сообщение' }} — {{ _('PV System') }}{% endblock %}
+{% macro entry(name, label, type='text', wide=False, maximum=255) -%}
+<label class="{{ 'col-12' if wide else 'col-md-6' }} form-label">{{ label }}
+<input class="form-control mt-1" type="{{ type }}" name="{{ name }}" value="{{ values.get(name) or '' }}" {% if type in ['text','email','tel'] %}maxlength="{{ maximum }}"{% elif type == 'time' %}step="1"{% endif %}></label>
+{%- endmacro %}
+{% macro product_picker(kind) -%}
+{% set name = 'product_ids' if kind == 'common' else kind ~ '_product_ids' %}
+{% set selected = values.get(name, values.get('product_ids', [])) or [] %}
+<div class="col-12"><label class="form-label" for="{{ kind }}-products">Лекарственные препараты из справочника <span class="text-secondary small">(можно выбрать несколько препаратов)</span></label>
+<select class="form-select" multiple size="3" name="{{ name }}" id="{{ kind }}-products" data-intake-products="{{ kind }}">
+{% for product in products %}<option value="{{ product.id }}" {% if product.id in selected %}selected{% endif %}>{{ product.product_name }}{% if product.strength %} — {{ product.strength }}{% endif %}</option>{% endfor %}
+</select>{% if kind != 'common' %}<input type="hidden" name="{{ kind }}_products_overridden" value="{{ 'true' if checked(kind ~ '_products_overridden') else 'false' }}">{% endif %}
+</div>
+{%- endmacro %}
+{% macro file_picker(kind) -%}
+<div class="col-12"><label class="form-label">{% if kind == 'original' %}Файлы оригинала{% else %}Добавить документы / фото{% endif %}</label><input class="form-control" type="file" name="{{ kind }}_files" multiple>
+{% if kind == 'original' %}<div class="form-text">Исходное письмо, документы, фото или запись разговора.</div>{% endif %}</div>
+{%- endmacro %}
+{% macro documents_for(kind) -%}
+<div class="col-12"><div class="form-label">Уже приложенные файлы</div>
+{% for document in documents %}<label class="form-check"><input class="form-check-input" type="checkbox" name="{{ kind }}_attachment_ids" value="{{ document.id }}" {% if document.id in (values.get(kind ~ '_attachment_ids') or []) %}checked{% endif %}><span class="form-check-label">{{ document.file_name }}</span></label>{% else %}<div class="small text-secondary">К сообщению пока не приложены файлы.</div>{% endfor %}
+<div class="form-text">Отметьте относящиеся к направлению файлы. Они сохраняются в общем сообщении один раз.</div></div>
+{{ file_picker(kind) }}
+{%- endmacro %}
+{% block content %}
+{% set registered = report or e2b_draft %}
+<link rel="stylesheet" href="{{ url_for('static', path='message_intake.css') }}?v=20261113-e2b-1">
+{% if not embedded %}<div data-intake-page-heading><h1>{{ 'Входящее сообщение ' ~ report.safety_report_number if report else 'Получено новое сообщение' }}</h1>{% if message %}<div class="alert alert-success" role="status">{{ _(message) }}</div>{% endif %}<a class="btn btn-outline-secondary" href="/safety-reports">К списку сообщений</a></div>{% elif message %}<div class="alert alert-success" role="status">{{ _(message) }}</div>{% endif %}
+{% if e2b_draft %}<div class="alert alert-info">Данные пакета подставлены в форму. Уточните сведения и направления. Входящий номер будет присвоен после подтверждения импорта.{% if not e2b_draft.can_import %}<div class="mt-1">Перед импортом устраните замечания на предыдущей вкладке.</div>{% endif %}</div>{% endif %}
+{% if validation %}<div class="alert alert-warning" role="alert">{{ _(validation) }}{% if request.method == 'POST' %}<div class="small mt-1">Текстовые сведения сохранены в форме. Если выбирали новые файлы, выберите их повторно перед отправкой.</div>{% endif %}</div>{% endif %}
+<div data-message-registration>
+{% if not registered %}
+<fieldset class="d-flex flex-wrap gap-2 mb-3 intake-entry-method">
+<legend class="visually-hidden">Способ регистрации сообщения</legend>
+<input class="btn-check" type="radio" name="registration_method" id="intake-method-manual" value="manual" autocomplete="off" {% if request.query_params.get('method') != 'e2b' %}checked{% endif %}>
+<label class="btn btn-outline-primary" for="intake-method-manual">Вручную</label>
+<input class="btn-check" type="radio" name="registration_method" id="intake-method-e2b" value="e2b" autocomplete="off" {% if request.query_params.get('method') == 'e2b' %}checked{% endif %}>
+<label class="btn btn-outline-primary" for="intake-method-e2b">Из файла E2B (XML / ZIP)</label>
+</fieldset>
+<section class="surface" data-e2b-registration aria-label="Регистрация из файла E2B" {% if request.query_params.get('method') != 'e2b' %}hidden{% endif %}>
+<form method="post" action="/safety-reports/e2b-imports" enctype="multipart/form-data">
+<input type="hidden" name="csrf" value="{{ csrf_token(request) }}">
+<input type="hidden" name="origin" value="registration">
+<label class="form-label" for="intake-e2b-file">Файл E2B(R3) XML или ZIP-архив</label>
+<div class="d-flex flex-wrap align-items-start gap-2"><input class="form-control" type="file" id="intake-e2b-file" name="file" accept=".xml,.zip,application/xml,text/xml,application/zip,application/x-zip-compressed" required><button class="btn btn-primary" type="submit">Загрузить и проверить</button></div>
+<div class="form-text mt-2">После проверки и подтверждения импорта можно добавить к сообщению «Качество», «Медицинский запрос» и другие направления.</div>
+</form>
+</section>
+{% endif %}
+<form method="post" action="{% if e2b_draft %}/safety-reports/e2b-imports/{{ e2b_draft.batch_id }}/intake?case_group={{ e2b_draft.token }}{% elif report %}/safety-reports/{{ report.id }}/intake{% if embedded %}?embed=package{% endif %}{% else %}/safety-reports/intake{% endif %}" enctype="multipart/form-data" data-message-intake data-e2b-draft="{{ 'true' if e2b_draft else 'false' }}" data-registered="{{ 'true' if registered else 'false' }}" data-current-step="{{ 'pv' if e2b_draft else request.query_params.get('step', 'directions' if report else 'registration') }}" class="surface" {% if not registered and request.query_params.get('method') == 'e2b' %}hidden{% endif %}>
+{% if e2b_draft %}<input type="hidden" name="expected_import_version" value="{{ e2b_draft.version }}"><input type="hidden" name="expected_inputs" value="{{ e2b_draft.inputs }}"><input type="hidden" name="expected_case_token" value="{{ e2b_draft.case_token }}">{% endif %}
+{% if e2b_draft %}<input type="hidden" name="documents_explicit" value="true"><div hidden data-package-document-selection>{% for document in e2b_draft.documents %}<input type="checkbox" name="document_ids" value="{{ document.id }}" {% if document.selected %}checked{% endif %}>{% endfor %}</div>{% endif %}
+<input type="hidden" name="csrf" value="{{ csrf_token(request) }}">
+<input type="hidden" name="creation_token" value="{{ values.get('creation_token') or '' }}">
+{% if not registered %}<p class="text-secondary">Для регистрации ИСНР заполните дату и краткое содержание сообщения, затем выберите направление «НЯ и особые ситуации». Можно выбрать несколько направлений обработки.</p>{% endif %}
+<input type="hidden" name="report_id" value="{{ report.id if report else '' }}">
+{% if report %}<input type="hidden" name="expected_version" value="{{ report.version }}">{% endif %}
+<input type="hidden" name="current_step" value="{{ request.query_params.get('step', 'registration') }}">
+<input type="hidden" name="next_step" value="{{ 'directions' if not report else request.query_params.get('step','directions') }}">
+<script type="application/json" data-intake-contacts>{{ contact_data|tojson }}</script>
+<nav class="d-flex flex-wrap gap-2 border-bottom pb-3 mb-3" aria-label="Шаги обработки сообщения" {% if report %}title="При переходе к другому шагу сведения сохраняются."{% endif %}>
+<button class="btn btn-outline-primary" type="{{ 'button' if e2b_draft else 'submit' }}" name="action" value="navigate" data-intake-step="registration" {% if not registered %}disabled{% endif %}>1. {{ 'Общие сведения' if registered else 'Краткая регистрация' }}</button>
+<button class="btn btn-outline-primary" type="{{ 'button' if e2b_draft else 'submit' }}" name="action" value="navigate" data-intake-step="directions" {% if not registered %}disabled{% endif %}>2. Направления</button>
+{% for kind, label, code in routes %}<button class="btn btn-outline-primary" type="{{ 'button' if e2b_draft else 'submit' }}" name="action" value="navigate" data-intake-step="{{ kind }}" {% if not registered or kind not in (values.get('routes') or []) %}hidden{% endif %}>{{ label }}</button>{% endfor %}
+</nav>
+<div class="alert alert-warning" data-contact-duplicates {% if not contact_duplicates %}hidden{% endif %} role="status"><strong>Возможно, контакт уже есть в справочнике</strong><div data-contact-duplicate-list>{% for item in contact_duplicates %}<div><a href="/contract-contacts/{{ item.contact.id }}" target="_blank" rel="noopener">{{ item.contact.full_name }}</a> <button class="btn btn-sm btn-outline-primary" type="button" data-use-contact="{{ item.contact.id }}">Выбрать этот контакт</button></div>{% endfor %}</div><label class="form-check mt-2"><input class="form-check-input" type="checkbox" name="allow_duplicate_contact" value="true" {% if checked('allow_duplicate_contact') %}checked{% endif %}><span class="form-check-label">Проверено: это другой контакт, сохранить отдельную запись</span></label></div>
+<div class="alert alert-warning" data-message-duplicates {% if not message_duplicates %}hidden{% endif %} role="status"><strong>Найдены возможные дубли сообщения</strong><div data-message-duplicate-list>{% for item in message_duplicates %}<div><a href="/safety-reports/{{ item.report.id }}/intake" target="_blank" rel="noopener">{{ item.report.safety_report_number }}</a></div>{% endfor %}</div>
+<label class="form-check mt-2"><input class="form-check-input" type="checkbox" name="allow_duplicate_message" value="true" {% if checked('allow_duplicate_message') %}checked{% endif %}><span class="form-check-label">Проверено: создать / сохранить как отдельное входящее сообщение</span></label></div>
+<section data-intake-panel="registration">
+<div class="row g-3 intake-registration-grid">
+<div class="col-md-6"><label class="form-label">Кем первоначально получено <span class="text-secondary small">необязательно</span></label><select class="form-select" name="message_direction">{% for value,label in [('our_company_to_partner','Наша компания'),('partner_to_our_company','Партнёр'),('needs_review','Не указано')] %}<option value="{{ value }}" {% if values.get('message_direction','our_company_to_partner') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+{{ entry('received_time', 'Время получения — необязательно', 'time') }}
+<label class="col-md-6 form-label">Дата получения *<input class="form-control mt-1" type="date" name="received_date" value="{{ values.get('received_date') or '' }}" required></label>
+<label class="col-12 form-label">Краткое содержание *<textarea class="form-control mt-1" name="raw_text" rows="3" maxlength="100000" required>{{ values.get('raw_text') or '' }}</textarea></label>
+</div>
+<details class="mt-3" {% if validation %}open{% endif %}><summary class="text-primary">Дополнительные сведения</summary><div class="row g-3 mt-1">
+<div class="col-md-6"><label class="form-label">Канал получения</label><select class="form-select" name="source_type">{% for code,label in [('', 'Не указано'),('email','Email'),('phone','Телефон'),('web','Веб-форма / сайт'),('messenger','Мессенджер'),('social','Социальная сеть'),('post','Бумажное письмо'),('in_person','Личное обращение'),('electronic_exchange','Электронный обмен между системами'),('other','Другое')] %}<option value="{{ code }}" {% if (values.get('source_type') or '') == code %}selected{% endif %}>{{ label }}</option>{% endfor %}{% if values.get('source_type') and values.get('source_type') not in ['email','phone','web','messenger','social','post','in_person','electronic_exchange','other'] %}<option value="{{ values.source_type }}" selected>{{ _(values.source_type) }}</option>{% endif %}</select></div>
+<div class="col-md-6"><label class="form-label">Партнёр</label><select class="form-select" name="partner_id"><option value="">Не выбран</option>{% for partner in partners %}<option value="{{ partner.id }}" {% if values.get('partner_id') == partner.id %}selected{% endif %}>{{ partner.partner_name }}</option>{% endfor %}</select></div>
+<div class="col-12"><label class="form-label">Контакт, передавший сообщение</label><select class="form-select" name="sender_contact_id" data-person-select="sender"><option value="">Не указан</option><option value="__new__" {% if values.get('sender_contact_id') == '__new__' or (not values.get('sender_contact_id') and (values.get('sender_name') or values.get('sender_email') or values.get('sender_phone'))) %}selected{% endif %}>Новый контакт / указать известные сведения</option>{% for contact in contacts %}<option value="{{ contact.id }}" {% if values.get('sender_contact_id') == contact.id %}selected{% endif %}>{{ contact.full_name }}{% if contact.email %} — {{ contact.email }}{% endif %}{% if contact.partner %} · {{ contact.partner.partner_name }}{% endif %}{% if not contact.is_current %} · неактуальный{% endif %}</option>{% endfor %}</select><div class="form-text">Укажите, от кого поступило сообщение. Можно выбрать из контактных лиц или добавить новый контакт.</div><div class="small mt-2" data-sender-summary></div><button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-edit-sender hidden>Уточнить сведения для сообщения</button></div>
+<div class="col-12" data-sender-fields {% if values.get('sender_contact_id') and values.get('sender_contact_id') != '__new__' %}hidden{% endif %}><div class="row g-3">{{ entry('sender_name', 'Известное имя / ФИО') }}{{ entry('sender_email', 'Email', 'email') }}{{ entry('sender_phone', 'Телефон', 'tel', maximum=100) }}
+{% if has_permission('create') or has_permission('manage_reference_data') %}<div class="col-12" data-save-sender><label class="form-check"><input class="form-check-input" type="checkbox" name="save_sender_contact" value="true" {% if checked('save_sender_contact') %}checked{% endif %}><span class="form-check-label">Сохранить в контактных лицах для дальнейшего использования</span></label><div class="form-text">Без галочки известные контактные сведения сохранятся только в этом сообщении.</div></div>{% endif %}
+</div></div>
+<details class="col-12" data-reporter-disclosure {% if request.query_params.get('reporter') %}open{% endif %}><summary class="text-primary">Указать первичный источник сейчас</summary><div data-reporter-home><fieldset class="mt-3" data-reporter-fields><legend class="h6">Первичный источник</legend>
+<label class="form-check mb-2"><input class="form-check-input" type="checkbox" name="reporter_same_as_sender" value="true" {% if checked('reporter_same_as_sender') %}checked{% endif %}><span class="form-check-label">Тот же контакт, который передал сообщение</span></label>
+<label class="form-check mb-2"><input class="form-check-input" type="checkbox" name="reporter_unknown" value="true" {% if checked('reporter_unknown') %}checked{% endif %}><span class="form-check-label">Первичный источник пока неизвестен</span></label>
+<div data-reporter-summary class="small mb-2"></div><div class="row g-3" data-separate-reporter>
+<div class="col-12"><label class="form-label">Другой первичный репортёр</label><select class="form-select" name="reporter_contact_id" data-person-select="reporter"><option value="">Новый репортёр / указать известные сведения</option>{% for contact in contacts %}<option value="{{ contact.id }}" {% if values.get('reporter_contact_id') == contact.id %}selected{% endif %}>{{ contact.full_name }}{% if contact.email %} — {{ contact.email }}{% endif %}</option>{% endfor %}</select></div>
+{{ entry('reporter_name', 'Имя репортёра') }}{{ entry('reporter_email', 'Email репортёра', 'email') }}{{ entry('reporter_phone', 'Телефон репортёра', 'tel', maximum=100) }}{{ entry('reporter_country_code', 'Страна репортёра', maximum=2) }}
+</div></fieldset></div></details>
+{{ product_picker('common') }}{{ entry('raw_subject', 'Тема / заголовок', wide=True, maximum=500) }}
+{{ file_picker('original') }}
+{% if documents %}<div class="col-12"><div class="form-label">Оригиналы сообщения</div>{% for document in documents %}<div><a href="/documents/{{ document.id }}/download">{{ document.file_name }}</a></div>{% endfor %}</div>{% endif %}
+<label class="col-12 form-label">Исходный текст — если удобно вставить полностью<textarea class="form-control mt-1" name="original_text" rows="4" maxlength="100000">{{ values.get('original_text') or '' }}</textarea></label>
+</div></details>
+</section>
+<fieldset {% if not registered %}disabled{% endif %} class="message-processing-fields">
+<section data-intake-panel="directions" hidden><h2 class="h5">Что требуется обработать?</h2><div class="d-flex flex-wrap gap-3 my-3">{% for kind,label,code in routes %}<label class="form-check"><input class="form-check-input" type="checkbox" name="routes" value="{{ kind }}" data-intake-route {% if kind in (values.get('routes') or []) %}checked{% endif %}><span class="form-check-label">{{ label }}</span></label>{% endfor %}</div><p class="text-secondary mb-0">Можно выбрать несколько направлений и добавить другие позднее.</p></section>
+{% for kind,label,code in routes %}<section data-intake-panel="{{ kind }}" hidden><h2 class="h5" data-route-heading="{{ kind }}">{{ label }} <span class="small text-secondary">{{ route_numbers.get(kind, '') }}</span></h2>{% if report and (kind != "pv" or ae_state is not defined) %}<div class="small mb-3" data-route-source="{{ kind }}">Исходное входящее сообщение: <a href="/safety-reports/{{ report.id }}/intake?step=registration" data-source-message>{{ report.safety_report_number }}</a>{% if kind not in route_numbers %}<span class="text-secondary"> · Номер направления будет присвоен при сохранении.</span>{% endif %}</div>{% endif %}<div class="row g-3 mt-1">
+{% if kind == 'quality' %}
+<div class="intake-column"><div class="row g-3">
+{{ product_picker(kind) }}
+{{ entry('quality_batch','Серия') }}{{ entry('quality_expiry','Срок годности — как указан на упаковке') }}{{ entry('quality_detected_date','Когда обнаружено?','date') }}{{ entry('quality_location','Где обнаружено?') }}
+<fieldset class="col-12"><legend class="h6">Есть фото, упаковка или образец?</legend>{% for value,label in [('no','Нет'),('yes','Да')] %}<label class="form-check form-check-inline"><input class="form-check-input" type="radio" name="quality_materials" value="{{ value }}" {% if values.get('quality_materials') == value %}checked{% endif %}><span class="form-check-label">{{ label }}</span></label>{% endfor %}</fieldset>
+<div class="col-12" data-quality-documents hidden><div class="row g-3">{{ documents_for('quality') }}</div><div class="form-text">Если есть только упаковка или образец, документы можно приложить позднее.</div></div>
+</div></div>
+<div class="intake-column"><div class="row g-3">
+<fieldset class="col-12 intake-complaints"><legend class="h6">В чём состоит претензия?</legend>{% for code, complaint in complaint_groups %}<label class="form-check mb-2"><input class="form-check-input" type="checkbox" name="quality_complaints" value="{{ complaint }}" data-meddra-hlt="{{ code }}" {% if complaint in (values.get('quality_complaints') or []) %}checked{% endif %}><span class="form-check-label">{{ complaint }} <span class="text-secondary small">(HLT {{ code }})</span></span></label>{% endfor %}
+{% if legacy_complaints %}<div class="small text-secondary mt-3 mb-2">Ранее указанные претензии</div>{% for complaint in legacy_complaints %}<label class="form-check mb-2"><input class="form-check-input" type="checkbox" name="quality_complaints" value="{{ complaint }}" checked><span class="form-check-label">{{ complaint }}</span></label>{% endfor %}{% endif %}</fieldset>
+<label class="col-12 form-label" data-quality-other hidden>Опишите другую претензию<textarea class="form-control" name="quality_other_text" maxlength="2000">{{ values.get('quality_other_text') or '' }}</textarea></label>
+<div class="col-12"><div class="alert alert-info mb-0" data-quality-reminder><div>Проверьте, содержит ли сообщение сведения о влиянии на здоровье или об особых ситуациях.
+<span class="quality-help"><button class="quality-help-trigger" type="button" aria-label="Что относится к особым ситуациям?" aria-describedby="quality-special-help">?</button><span class="quality-help-tooltip" id="quality-special-help" role="tooltip">Особые ситуации учитываются и при отсутствии нежелательного явления. К ним относятся: {{ special_situations | reject('equalto', 'Другое') | map('lower') | join('; ') }}.</span></span></div>
+<div class="mt-2">При наличии таких сведений заполните раздел «НЯ и особые ситуации».</div><button class="btn btn-sm btn-outline-primary mt-2" type="button" data-go-pv>Перейти к НЯ и особым ситуациям</button></div></div>
+</div></div>
+{% elif kind == 'other' %}
+<label class="col-12 form-label">О чём обращение?<textarea class="form-control" name="other_description" maxlength="2000">{{ values.get('other_description') or '' }}</textarea></label>{{ entry('other_responsible','Кому передать?') }}{{ entry('other_action','Какое действие требуется?') }}
+{% elif kind == 'medical' %}
+<div class="intake-column"><div class="row g-3">
+<label class="col-12 form-label">Какой вопрос требуется разобрать?<textarea class="form-control" name="medical_question" rows="4" maxlength="10000">{{ values.get('medical_question') or '' }}</textarea></label>
+{{ product_picker(kind) }}
+{{ entry('medical_due_date','Ориентировочный срок ответа на запрос','date',wide=True) }}<input type="hidden" name="medical_due_manual" value="{{ 'true' if checked('medical_due_manual') else 'false' }}"><div class="col-12 form-text">По умолчанию — дата получения + 30 календарных дней. Можно изменить. <button class="btn btn-sm btn-link" type="button" data-reset-medical-due>Вернуть автоматический срок</button></div>
+</div></div>
+<div class="intake-column"><div class="row g-3">
+<label class="col-12 form-label">Данные обращающегося<select class="form-select" name="medical_person_source">{% for value,label in [('sender','Контакт, передавший сообщение'),('reporter','Первичный источник'),('manual','Другой обращающийся')] %}<option value="{{ value }}" {% if values.get('medical_person_source','sender') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select><span class="form-text" data-medical-person-note></span></label>
+<label class="col-12 form-label" data-medical-contact hidden>Выбрать обращающегося из контактных лиц<select class="form-select" name="medical_contact_id"><option value="">Указать известные сведения вручную</option>{% for contact in contacts %}<option value="{{ contact.id }}" {% if values.get('medical_contact_id') == contact.id %}selected{% endif %}>{{ contact.full_name }}{% if contact.email %} — {{ contact.email }}{% endif %}</option>{% endfor %}</select><span class="form-text">Данные выбранного контакта можно уточнить для этого запроса.</span></label>
+{{ entry('medical_name','Кто обращается?') }}{{ entry('medical_email','Email для ответа','email') }}{{ entry('medical_phone','Телефон для ответа','tel') }}
+</div></div>
+{% else %}
+{% if ae_state is defined %}{% include '_ae_card.html' %}{% else %}<fieldset class="col-12"><legend class="h6">Какая информация поступила?</legend><div class="d-flex flex-wrap gap-3">{% for name,label in [('pv_ae','Нежелательное явление'),('pv_special','Особая ситуация')] %}<label class="form-check"><input class="form-check-input" type="checkbox" name="{{ name }}" value="true" {% if checked(name) %}checked{% endif %}><span class="form-check-label">{{ label }}</span></label>{% endfor %}</div></fieldset>
+<fieldset class="col-12" data-special-situations hidden><legend class="h6">Какие особые ситуации?</legend>{% for situation in special_situations %}<label class="form-check mb-2"><input class="form-check-input" type="checkbox" name="pv_special_types" value="{{ situation }}" {% if situation in (values.get('pv_special_types') or []) %}checked{% endif %}><span class="form-check-label">{{ situation }}</span></label>{% endfor %}<label class="form-label w-100 mt-2" data-special-other hidden>Другая особая ситуация<textarea class="form-control" name="pv_special_other" maxlength="2000">{{ values.get('pv_special_other') or '' }}</textarea></label></fieldset>
+<div class="col-12" data-reporter-pv-home></div>
+<div class="col-12"><label class="form-label w-100">Что известно о пациенте?<textarea class="form-control" name="pv_patient_text" maxlength="2000">{{ values.get('pv_patient_text') or '' }}</textarea></label><label class="form-check mt-2"><input class="form-check-input" type="checkbox" name="pv_patient_unknown" value="true" {% if checked('pv_patient_unknown') %}checked{% endif %}><span class="form-check-label">Сведения о пациенте пока неизвестны</span></label></div>
+{{ product_picker(kind) }}
+<div class="col-12"><label class="form-label w-100">Описание НЯ / ситуации<textarea class="form-control" name="pv_event_text" maxlength="10000">{{ values.get('pv_event_text') or '' }}</textarea></label><label class="form-check mt-2"><input class="form-check-input" type="checkbox" name="pv_event_unknown" value="true" {% if checked('pv_event_unknown') %}checked{% endif %}><span class="form-check-label">Описание пока неизвестно</span></label></div>
+<label class="col-md-6 form-label">Есть сведения о серьёзности?<select class="form-select" name="pv_seriousness">{% for value,label in [('unknown','Пока неизвестно'),('yes','Да'),('no','Нет по имеющимся сведениям')] %}<option value="{{ value }}" {% if values.get('pv_seriousness','unknown') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label><label class="col-12 form-label" data-seriousness-details hidden>Какие признаки серьёзности указаны?<textarea class="form-control" name="pv_seriousness_text" maxlength="2000">{{ values.get('pv_seriousness_text') or '' }}</textarea></label>
+<div class="col-12"><button class="btn btn-outline-primary" type="submit" name="action" value="handoff">Подробнее — карточка ИСНР</button><div class="form-text">Сначала сохранятся сведения сообщения и направлений. Карточку можно продолжить заполнять с неизвестными данными.</div></div>
+{% endif %}
+{% endif %}</div></section>{% endfor %}
+</fieldset>
+<div class="d-flex flex-wrap gap-2 border-top mt-4 pt-3" data-intake-footer>{% if not e2b_draft %}<button type="submit" name="action" value="handoff" {% if embedded %}formtarget="_top"{% endif %} class="btn btn-link" data-pv-handoff hidden>Подробнее — карточка ИСНР ↗</button>{% endif %}<button class="btn btn-primary" type="submit" name="action" value="save" {% if e2b_draft and not e2b_draft.can_import %}disabled{% endif %}>{{ 'Подтвердить импорт и сохранить сообщение' if e2b_draft else 'Сохранить изменения' if report else 'Подтвердить и получить входящий номер' }}</button>{% if report %}<button class="btn btn-outline-primary" type="submit" name="action" value="next" {% if embedded %}formtarget="_top"{% endif %} data-save-next>Сохранить и перейти далее</button>{% endif %}<span class="small text-secondary align-self-center" data-intake-step-status aria-live="polite"></span></div>
+</form>
+</div>
+<script src="{{ url_for('static', path='message_intake.js') }}?v=20261116-package-1"></script>
+{% if ae_state is defined %}<script src="{{ url_for('static', path='ae_card.js') }}?v=20261113-compact-1"></script>{% endif %}
+{% endblock %}

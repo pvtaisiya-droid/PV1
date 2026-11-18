@@ -281,6 +281,7 @@ class Exporter:
                     try:return Decimal(str(value))==Decimal(raw)
                     except InvalidOperation:return False
                 if field=='sex':return raw=={'male':'1','female':'2'}.get(value,value)
+                if field=='age_unit':return raw=={'years':'a','months':'mo','weeks':'wk','days':'d'}.get(value,value)
                 if field in ('onset_date','end_date','date_of_birth','death_date','initial_received_date','latest_received_date'):return raw[:8]==str(value).replace('-','')[:8]
                 return str(value)==str(raw)
             if not any(equal(f) for f in candidates):

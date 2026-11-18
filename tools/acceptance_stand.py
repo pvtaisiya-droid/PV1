@@ -18,6 +18,8 @@ FLAGS=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0
 
 def environment(root):
     env=os.environ.copy();env.update(PYTHONUTF8='1',PYTHONDONTWRITEBYTECODE='1',DATABASE_URL='sqlite:///'+(root/'pv1.db').as_posix(),PV_STORAGE_ROOT=str(root/'storage'),PV_AS2_CONFIG=str(root/'config.json'))
+    env['PV_AUTH_COOKIE_NAME']='pv_uat_'+hashlib.sha256(str(root).encode()).hexdigest()[:12]
+    env['PV_INSTANCE_LABEL']='Объединённая учебная версия — только синтетические данные'
     env.pop('PV_RESTORE_PATH_MAP',None);return env
 
 def run(args,root):
@@ -111,9 +113,9 @@ def manage(action,root):
         os.environ.update(environment(root))
         from getpass import getpass
         from app.manage import bootstrap_admin
-        password=getpass('Пароль uat.fn (не менее 12 символов): ')
+        password=getpass('Пароль '+saved['login']+' (не менее 12 символов): ')
         if password!=getpass('Повторите пароль: '):raise ValueError('Пароли не совпадают')
-        bootstrap_admin('uat.fn',password,recover=True);print('Password set; value was not stored outside its hash.');return
+        bootstrap_admin(saved['login'],password,recover=True);print('Password set; value was not stored outside its hash.');return
     if action=='start':
         from app.local_runtime import FileGuard
         try:

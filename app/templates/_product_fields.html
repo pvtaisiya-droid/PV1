@@ -1,0 +1,16 @@
+{% macro contract_label(contract) -%}
+    {{ contract.contract_number }} - {{ _(contract.contract_type) }}{% if contract.partner %} / {{ contract.partner.partner_name }}{% endif %}
+{%- endmacro %}
+
+{% macro substance_badges(product) -%}
+    {% set visible_substances = namespace(found=false) %}
+    {% for link in product.substance_links if not link.is_deleted and link.substance and not link.substance.is_deleted %}
+        {% set visible_substances.found = true %}
+        <span class="product-substance-line">{{ link.substance.substance_name }}</span>
+    {% endfor %}
+    {% if not visible_substances.found %}<span class="text-secondary">-</span>{% endif %}
+{%- endmacro %}
+
+{% macro dosage_form_label(product) -%}
+    {{ product.dosage_form_ref.name_ru if product.dosage_form_ref else product.dosage_form or "" }}
+{%- endmacro %}

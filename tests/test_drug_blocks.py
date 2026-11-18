@@ -63,8 +63,9 @@ def imported(client):
     assert page.status_code==200 and 'Показание 2' in page.text and '0.2500' in page.text
     data=preview_data(client,preview,'confirm')
     response=post_current(client,preview+'/confirm',data=data,follow_redirects=False)
-    assert response.headers['location'].startswith('/cases/'),response.headers
-    cid=response.headers['location'].split('/cases/')[1].split('?')[0]
+    assert response.status_code == 303, response.text
+    destination = client.get(response.headers['location'])
+    cid = destination.context['report'].case_id
     return cid,preview,data
 
 
@@ -241,5 +242,5 @@ def test_migration(tmp_path):
         assert c.execute('SELECT meddra_llt_code,legacy_meddra_pt_code FROM tblCaseDrugIndications').fetchall()==[(None,'10009999')]
         assert c.execute('SELECT COUNT(*) FROM tblCaseDrugRechallenges').fetchone()[0]==0
         assert c.execute('PRAGMA foreign_key_check').fetchall()==[]
-        assert c.execute('SELECT version_num FROM alembic_version').fetchone()[0]=='20261110_0032'
+        assert c.execute('SELECT version_num FROM alembic_version').fetchone()[0]=='20261117_0037'
     assert_matches_current_models(path)

@@ -1,0 +1,3905 @@
+{
+  "reviewed_on": "2026-11-17",
+  "rules": {
+    "authentication": "All routes except login, health and static files require an active authenticated session. Logout requires authentication only.",
+    "read": "Every protected GET/HEAD additionally requires view; permission_groups are AND groups, each group is OR.",
+    "development_docs": "GET /docs, /redoc, /openapi.json require authentication and view in dev; absent in prod (404).",
+    "static": "/static/* is public.",
+    "previews": "POST analysis and preview routes read supplied data without saving; their declared read permissions are intentional.",
+    "onboarding": "GET /partner-onboarding/new only displays the start form. POST requires create or manage_reference_data and CSRF. Saving wizard steps requires create, edit or manage_reference_data; upload alone cannot create or change reference records.",
+    "outlook": "Authorization and callback additionally require edit or export (same permissions as preparing Outlook drafts).",
+    "outlook_recovery": "Manual reconciliation of pending/old drafts requires manage_system_settings, CSRF, expected_version and explicit evidence of the external result; it makes no Graph calls.",
+    "legacy": "User.role never grants access. Missing assignments require explicit reviewed assignment; inactive/deleted links must never be restored automatically.",
+    "audit": "Audit sections require audit_view; PSUR audit CSV requires both export and audit_view; sensitive audit fields require view_sensitive_audit.",
+    "message_intake": "Registration requires create; updates and linked case AE card edits require edit or icsr_workflow; duplicate searches require create, edit or icsr_workflow. All writes and duplicate searches require CSRF. Saving a new directory contact additionally requires create or manage_reference_data; creating an ICSR during handoff additionally requires create or icsr_workflow. Both message and linked case versions are checked; closed/submitted cases remain protected.",
+    "package_review": "Draft intake GET reads staged source values without creating records. Draft registration and selected-case confirmation require create or icsr_workflow and CSRF; they check batch version, input snapshot and each related case token. Source diagnostics, group availability and product matching still gate import. Import and intake changes commit atomically.",
+    "integrated_clinical": "Clinical and drug forms have declared create/edit permissions plus exact action checks at runtime. R3 plans require edit and additionally create for a new case. Source identity review requires icsr_workflow; R3 export and local AS2 require view and export, with icsr_workflow for preparation and dispatch."
+  },
+  "query_permissions": [
+    {
+      "method": "GET",
+      "path": "/psmf",
+      "query": {
+        "tab": "audit"
+      },
+      "permission_groups": [
+        [
+          "audit_view"
+        ]
+      ]
+    }
+  ],
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/dashboard.py"
+    },
+    {
+      "method": "GET",
+      "path": "/accounting-data",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/accounting_data.py"
+    },
+    {
+      "method": "POST",
+      "path": "/accounting-data",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/accounting_data.py"
+    },
+    {
+      "method": "GET",
+      "path": "/accounting-data/activity-export",
+      "public": false,
+      "permission_groups": [
+        [
+          "export"
+        ]
+      ],
+      "source": "app/routers/accounting_data.py"
+    },
+    {
+      "method": "GET",
+      "path": "/accounting-data/export",
+      "public": false,
+      "permission_groups": [
+        [
+          "export"
+        ]
+      ],
+      "source": "app/routers/accounting_data.py"
+    },
+    {
+      "method": "GET",
+      "path": "/accounting-data/{period_id}",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/accounting_data.py"
+    },
+    {
+      "method": "GET",
+      "path": "/accounting-data/{period_id}/export",
+      "public": false,
+      "permission_groups": [
+        [
+          "export"
+        ]
+      ],
+      "source": "app/routers/accounting_data.py"
+    },
+    {
+      "method": "POST",
+      "path": "/accounting-data/{period_id}/lines",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "edit",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/accounting_data.py"
+    },
+    {
+      "method": "POST",
+      "path": "/accounting-data/{period_id}/lines/{line_id}/delete",
+      "public": false,
+      "permission_groups": [
+        [
+          "manage_reference_data",
+          "soft_delete"
+        ]
+      ],
+      "source": "app/routers/accounting_data.py"
+    },
+    {
+      "method": "POST",
+      "path": "/accounting-data/{period_id}/recalculate",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/accounting_data.py"
+    },
+    {
+      "method": "POST",
+      "path": "/accounting-data/{period_id}/status",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/accounting_data.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/as2/unmatched/{event_id}/{kind}",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ],
+        [
+          "export"
+        ]
+      ],
+      "source": "app/routers/as2.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cases",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cases",
+      "public": false,
+      "permission_groups": [
+        [
+          "create"
+        ]
+      ],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cases/export.csv",
+      "public": false,
+      "permission_groups": [
+        [
+          "export"
+        ]
+      ],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cases/export.xlsx",
+      "public": false,
+      "permission_groups": [
+        [
+          "export"
+        ]
+      ],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cases/{case_id}",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cases/{case_id}/as2/{dispatch_id}",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ],
+        [
+          "export"
+        ]
+      ],
+      "source": "app/routers/as2.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cases/{case_id}/as2/{dispatch_id}/events/{event_id}/{kind}",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ],
+        [
+          "export"
+        ]
+      ],
+      "source": "app/routers/as2.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cases/{case_id}/as2/{dispatch_id}/{action}",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ],
+        [
+          "export"
+        ],
+        [
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/as2.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cases/{case_id}/clinical",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ]
+      ],
+      "source": "app/routers/clinical.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cases/{case_id}/clinical/{kind}",
+      "public": false,
+      "permission_groups": [
+        [
+          "create"
+        ]
+      ],
+      "source": "app/routers/clinical.py"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/cases/{case_id}/clinical/{kind}/{row_id}",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit"
+        ]
+      ],
+      "source": "app/routers/clinical.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cases/{case_id}/clinical/{kind}/{row_id}/archive",
+      "public": false,
+      "permission_groups": [
+        [
+          "soft_delete"
+        ]
+      ],
+      "source": "app/routers/clinical.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cases/{case_id}/drug-products",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ]
+      ],
+      "source": "app/routers/drug_blocks.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cases/{case_id}/drug-products",
+      "public": false,
+      "permission_groups": [
+        [
+          "create"
+        ]
+      ],
+      "source": "app/routers/drug_blocks.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cases/{case_id}/drug-products/{product_id}",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ]
+      ],
+      "source": "app/routers/drug_blocks.py"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/cases/{case_id}/drug-products/{product_id}",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit"
+        ]
+      ],
+      "source": "app/routers/drug_blocks.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cases/{case_id}/drug-products/{product_id}/{kind}",
+      "public": false,
+      "permission_groups": [
+        [
+          "create"
+        ]
+      ],
+      "source": "app/routers/drug_blocks.py"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/cases/{case_id}/drug-products/{product_id}/{kind}/{row_id}",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit"
+        ]
+      ],
+      "source": "app/routers/drug_blocks.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cases/{case_id}/drug-products/{product_id}/{kind}/{row_id}/archive",
+      "public": false,
+      "permission_groups": [
+        [
+          "soft_delete"
+        ]
+      ],
+      "source": "app/routers/drug_blocks.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cases/{case_id}/followups",
+      "public": false,
+      "permission_groups": [
+        [
+          "create"
+        ]
+      ],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cases/{case_id}/identifiers",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cases/{case_id}/numbering-partner",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cases/{case_id}/numbering-partner/correct",
+      "public": false,
+      "permission_groups": [
+        [
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cases/{case_id}/operations/{key}",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ],
+        [
+          "export"
+        ]
+      ],
+      "source": "app/routers/operations.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cases/{case_id}/operations/{key}/download/{kind}",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ],
+        [
+          "export"
+        ]
+      ],
+      "source": "app/routers/operations.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cases/{case_id}/operations/{key}/manual",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ],
+        [
+          "export"
+        ],
+        [
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/operations.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cases/{case_id}/operations/{key}/publication",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ],
+        [
+          "export"
+        ],
+        [
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/operations.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cases/{case_id}/overview",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cases/{case_id}/partners",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cases/{case_id}/patients",
+      "public": false,
+      "permission_groups": [
+        [
+          "create"
+        ]
+      ],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cases/{case_id}/products",
+      "public": false,
+      "permission_groups": [
+        [
+          "create"
+        ]
+      ],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cases/{case_id}/r3-artifacts/{artifact_id}",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ],
+        [
+          "export"
+        ]
+      ],
+      "source": "app/routers/r3_exports.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cases/{case_id}/r3-artifacts/{artifact_id}/as2",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ],
+        [
+          "export"
+        ],
+        [
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/as2.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cases/{case_id}/r3-artifacts/{artifact_id}/download",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ],
+        [
+          "export"
+        ]
+      ],
+      "source": "app/routers/r3_exports.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cases/{case_id}/r3-artifacts/{artifact_id}/operations",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ],
+        [
+          "export"
+        ],
+        [
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/operations.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cases/{case_id}/reactions",
+      "public": false,
+      "permission_groups": [
+        [
+          "create"
+        ]
+      ],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/cases/{case_id}/reactions/{reaction_id}",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit"
+        ]
+      ],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cases/{case_id}/revisions",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ]
+      ],
+      "source": "app/routers/clinical.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cases/{case_id}/revisions",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit"
+        ]
+      ],
+      "source": "app/routers/clinical.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cases/{case_id}/revisions/{revision_id}",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ]
+      ],
+      "source": "app/routers/clinical.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cases/{case_id}/revisions/{revision_id}/r3-artifacts",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ],
+        [
+          "export"
+        ],
+        [
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/r3_exports.py"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/cases/{case_id}/status",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cases/{case_id}/submissions",
+      "public": false,
+      "permission_groups": [
+        [
+          "create"
+        ]
+      ],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/contract-contacts",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/contract_contacts.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/contract-contacts",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/contract_contacts.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/contract-contacts/{contact_id}",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/contract_contacts.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/contracts",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/contracts.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/contracts",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/contracts.py"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/contracts/{contract_id}",
+      "public": false,
+      "permission_groups": [
+        [
+          "manage_reference_data",
+          "soft_delete"
+        ]
+      ],
+      "source": "app/routers/contracts.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/contracts/{contract_id}",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/contracts.py"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/contracts/{contract_id}",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/contracts.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/dosage-forms",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/dosage_forms.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/dosage-forms",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/dosage_forms.py"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/dosage-forms/{dosage_form_id}",
+      "public": false,
+      "permission_groups": [
+        [
+          "manage_reference_data",
+          "soft_delete"
+        ]
+      ],
+      "source": "app/routers/dosage_forms.py"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/dosage-forms/{dosage_form_id}",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/dosage_forms.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/e2b/batches/{batch_id}/messages",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ]
+      ],
+      "source": "app/routers/clinical.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/e2b/messages/{message_id}",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ]
+      ],
+      "source": "app/routers/clinical.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/e2b/messages/{message_id}/plans",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit"
+        ]
+      ],
+      "source": "app/routers/clinical.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/e2b/plans/{plan_id}/apply",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit"
+        ]
+      ],
+      "source": "app/routers/clinical.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/incoming-requests",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/incoming_requests.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/incoming-requests/{request_id}/case-links",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/incoming_requests.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/incoming-requests/{request_id}/create-case",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/incoming_requests.py"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/incoming-requests/{request_id}/products",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/incoming_requests.py"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/incoming-requests/{request_id}/triage",
+      "public": false,
+      "permission_groups": [
+        [
+          "comment",
+          "edit",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/incoming_requests.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/literature-monitoring/logs",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/literature_monitoring.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/literature-monitoring/plans",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/literature_monitoring.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/literature-monitoring/results",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/literature_monitoring.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/literature-monitoring/results/export.csv",
+      "public": false,
+      "permission_groups": [
+        [
+          "export"
+        ]
+      ],
+      "source": "app/routers/literature_monitoring.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/literature-monitoring/results/{result_id}",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/literature_monitoring.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/operations/incidents/{key}",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ],
+        [
+          "export"
+        ],
+        [
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/operations.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/operations/policies/{config_version}",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ],
+        [
+          "export"
+        ],
+        [
+          "manage_system_settings"
+        ]
+      ],
+      "source": "app/routers/operations.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/partner-reconciliations",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/partner_reconciliation.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/partner-reconciliations/{reconciliation_id}",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/partner_reconciliation.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/partners",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/partners.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/partners",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/partners.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/partners/{partner_id}",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/partners.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/permissions",
+      "public": false,
+      "permission_groups": [
+        [
+          "manage_users"
+        ]
+      ],
+      "source": "app/routers/users_roles.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/product-substances",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/substances.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/products",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/products.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/products",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/products.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/products/export.xlsx",
+      "public": false,
+      "permission_groups": [
+        [
+          "export"
+        ]
+      ],
+      "source": "app/routers/products.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/psur",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/psur.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/psur",
+      "public": false,
+      "permission_groups": [
+        [
+          "create"
+        ]
+      ],
+      "source": "app/routers/psur.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/psur/{psur_plan_id}",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/psur.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/psur/{psur_plan_id}/audit/export.csv",
+      "public": false,
+      "permission_groups": [
+        [
+          "export"
+        ],
+        [
+          "audit_view"
+        ]
+      ],
+      "source": "app/routers/psur.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/psur/{psur_plan_id}/cases/export.csv",
+      "public": false,
+      "permission_groups": [
+        [
+          "export"
+        ]
+      ],
+      "source": "app/routers/psur.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/psur/{psur_plan_id}/partner-requests/export.csv",
+      "public": false,
+      "permission_groups": [
+        [
+          "export"
+        ]
+      ],
+      "source": "app/routers/psur.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/psur/{psur_plan_id}/summary.rtf",
+      "public": false,
+      "permission_groups": [
+        [
+          "export"
+        ]
+      ],
+      "source": "app/routers/psur.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/roles",
+      "public": false,
+      "permission_groups": [
+        [
+          "manage_users"
+        ]
+      ],
+      "source": "app/routers/users_roles.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/safety-reports",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/safety_reports.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/safety-reports",
+      "public": false,
+      "permission_groups": [
+        [
+          "create"
+        ]
+      ],
+      "source": "app/routers/safety_reports.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/safety-reports/{report_id}",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/safety_reports.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/safety-reports/{report_id}/create-case",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/safety_reports.py"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/safety-reports/{report_id}/products",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/safety_reports.py"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/safety-reports/{report_id}/triage",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/safety_reports.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sops",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/sops.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/submissions.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/submissions",
+      "public": false,
+      "permission_groups": [
+        [
+          "create"
+        ]
+      ],
+      "source": "app/routers/submissions.py"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/submissions/{submission_id}/status",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit"
+        ]
+      ],
+      "source": "app/routers/submissions.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/substances",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/substances.py"
+    },
+    {
+      "method": "POST",
+      "path": "/api/substances",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/substances.py"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/substances/{substance_id}",
+      "public": false,
+      "permission_groups": [
+        [
+          "manage_reference_data",
+          "soft_delete"
+        ]
+      ],
+      "source": "app/routers/substances.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/substances/{substance_id}",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/substances.py"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/substances/{substance_id}",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/substances.py"
+    },
+    {
+      "method": "GET",
+      "path": "/api/users",
+      "public": false,
+      "permission_groups": [
+        [
+          "manage_users"
+        ]
+      ],
+      "source": "app/routers/users_roles.py"
+    },
+    {
+      "method": "GET",
+      "path": "/as2",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ],
+        [
+          "export"
+        ]
+      ],
+      "source": "app/routers/as2.py"
+    },
+    {
+      "method": "GET",
+      "path": "/audit-log",
+      "public": false,
+      "permission_groups": [
+        [
+          "audit_view"
+        ]
+      ],
+      "source": "app/routers/placeholders.py"
+    },
+    {
+      "method": "GET",
+      "path": "/cases",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "POST",
+      "path": "/cases",
+      "public": false,
+      "permission_groups": [
+        [
+          "create"
+        ]
+      ],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "POST",
+      "path": "/cases/manual",
+      "public": false,
+      "permission_groups": [
+        [
+          "create"
+        ]
+      ],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "GET",
+      "path": "/cases/new",
+      "public": false,
+      "permission_groups": [
+        [
+          "create"
+        ]
+      ],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "GET",
+      "path": "/cases/{case_id}",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "POST",
+      "path": "/cases/{case_id}/ae-card",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/message_intake.py"
+    },
+    {
+      "method": "GET",
+      "path": "/cases/{case_id}/as2",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ],
+        [
+          "export"
+        ]
+      ],
+      "source": "app/routers/as2.py"
+    },
+    {
+      "method": "POST",
+      "path": "/cases/{case_id}/as2/enqueue",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ],
+        [
+          "export"
+        ],
+        [
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/as2.py"
+    },
+    {
+      "method": "POST",
+      "path": "/cases/{case_id}/as2/{dispatch_id}/{action}",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ],
+        [
+          "export"
+        ],
+        [
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/as2.py"
+    },
+    {
+      "method": "POST",
+      "path": "/cases/{case_id}/assessments",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "GET",
+      "path": "/cases/{case_id}/clinical",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ]
+      ],
+      "source": "app/routers/clinical.py"
+    },
+    {
+      "method": "POST",
+      "path": "/cases/{case_id}/clinical/{kind}",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "edit",
+          "soft_delete"
+        ]
+      ],
+      "source": "app/routers/clinical.py"
+    },
+    {
+      "method": "POST",
+      "path": "/cases/{case_id}/delete",
+      "public": false,
+      "permission_groups": [
+        [
+          "soft_delete"
+        ]
+      ],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "GET",
+      "path": "/cases/{case_id}/drug-editor/{kind}",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ]
+      ],
+      "source": "app/routers/drug_blocks.py"
+    },
+    {
+      "method": "POST",
+      "path": "/cases/{case_id}/drug-editor/{kind}",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "edit"
+        ]
+      ],
+      "source": "app/routers/drug_blocks.py"
+    },
+    {
+      "method": "GET",
+      "path": "/cases/{case_id}/drug-products",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ]
+      ],
+      "source": "app/routers/drug_blocks.py"
+    },
+    {
+      "method": "POST",
+      "path": "/cases/{case_id}/drug-products/{product_id}/{kind}/{row_id}/archive",
+      "public": false,
+      "permission_groups": [
+        [
+          "soft_delete"
+        ]
+      ],
+      "source": "app/routers/drug_blocks.py"
+    },
+    {
+      "method": "POST",
+      "path": "/cases/{case_id}/followups",
+      "public": false,
+      "permission_groups": [
+        [
+          "create"
+        ]
+      ],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "POST",
+      "path": "/cases/{case_id}/followups/{followup_id}/direction",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "POST",
+      "path": "/cases/{case_id}/identifiers",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "POST",
+      "path": "/cases/{case_id}/numbering-partner",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "POST",
+      "path": "/cases/{case_id}/numbering-partner/correct",
+      "public": false,
+      "permission_groups": [
+        [
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "GET",
+      "path": "/cases/{case_id}/operations",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ],
+        [
+          "export"
+        ]
+      ],
+      "source": "app/routers/operations.py"
+    },
+    {
+      "method": "POST",
+      "path": "/cases/{case_id}/operations/open",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ],
+        [
+          "export"
+        ],
+        [
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/operations.py"
+    },
+    {
+      "method": "POST",
+      "path": "/cases/{case_id}/operations/{key}/{operation}",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ],
+        [
+          "export"
+        ]
+      ],
+      "source": "app/routers/operations.py"
+    },
+    {
+      "method": "POST",
+      "path": "/cases/{case_id}/partners",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "POST",
+      "path": "/cases/{case_id}/patients",
+      "public": false,
+      "permission_groups": [
+        [
+          "create"
+        ]
+      ],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "POST",
+      "path": "/cases/{case_id}/products",
+      "public": false,
+      "permission_groups": [
+        [
+          "create"
+        ]
+      ],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "GET",
+      "path": "/cases/{case_id}/r3-export",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ],
+        [
+          "export"
+        ]
+      ],
+      "source": "app/routers/r3_exports.py"
+    },
+    {
+      "method": "POST",
+      "path": "/cases/{case_id}/r3-export",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ],
+        [
+          "export"
+        ],
+        [
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/r3_exports.py"
+    },
+    {
+      "method": "POST",
+      "path": "/cases/{case_id}/reactions",
+      "public": false,
+      "permission_groups": [
+        [
+          "create"
+        ]
+      ],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "GET",
+      "path": "/cases/{case_id}/reactions/{reaction_id}/edit",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit"
+        ]
+      ],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "POST",
+      "path": "/cases/{case_id}/reactions/{reaction_id}/edit",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit"
+        ]
+      ],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "POST",
+      "path": "/cases/{case_id}/revisions",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit"
+        ]
+      ],
+      "source": "app/routers/clinical.py"
+    },
+    {
+      "method": "GET",
+      "path": "/cases/{case_id}/revisions/{revision_id}",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ]
+      ],
+      "source": "app/routers/clinical.py"
+    },
+    {
+      "method": "POST",
+      "path": "/cases/{case_id}/status",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "POST",
+      "path": "/cases/{case_id}/submissions",
+      "public": false,
+      "permission_groups": [
+        [
+          "create"
+        ]
+      ],
+      "source": "app/routers/cases.py"
+    },
+    {
+      "method": "GET",
+      "path": "/checklists",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/dashboard.py"
+    },
+    {
+      "method": "GET",
+      "path": "/checklists/{scenario}",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/dashboard.py"
+    },
+    {
+      "method": "GET",
+      "path": "/contract-contacts",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/contract_contacts.py"
+    },
+    {
+      "method": "POST",
+      "path": "/contract-contacts",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/contract_contacts.py"
+    },
+    {
+      "method": "POST",
+      "path": "/contract-contacts/check-duplicates",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "edit",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/contract_contacts.py"
+    },
+    {
+      "method": "GET",
+      "path": "/contract-contacts/{contact_id}",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/contract_contacts.py"
+    },
+    {
+      "method": "POST",
+      "path": "/contract-contacts/{contact_id}/delete",
+      "public": false,
+      "permission_groups": [
+        [
+          "manage_reference_data",
+          "soft_delete"
+        ]
+      ],
+      "source": "app/routers/contract_contacts.py"
+    },
+    {
+      "method": "POST",
+      "path": "/contract-contacts/{contact_id}/edit",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/contract_contacts.py"
+    },
+    {
+      "method": "GET",
+      "path": "/contract-imports",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/contract_imports.py"
+    },
+    {
+      "method": "POST",
+      "path": "/contract-imports/confirm",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/contract_imports.py"
+    },
+    {
+      "method": "POST",
+      "path": "/contract-imports/confirm-accounting",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/contract_imports.py"
+    },
+    {
+      "method": "GET",
+      "path": "/contract-imports/gpt-package",
+      "public": false,
+      "permission_groups": [
+        [
+          "manage_reference_data",
+          "view"
+        ]
+      ],
+      "source": "app/routers/contract_imports.py"
+    },
+    {
+      "method": "POST",
+      "path": "/contract-imports/preview",
+      "public": false,
+      "permission_groups": [
+        [
+          "manage_reference_data",
+          "view"
+        ]
+      ],
+      "source": "app/routers/contract_imports.py"
+    },
+    {
+      "method": "GET",
+      "path": "/contracts",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/contracts.py"
+    },
+    {
+      "method": "POST",
+      "path": "/contracts",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/contracts.py"
+    },
+    {
+      "method": "POST",
+      "path": "/contracts/accounting-tariffs/{tariff_id}/delete",
+      "public": false,
+      "permission_groups": [
+        [
+          "manage_reference_data",
+          "soft_delete"
+        ]
+      ],
+      "source": "app/routers/accounting_data.py"
+    },
+    {
+      "method": "POST",
+      "path": "/contracts/{contract_id}/accounting-tariffs",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/accounting_data.py"
+    },
+    {
+      "method": "POST",
+      "path": "/contracts/{contract_id}/delete",
+      "public": false,
+      "permission_groups": [
+        [
+          "manage_reference_data",
+          "soft_delete"
+        ]
+      ],
+      "source": "app/routers/contracts.py"
+    },
+    {
+      "method": "POST",
+      "path": "/contracts/{contract_id}/edit",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/contracts.py"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/dashboard.py"
+    },
+    {
+      "method": "GET",
+      "path": "/documents",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/placeholders.py"
+    },
+    {
+      "method": "POST",
+      "path": "/documents",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "manage_document_versions",
+          "upload"
+        ]
+      ],
+      "source": "app/routers/placeholders.py"
+    },
+    {
+      "method": "POST",
+      "path": "/documents/{document_id}/delete",
+      "public": false,
+      "permission_groups": [
+        [
+          "soft_delete"
+        ]
+      ],
+      "source": "app/routers/placeholders.py"
+    },
+    {
+      "method": "GET",
+      "path": "/documents/{document_id}/download",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ]
+      ],
+      "source": "app/routers/placeholders.py"
+    },
+    {
+      "method": "POST",
+      "path": "/documents/{document_id}/psmf-inclusion",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "manage_document_versions"
+        ]
+      ],
+      "source": "app/routers/placeholders.py"
+    },
+    {
+      "method": "POST",
+      "path": "/documents/{document_id}/versions",
+      "public": false,
+      "permission_groups": [
+        [
+          "manage_document_versions",
+          "upload"
+        ]
+      ],
+      "source": "app/routers/placeholders.py"
+    },
+    {
+      "method": "GET",
+      "path": "/documents/{document_id}/view",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ]
+      ],
+      "source": "app/routers/placeholders.py"
+    },
+    {
+      "method": "GET",
+      "path": "/dosage-forms",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/dosage_forms.py"
+    },
+    {
+      "method": "POST",
+      "path": "/dosage-forms",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/dosage_forms.py"
+    },
+    {
+      "method": "POST",
+      "path": "/dosage-forms/{dosage_form_id}/deactivate",
+      "public": false,
+      "permission_groups": [
+        [
+          "manage_reference_data",
+          "soft_delete"
+        ]
+      ],
+      "source": "app/routers/dosage_forms.py"
+    },
+    {
+      "method": "POST",
+      "path": "/dosage-forms/{dosage_form_id}/edit",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/dosage_forms.py"
+    },
+    {
+      "method": "GET",
+      "path": "/e2b/batches/{batch_id}/messages",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ]
+      ],
+      "source": "app/routers/clinical.py"
+    },
+    {
+      "method": "GET",
+      "path": "/e2b/messages/{message_id}",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ]
+      ],
+      "source": "app/routers/clinical.py"
+    },
+    {
+      "method": "POST",
+      "path": "/e2b/messages/{message_id}",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit"
+        ]
+      ],
+      "source": "app/routers/clinical.py"
+    },
+    {
+      "method": "GET",
+      "path": "/gpt-analysis",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/incoming_requests.py"
+    },
+    {
+      "method": "POST",
+      "path": "/gpt-analysis/analyze",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ]
+      ],
+      "source": "app/routers/incoming_requests.py"
+    },
+    {
+      "method": "POST",
+      "path": "/gpt-analysis/confirm",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "edit"
+        ]
+      ],
+      "source": "app/routers/incoming_requests.py"
+    },
+    {
+      "method": "GET",
+      "path": "/health",
+      "public": true,
+      "permission_groups": [],
+      "source": "app/main.py"
+    },
+    {
+      "method": "GET",
+      "path": "/incoming-requests",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/incoming_requests.py"
+    },
+    {
+      "method": "POST",
+      "path": "/incoming-requests/analyze",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ]
+      ],
+      "source": "app/routers/incoming_requests.py"
+    },
+    {
+      "method": "POST",
+      "path": "/incoming-requests/confirm",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "edit"
+        ]
+      ],
+      "source": "app/routers/incoming_requests.py"
+    },
+    {
+      "method": "GET",
+      "path": "/incoming-requests/export.csv",
+      "public": false,
+      "permission_groups": [
+        [
+          "export"
+        ]
+      ],
+      "source": "app/routers/incoming_requests.py"
+    },
+    {
+      "method": "GET",
+      "path": "/incoming-requests/export.xlsx",
+      "public": false,
+      "permission_groups": [
+        [
+          "export"
+        ]
+      ],
+      "source": "app/routers/incoming_requests.py"
+    },
+    {
+      "method": "POST",
+      "path": "/incoming-requests/register",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "edit"
+        ]
+      ],
+      "source": "app/routers/incoming_requests.py"
+    },
+    {
+      "method": "GET",
+      "path": "/incoming-requests/{request_id}/case-preview",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/incoming_requests.py"
+    },
+    {
+      "method": "POST",
+      "path": "/incoming-requests/{request_id}/create-case",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/incoming_requests.py"
+    },
+    {
+      "method": "POST",
+      "path": "/incoming-requests/{request_id}/link-case",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/incoming_requests.py"
+    },
+    {
+      "method": "POST",
+      "path": "/incoming-requests/{request_id}/products",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/incoming_requests.py"
+    },
+    {
+      "method": "POST",
+      "path": "/incoming-requests/{request_id}/status",
+      "public": false,
+      "permission_groups": [
+        [
+          "comment",
+          "edit"
+        ]
+      ],
+      "source": "app/routers/incoming_requests.py"
+    },
+    {
+      "method": "POST",
+      "path": "/incoming-requests/{request_id}/triage",
+      "public": false,
+      "permission_groups": [
+        [
+          "comment",
+          "edit",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/incoming_requests.py"
+    },
+    {
+      "method": "GET",
+      "path": "/literature-monitoring",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/literature_monitoring.py"
+    },
+    {
+      "method": "POST",
+      "path": "/literature-monitoring/logs",
+      "public": false,
+      "permission_groups": [
+        [
+          "create"
+        ]
+      ],
+      "source": "app/routers/literature_monitoring.py"
+    },
+    {
+      "method": "POST",
+      "path": "/literature-monitoring/logs/{log_id}",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit"
+        ]
+      ],
+      "source": "app/routers/literature_monitoring.py"
+    },
+    {
+      "method": "POST",
+      "path": "/literature-monitoring/plans",
+      "public": false,
+      "permission_groups": [
+        [
+          "create"
+        ]
+      ],
+      "source": "app/routers/literature_monitoring.py"
+    },
+    {
+      "method": "POST",
+      "path": "/literature-monitoring/plans/{plan_id}",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit"
+        ]
+      ],
+      "source": "app/routers/literature_monitoring.py"
+    },
+    {
+      "method": "POST",
+      "path": "/literature-monitoring/plans/{plan_id}/archive",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "soft_delete"
+        ]
+      ],
+      "source": "app/routers/literature_monitoring.py"
+    },
+    {
+      "method": "POST",
+      "path": "/literature-monitoring/results",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "upload"
+        ]
+      ],
+      "source": "app/routers/literature_monitoring.py"
+    },
+    {
+      "method": "POST",
+      "path": "/literature-monitoring/results/{result_id}",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit"
+        ]
+      ],
+      "source": "app/routers/literature_monitoring.py"
+    },
+    {
+      "method": "POST",
+      "path": "/literature-monitoring/results/{result_id}/close",
+      "public": false,
+      "permission_groups": [
+        [
+          "comment",
+          "edit"
+        ]
+      ],
+      "source": "app/routers/literature_monitoring.py"
+    },
+    {
+      "method": "POST",
+      "path": "/literature-monitoring/results/{result_id}/create-icsr",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/literature_monitoring.py"
+    },
+    {
+      "method": "POST",
+      "path": "/literature-monitoring/results/{result_id}/documents",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "upload"
+        ]
+      ],
+      "source": "app/routers/literature_monitoring.py"
+    },
+    {
+      "method": "POST",
+      "path": "/literature-monitoring/results/{result_id}/link",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit"
+        ]
+      ],
+      "source": "app/routers/literature_monitoring.py"
+    },
+    {
+      "method": "GET",
+      "path": "/login",
+      "public": true,
+      "permission_groups": [],
+      "source": "app/routers/authentication.py"
+    },
+    {
+      "method": "POST",
+      "path": "/login",
+      "public": true,
+      "permission_groups": [],
+      "source": "app/routers/authentication.py"
+    },
+    {
+      "method": "POST",
+      "path": "/logout",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/authentication.py"
+    },
+    {
+      "method": "GET",
+      "path": "/message-journal",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/placeholders.py"
+    },
+    {
+      "method": "GET",
+      "path": "/operations",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ],
+        [
+          "export"
+        ]
+      ],
+      "source": "app/routers/operations.py"
+    },
+    {
+      "method": "POST",
+      "path": "/operations/incident/{key}",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ],
+        [
+          "export"
+        ],
+        [
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/operations.py"
+    },
+    {
+      "method": "POST",
+      "path": "/operations/policy/{config_version}",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ],
+        [
+          "export"
+        ],
+        [
+          "manage_system_settings"
+        ]
+      ],
+      "source": "app/routers/operations.py"
+    },
+    {
+      "method": "GET",
+      "path": "/outlook/auth",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "export"
+        ]
+      ],
+      "source": "app/routers/partner_reconciliation.py"
+    },
+    {
+      "method": "GET",
+      "path": "/outlook/callback",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "export"
+        ]
+      ],
+      "source": "app/routers/partner_reconciliation.py"
+    },
+    {
+      "method": "GET",
+      "path": "/partner-onboarding/new",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/partner_onboarding.py"
+    },
+    {
+      "method": "POST",
+      "path": "/partner-onboarding/new",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/partner_onboarding.py"
+    },
+    {
+      "method": "GET",
+      "path": "/partner-onboarding/{wizard_id}",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/partner_onboarding.py"
+    },
+    {
+      "method": "GET",
+      "path": "/partner-onboarding/{wizard_id}/step/{step}",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/partner_onboarding.py"
+    },
+    {
+      "method": "POST",
+      "path": "/partner-onboarding/{wizard_id}/step/{step}",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "edit",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/partner_onboarding.py"
+    },
+    {
+      "method": "GET",
+      "path": "/partner-reconciliation",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/partner_reconciliation.py"
+    },
+    {
+      "method": "GET",
+      "path": "/partner-reconciliation/export",
+      "public": false,
+      "permission_groups": [
+        [
+          "export"
+        ]
+      ],
+      "source": "app/routers/partner_reconciliation.py"
+    },
+    {
+      "method": "POST",
+      "path": "/partner-reconciliation/items/{item_id}",
+      "public": false,
+      "permission_groups": [
+        [
+          "comment",
+          "edit"
+        ]
+      ],
+      "source": "app/routers/partner_reconciliation.py"
+    },
+    {
+      "method": "POST",
+      "path": "/partner-reconciliation/save",
+      "public": false,
+      "permission_groups": [
+        [
+          "create"
+        ]
+      ],
+      "source": "app/routers/partner_reconciliation.py"
+    },
+    {
+      "method": "POST",
+      "path": "/partner-reconciliation/{reconciliation_id}/confirm",
+      "public": false,
+      "permission_groups": [
+        [
+          "approve"
+        ]
+      ],
+      "source": "app/routers/partner_reconciliation.py"
+    },
+    {
+      "method": "GET",
+      "path": "/partner-reconciliation/{reconciliation_id}/document",
+      "public": false,
+      "permission_groups": [
+        [
+          "export"
+        ]
+      ],
+      "source": "app/routers/partner_reconciliation.py"
+    },
+    {
+      "method": "GET",
+      "path": "/partner-reconciliation/{reconciliation_id}/document/{document_format}",
+      "public": false,
+      "permission_groups": [
+        [
+          "export"
+        ]
+      ],
+      "source": "app/routers/partner_reconciliation.py"
+    },
+    {
+      "method": "POST",
+      "path": "/partner-reconciliation/{reconciliation_id}/generate-document",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "export"
+        ]
+      ],
+      "source": "app/routers/partner_reconciliation.py"
+    },
+    {
+      "method": "POST",
+      "path": "/partner-reconciliation/{reconciliation_id}/outlook-draft",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "export"
+        ]
+      ],
+      "source": "app/routers/partner_reconciliation.py"
+    },
+    {
+      "method": "POST",
+      "path": "/partner-reconciliation/{reconciliation_id}/outlook-recover",
+      "public": false,
+      "permission_groups": [
+        [
+          "manage_system_settings"
+        ]
+      ],
+      "source": "app/routers/partner_reconciliation.py"
+    },
+    {
+      "method": "POST",
+      "path": "/partner-reconciliation/{reconciliation_id}/outlook-send",
+      "public": false,
+      "permission_groups": [
+        [
+          "approve",
+          "edit"
+        ]
+      ],
+      "source": "app/routers/partner_reconciliation.py"
+    },
+    {
+      "method": "POST",
+      "path": "/partner-reconciliation/{reconciliation_id}/response",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "upload"
+        ]
+      ],
+      "source": "app/routers/partner_reconciliation.py"
+    },
+    {
+      "method": "POST",
+      "path": "/partner-reconciliation/{reconciliation_id}/status",
+      "public": false,
+      "permission_groups": [
+        [
+          "comment",
+          "edit"
+        ]
+      ],
+      "source": "app/routers/partner_reconciliation.py"
+    },
+    {
+      "method": "POST",
+      "path": "/partner-reconciliation/{reconciliation_id}/task",
+      "public": false,
+      "permission_groups": [
+        [
+          "comment",
+          "create",
+          "create_related_requests"
+        ]
+      ],
+      "source": "app/routers/partner_reconciliation.py"
+    },
+    {
+      "method": "GET",
+      "path": "/partners",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/partners.py"
+    },
+    {
+      "method": "POST",
+      "path": "/partners",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/partners.py"
+    },
+    {
+      "method": "GET",
+      "path": "/partners/{partner_id}",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/partners.py"
+    },
+    {
+      "method": "POST",
+      "path": "/partners/{partner_id}/accounting-info",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/accounting_data.py"
+    },
+    {
+      "method": "POST",
+      "path": "/partners/{partner_id}/delete",
+      "public": false,
+      "permission_groups": [
+        [
+          "manage_reference_data",
+          "soft_delete"
+        ]
+      ],
+      "source": "app/routers/partners.py"
+    },
+    {
+      "method": "POST",
+      "path": "/partners/{partner_id}/edit",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/partners.py"
+    },
+    {
+      "method": "POST",
+      "path": "/product-substances",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/substances.py"
+    },
+    {
+      "method": "GET",
+      "path": "/products",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/products.py"
+    },
+    {
+      "method": "POST",
+      "path": "/products",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/products.py"
+    },
+    {
+      "method": "POST",
+      "path": "/products/registrations/{certificate_id}/delete",
+      "public": false,
+      "permission_groups": [
+        [
+          "manage_reference_data",
+          "soft_delete"
+        ]
+      ],
+      "source": "app/routers/products.py"
+    },
+    {
+      "method": "POST",
+      "path": "/products/registrations/{certificate_id}/edit",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/products.py"
+    },
+    {
+      "method": "GET",
+      "path": "/products/{product_id}",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/products.py"
+    },
+    {
+      "method": "POST",
+      "path": "/products/{product_id}/contract-links",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/products.py"
+    },
+    {
+      "method": "POST",
+      "path": "/products/{product_id}/contract-links/{contract_id}/delete",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/products.py"
+    },
+    {
+      "method": "POST",
+      "path": "/products/{product_id}/delete",
+      "public": false,
+      "permission_groups": [
+        [
+          "manage_reference_data",
+          "soft_delete"
+        ]
+      ],
+      "source": "app/routers/products.py"
+    },
+    {
+      "method": "POST",
+      "path": "/products/{product_id}/edit",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/products.py"
+    },
+    {
+      "method": "POST",
+      "path": "/products/{product_id}/partner-link",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/products.py"
+    },
+    {
+      "method": "POST",
+      "path": "/products/{product_id}/registrations",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/products.py"
+    },
+    {
+      "method": "GET",
+      "path": "/psmf",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/psmf.py"
+    },
+    {
+      "method": "POST",
+      "path": "/psmf/blocks/{block_id}/approve",
+      "public": false,
+      "permission_groups": [
+        [
+          "approve",
+          "edit"
+        ]
+      ],
+      "source": "app/routers/psmf.py"
+    },
+    {
+      "method": "POST",
+      "path": "/psmf/blocks/{block_id}/attachments",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "upload"
+        ]
+      ],
+      "source": "app/routers/psmf.py"
+    },
+    {
+      "method": "GET",
+      "path": "/psmf/blocks/{block_id}/edit",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/psmf.py"
+    },
+    {
+      "method": "POST",
+      "path": "/psmf/blocks/{block_id}/new-version",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "edit"
+        ]
+      ],
+      "source": "app/routers/psmf.py"
+    },
+    {
+      "method": "POST",
+      "path": "/psmf/blocks/{block_id}/partner-review",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit"
+        ]
+      ],
+      "source": "app/routers/psmf.py"
+    },
+    {
+      "method": "POST",
+      "path": "/psmf/blocks/{block_id}/return-revision",
+      "public": false,
+      "permission_groups": [
+        [
+          "approve",
+          "edit"
+        ]
+      ],
+      "source": "app/routers/psmf.py"
+    },
+    {
+      "method": "POST",
+      "path": "/psmf/blocks/{block_id}/save",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit"
+        ]
+      ],
+      "source": "app/routers/psmf.py"
+    },
+    {
+      "method": "POST",
+      "path": "/psmf/blocks/{block_id}/submit",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit"
+        ]
+      ],
+      "source": "app/routers/psmf.py"
+    },
+    {
+      "method": "POST",
+      "path": "/psmf/builds/{build_id}/approve",
+      "public": false,
+      "permission_groups": [
+        [
+          "approve",
+          "edit"
+        ]
+      ],
+      "source": "app/routers/psmf.py"
+    },
+    {
+      "method": "GET",
+      "path": "/psmf/builds/{build_id}/download",
+      "public": false,
+      "permission_groups": [
+        [
+          "export"
+        ]
+      ],
+      "source": "app/routers/psmf.py"
+    },
+    {
+      "method": "GET",
+      "path": "/psmf/builds/{build_id}/download-package",
+      "public": false,
+      "permission_groups": [
+        [
+          "export"
+        ]
+      ],
+      "source": "app/routers/psmf.py"
+    },
+    {
+      "method": "GET",
+      "path": "/psmf/builds/{build_id}/download.pdf",
+      "public": false,
+      "permission_groups": [
+        [
+          "export"
+        ]
+      ],
+      "source": "app/routers/psmf.py"
+    },
+    {
+      "method": "POST",
+      "path": "/psmf/components/{component_id}/approve",
+      "public": false,
+      "permission_groups": [
+        [
+          "approve",
+          "edit"
+        ]
+      ],
+      "source": "app/routers/psmf.py"
+    },
+    {
+      "method": "POST",
+      "path": "/psmf/components/{component_id}/new-version",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "edit"
+        ]
+      ],
+      "source": "app/routers/psmf.py"
+    },
+    {
+      "method": "POST",
+      "path": "/psmf/components/{component_id}/return-revision",
+      "public": false,
+      "permission_groups": [
+        [
+          "approve",
+          "edit"
+        ]
+      ],
+      "source": "app/routers/psmf.py"
+    },
+    {
+      "method": "POST",
+      "path": "/psmf/components/{component_id}/save",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit"
+        ]
+      ],
+      "source": "app/routers/psmf.py"
+    },
+    {
+      "method": "POST",
+      "path": "/psmf/components/{component_id}/submit",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit"
+        ]
+      ],
+      "source": "app/routers/psmf.py"
+    },
+    {
+      "method": "POST",
+      "path": "/psmf/partner-build",
+      "public": false,
+      "permission_groups": [
+        [
+          "export"
+        ]
+      ],
+      "source": "app/routers/psmf.py"
+    },
+    {
+      "method": "POST",
+      "path": "/psmf/partner-preview",
+      "public": false,
+      "permission_groups": [
+        [
+          "view"
+        ]
+      ],
+      "source": "app/routers/psmf.py"
+    },
+    {
+      "method": "GET",
+      "path": "/psmf/partner-preview/download",
+      "public": false,
+      "permission_groups": [
+        [
+          "export"
+        ]
+      ],
+      "source": "app/routers/psmf.py"
+    },
+    {
+      "method": "POST",
+      "path": "/psmf/settings",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit"
+        ]
+      ],
+      "source": "app/routers/psmf.py"
+    },
+    {
+      "method": "GET",
+      "path": "/psur",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/psur.py"
+    },
+    {
+      "method": "POST",
+      "path": "/psur",
+      "public": false,
+      "permission_groups": [
+        [
+          "create"
+        ]
+      ],
+      "source": "app/routers/psur.py"
+    },
+    {
+      "method": "GET",
+      "path": "/psur/{psur_plan_id}",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/psur.py"
+    },
+    {
+      "method": "POST",
+      "path": "/psur/{psur_plan_id}",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit"
+        ]
+      ],
+      "source": "app/routers/psur.py"
+    },
+    {
+      "method": "POST",
+      "path": "/psur/{psur_plan_id}/cases/{psur_case_id}",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit"
+        ]
+      ],
+      "source": "app/routers/psur.py"
+    },
+    {
+      "method": "POST",
+      "path": "/psur/{psur_plan_id}/delete",
+      "public": false,
+      "permission_groups": [
+        [
+          "soft_delete"
+        ]
+      ],
+      "source": "app/routers/psur.py"
+    },
+    {
+      "method": "POST",
+      "path": "/psur/{psur_plan_id}/documents",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "upload"
+        ]
+      ],
+      "source": "app/routers/psur.py"
+    },
+    {
+      "method": "POST",
+      "path": "/psur/{psur_plan_id}/find-cases",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit"
+        ]
+      ],
+      "source": "app/routers/psur.py"
+    },
+    {
+      "method": "POST",
+      "path": "/psur/{psur_plan_id}/partner-requests",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "create_related_requests"
+        ]
+      ],
+      "source": "app/routers/psur.py"
+    },
+    {
+      "method": "POST",
+      "path": "/psur/{psur_plan_id}/partner-requests/{request_id}",
+      "public": false,
+      "permission_groups": [
+        [
+          "comment",
+          "edit"
+        ]
+      ],
+      "source": "app/routers/psur.py"
+    },
+    {
+      "method": "POST",
+      "path": "/psur/{psur_plan_id}/products",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "edit"
+        ]
+      ],
+      "source": "app/routers/psur.py"
+    },
+    {
+      "method": "POST",
+      "path": "/psur/{psur_plan_id}/sections/{section_id}",
+      "public": false,
+      "permission_groups": [
+        [
+          "approve",
+          "comment",
+          "edit"
+        ]
+      ],
+      "source": "app/routers/psur.py"
+    },
+    {
+      "method": "POST",
+      "path": "/psur/{psur_plan_id}/sections/{section_id}/generate",
+      "public": false,
+      "permission_groups": [
+        [
+          "comment",
+          "edit"
+        ]
+      ],
+      "source": "app/routers/psur.py"
+    },
+    {
+      "method": "POST",
+      "path": "/psur/{psur_plan_id}/status",
+      "public": false,
+      "permission_groups": [
+        [
+          "approve",
+          "edit"
+        ]
+      ],
+      "source": "app/routers/psur.py"
+    },
+    {
+      "method": "POST",
+      "path": "/psur/{psur_plan_id}/tasks",
+      "public": false,
+      "permission_groups": [
+        [
+          "comment",
+          "create",
+          "create_related_requests"
+        ]
+      ],
+      "source": "app/routers/psur.py"
+    },
+    {
+      "method": "GET",
+      "path": "/rmp",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/placeholders.py"
+    },
+    {
+      "method": "GET",
+      "path": "/safety-reports",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/safety_reports.py"
+    },
+    {
+      "method": "POST",
+      "path": "/safety-reports",
+      "public": false,
+      "permission_groups": [
+        [
+          "create"
+        ]
+      ],
+      "source": "app/routers/safety_reports.py"
+    },
+    {
+      "method": "POST",
+      "path": "/safety-reports/check-duplicates",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "edit",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/message_intake.py"
+    },
+    {
+      "method": "POST",
+      "path": "/safety-reports/e2b-imports",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/safety_reports.py"
+    },
+    {
+      "method": "GET",
+      "path": "/safety-reports/e2b-imports/{batch_id}",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/safety_reports.py"
+    },
+    {
+      "method": "POST",
+      "path": "/safety-reports/e2b-imports/{batch_id}/cancel",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/safety_reports.py"
+    },
+    {
+      "method": "POST",
+      "path": "/safety-reports/e2b-imports/{batch_id}/confirm",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/safety_reports.py"
+    },
+    {
+      "method": "POST",
+      "path": "/safety-reports/e2b-imports/{batch_id}/confirm-selection",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/safety_reports.py"
+    },
+    {
+      "method": "GET",
+      "path": "/safety-reports/e2b-imports/{batch_id}/identity-review",
+      "public": false,
+      "permission_groups": [
+        [
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/safety_reports.py"
+    },
+    {
+      "method": "POST",
+      "path": "/safety-reports/e2b-imports/{batch_id}/identity-review",
+      "public": false,
+      "permission_groups": [
+        [
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/safety_reports.py"
+    },
+    {
+      "method": "GET",
+      "path": "/safety-reports/e2b-imports/{batch_id}/identity-review/sources/{transmission_id}",
+      "public": false,
+      "permission_groups": [
+        [
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/safety_reports.py"
+    },
+    {
+      "method": "GET",
+      "path": "/safety-reports/e2b-imports/{batch_id}/intake",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/message_intake.py"
+    },
+    {
+      "method": "POST",
+      "path": "/safety-reports/e2b-imports/{batch_id}/intake",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/message_intake.py"
+    },
+    {
+      "method": "POST",
+      "path": "/safety-reports/e2b-imports/{batch_id}/mark-not-pv-ars",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/safety_reports.py"
+    },
+    {
+      "method": "POST",
+      "path": "/safety-reports/e2b-imports/{batch_id}/recheck",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/safety_reports.py"
+    },
+    {
+      "method": "POST",
+      "path": "/safety-reports/e2b-imports/{batch_id}/resolve",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/safety_reports.py"
+    },
+    {
+      "method": "POST",
+      "path": "/safety-reports/e2b-imports/{batch_id}/resolve-products",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/safety_reports.py"
+    },
+    {
+      "method": "POST",
+      "path": "/safety-reports/intake",
+      "public": false,
+      "permission_groups": [
+        [
+          "create"
+        ]
+      ],
+      "source": "app/routers/message_intake.py"
+    },
+    {
+      "method": "GET",
+      "path": "/safety-reports/new",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/message_intake.py"
+    },
+    {
+      "method": "GET",
+      "path": "/safety-reports/{report_id}",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/safety_reports.py"
+    },
+    {
+      "method": "POST",
+      "path": "/safety-reports/{report_id}/create-case",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/safety_reports.py"
+    },
+    {
+      "method": "POST",
+      "path": "/safety-reports/{report_id}/direction",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/safety_reports.py"
+    },
+    {
+      "method": "GET",
+      "path": "/safety-reports/{report_id}/intake",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/message_intake.py"
+    },
+    {
+      "method": "POST",
+      "path": "/safety-reports/{report_id}/intake",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/message_intake.py"
+    },
+    {
+      "method": "POST",
+      "path": "/safety-reports/{report_id}/products",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/safety_reports.py"
+    },
+    {
+      "method": "POST",
+      "path": "/safety-reports/{report_id}/triage",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "icsr_workflow"
+        ]
+      ],
+      "source": "app/routers/safety_reports.py"
+    },
+    {
+      "method": "GET",
+      "path": "/settings",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/placeholders.py"
+    },
+    {
+      "method": "GET",
+      "path": "/sops",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/sops.py"
+    },
+    {
+      "method": "POST",
+      "path": "/sops",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "manage_reference_data",
+          "manage_sop_versions",
+          "upload"
+        ]
+      ],
+      "source": "app/routers/sops.py"
+    },
+    {
+      "method": "GET",
+      "path": "/sops/{sop_id}",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/sops.py"
+    },
+    {
+      "method": "POST",
+      "path": "/sops/{sop_id}/edit",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "manage_reference_data",
+          "manage_sop_versions",
+          "upload"
+        ]
+      ],
+      "source": "app/routers/sops.py"
+    },
+    {
+      "method": "GET",
+      "path": "/submissions",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/submissions.py"
+    },
+    {
+      "method": "POST",
+      "path": "/submissions",
+      "public": false,
+      "permission_groups": [
+        [
+          "create"
+        ]
+      ],
+      "source": "app/routers/submissions.py"
+    },
+    {
+      "method": "POST",
+      "path": "/submissions/{submission_id}/status",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit"
+        ]
+      ],
+      "source": "app/routers/submissions.py"
+    },
+    {
+      "method": "GET",
+      "path": "/substances",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/substances.py"
+    },
+    {
+      "method": "POST",
+      "path": "/substances",
+      "public": false,
+      "permission_groups": [
+        [
+          "create",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/substances.py"
+    },
+    {
+      "method": "POST",
+      "path": "/substances/{substance_id}/delete",
+      "public": false,
+      "permission_groups": [
+        [
+          "manage_reference_data",
+          "soft_delete"
+        ]
+      ],
+      "source": "app/routers/substances.py"
+    },
+    {
+      "method": "POST",
+      "path": "/substances/{substance_id}/edit",
+      "public": false,
+      "permission_groups": [
+        [
+          "edit",
+          "manage_reference_data"
+        ]
+      ],
+      "source": "app/routers/substances.py"
+    },
+    {
+      "method": "GET",
+      "path": "/tasks",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/tasks.py"
+    },
+    {
+      "method": "POST",
+      "path": "/tasks",
+      "public": false,
+      "permission_groups": [
+        [
+          "comment",
+          "create",
+          "create_related_requests"
+        ]
+      ],
+      "source": "app/routers/tasks.py"
+    },
+    {
+      "method": "POST",
+      "path": "/tasks/{task_id}/status",
+      "public": false,
+      "permission_groups": [
+        [
+          "comment",
+          "edit"
+        ]
+      ],
+      "source": "app/routers/tasks.py"
+    },
+    {
+      "method": "GET",
+      "path": "/training",
+      "public": false,
+      "permission_groups": [],
+      "source": "app/routers/placeholders.py"
+    },
+    {
+      "method": "GET",
+      "path": "/users-roles",
+      "public": false,
+      "permission_groups": [
+        [
+          "manage_users"
+        ]
+      ],
+      "source": "app/routers/users_roles.py"
+    },
+    {
+      "method": "POST",
+      "path": "/users-roles/roles/{role_id}/permissions",
+      "public": false,
+      "permission_groups": [
+        [
+          "manage_users"
+        ]
+      ],
+      "source": "app/routers/users_roles.py"
+    },
+    {
+      "method": "POST",
+      "path": "/users-roles/switch-user",
+      "public": false,
+      "permission_groups": [
+        [
+          "switch_user"
+        ]
+      ],
+      "source": "app/routers/users_roles.py"
+    },
+    {
+      "method": "POST",
+      "path": "/users-roles/users",
+      "public": false,
+      "permission_groups": [
+        [
+          "manage_users"
+        ]
+      ],
+      "source": "app/routers/users_roles.py"
+    },
+    {
+      "method": "POST",
+      "path": "/users-roles/users/{user_id}/archive",
+      "public": false,
+      "permission_groups": [
+        [
+          "manage_users"
+        ],
+        [
+          "soft_delete"
+        ]
+      ],
+      "source": "app/routers/users_roles.py"
+    },
+    {
+      "method": "POST",
+      "path": "/users-roles/users/{user_id}/edit",
+      "public": false,
+      "permission_groups": [
+        [
+          "manage_users"
+        ]
+      ],
+      "source": "app/routers/users_roles.py"
+    },
+    {
+      "method": "POST",
+      "path": "/users-roles/users/{user_id}/password",
+      "public": false,
+      "permission_groups": [
+        [
+          "manage_users"
+        ]
+      ],
+      "source": "app/routers/users_roles.py"
+    },
+    {
+      "method": "POST",
+      "path": "/users-roles/users/{user_id}/roles",
+      "public": false,
+      "permission_groups": [
+        [
+          "manage_users"
+        ]
+      ],
+      "source": "app/routers/users_roles.py"
+    },
+    {
+      "method": "POST",
+      "path": "/users-roles/users/{user_id}/roles/{role_id}/remove",
+      "public": false,
+      "permission_groups": [
+        [
+          "manage_users"
+        ]
+      ],
+      "source": "app/routers/users_roles.py"
+    }
+  ]
+}

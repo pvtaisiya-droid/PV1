@@ -178,14 +178,15 @@ def test_upgrade_0029(tmp_path):
                 patient_initials="SY",patient_role="patient"))
     engine.dispose()
     with sqlite3.connect(path) as conn:
-        before={t:conn.execute(f'SELECT * FROM "{t}" ORDER BY id').fetchall() for t in ["tblCases","tblPatients"]}
+        columns={t:[r[1] for r in conn.execute(f'PRAGMA table_info("{t}")')] for t in ['tblCases','tblPatients']}
+        before={t:conn.execute('SELECT '+','.join(chr(34)+c+chr(34) for c in columns[t])+f' FROM "{t}" ORDER BY id').fetchall() for t in columns}
     result = migrate_test_database(path)
     assert result.returncode == 0,result.stdout+result.stderr
     with sqlite3.connect(path) as conn:
         for table,rows in before.items():
-            assert conn.execute(f'SELECT * FROM "{table}" ORDER BY id').fetchall() == rows
+            assert conn.execute('SELECT '+','.join(chr(34)+c+chr(34) for c in columns[table])+f' FROM "{table}" ORDER BY id').fetchall() == rows
         assert conn.execute('SELECT count(*) FROM tblCaseIdentityDecisions').fetchone()[0] == 0
         assert conn.execute('SELECT e2b_identity_profile,e2b_sender_scope FROM tblCases').fetchall() == [(None,None)]*2
         assert conn.execute('PRAGMA foreign_key_check').fetchall() == []
-        assert conn.execute('SELECT version_num FROM alembic_version').fetchone()[0] == '20261110_0032'
+        assert conn.execute('SELECT version_num FROM alembic_version').fetchone()[0] == '20261117_0037'
     assert_matches_current_models(path)

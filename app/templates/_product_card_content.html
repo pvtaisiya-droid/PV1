@@ -1,0 +1,178 @@
+{% set product_warnings = pv_product_attention(product) %}
+{% set product_actions = pv_product_next_actions(product) %}
+{% set partner_count = 1 if product.mah_partner else 0 %}
+{% set contract_count = product.contract_links|rejectattr('is_deleted')|list|length %}
+{% set substance_count = product.substance_links|rejectattr('is_deleted')|list|length %}
+{% set document_count = documents_by_product.get(product.id, [])|length %}
+{% set registration_count = registration_rows|length %}
+<div class="product-card-summary product-card-summary-v2">
+    <div class="product-card-hero">
+        <div>
+            <h3 class="h5 mb-1">{{ product.product_name or product.product_code }}</h3>
+            <div class="text-secondary">{{ dosage_form_label(product) or "Лекарственная форма не указана" }}{% if product.strength %} · {{ product.strength }}{% endif %}</div>
+        </div>
+        <span class="d-inline-flex align-items-baseline gap-2"><i class="product-status-dot" data-status="{{ product.display_status }}" aria-hidden="true"></i>{{ _(product.display_status) if product.display_status else _('None') }}</span>
+    </div>
+
+    <div class="product-card-section">
+        <h4>Основная информация</h4>
+        <dl class="product-info-list">
+            <div><dt>Торговое наименование</dt><dd>{{ product.product_name or "Не указано" }}</dd></div>
+            <div><dt>Лекарственная форма</dt><dd>{{ dosage_form_label(product) or "Не указана" }}</dd></div>
+            <div><dt>Дозировка</dt><dd>{{ product.strength or "Не указана" }}</dd></div>
+            <div><dt>ДРУ</dt><dd>{{ product.mah_partner.partner_name if product.mah_partner else "Не указан" }}</dd></div>
+            <div><dt>Действующее вещество</dt><dd>{{ substance_badges(product) }}</dd></div>
+            <div><dt>Комментарий</dt><dd>{{ product.comment or "Комментарий не добавлен" }}</dd></div>
+            <div><dt>Последнее обновление</dt><dd>{% if product.updated_at %}Обновлено {{ product.updated_at.strftime('%d.%m.%Y') }}{% else %}Не указано{% endif %}</dd></div>
+        </dl>
+    </div>
+
+    <div class="product-card-section">
+        <div class="product-section-heading">
+            <h4>Регистрационные удостоверения</h4>
+            {% if product_edit_mode %}
+            <button class="btn btn-outline-primary btn-sm icon-button" type="button" data-bs-toggle="collapse" data-bs-target="#product-registration-add-{{ product.id }}"><i data-lucide="plus"></i><span>Добавить РУ</span></button>
+            {% endif %}
+        </div>
+        {% if registration_count %}
+        <div class="product-registration-list">
+            {% for certificate in registration_rows %}
+            <div class="product-registration-row">
+                <div class="product-registration-main">
+                    <strong>{{ certificate.registration_number }}</strong>
+                    <div class="product-registration-meta">
+                        <span>{{ _(certificate.status) }}</span>
+                        {% if certificate.registration_date %}<span>от {{ certificate.registration_date.strftime('%d.%m.%Y') }}</span>{% endif %}
+                        {% if certificate.valid_until %}<span>до {{ certificate.valid_until.strftime('%d.%m.%Y') }}</span>{% endif %}
+                        {% if certificate.holder %}<span>{{ certificate.holder }}</span>{% endif %}
+                    </div>
+                    {% if certificate.comment %}
+                    <div class="text-secondary small">{{ certificate.comment }}</div>
+                    {% endif %}
+                </div>
+                {% if product_edit_mode %}
+                <div class="product-registration-actions">
+                    <button class="btn btn-outline-secondary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#registration-edit-{{ certificate.id }}" title="{{ _('Edit') }}"><i data-lucide="pencil"></i></button>
+                    <form method="post" action="/products/registrations/{{ certificate.id }}/delete">
+                        <input type="hidden" name="detail_form" value="true">
+                        <input type="hidden" name="expected_version" value="{{ certificate.version }}">
+                        <button class="btn btn-outline-danger btn-sm icon-only" type="submit" title="{{ _('Delete') }}" data-confirm-message="Удалить регистрационное удостоверение?"><i data-lucide="trash-2"></i></button>
+                    </form>
+                </div>
+                {% endif %}
+            </div>
+            {% if product_edit_mode %}
+            <form class="collapse product-registration-form" id="registration-edit-{{ certificate.id }}" method="post" action="/products/registrations/{{ certificate.id }}/edit">
+                <input type="hidden" name="detail_form" value="true">
+                <input type="hidden" name="expected_version" value="{{ certificate.version }}">
+                <input class="form-control form-control-sm" name="registration_number" value="{{ certificate.registration_number }}" placeholder="ЛП-000000" required>
+                <select class="form-select form-select-sm" name="status">
+                    {% for status in registration_status_options %}
+                    <option value="{{ status }}" {% if certificate.status == status %}selected{% endif %}>{{ _(status) }}</option>
+                    {% endfor %}
+                </select>
+                <input class="form-control form-control-sm" type="date" name="registration_date" value="{{ certificate.registration_date.isoformat() if certificate.registration_date else '' }}">
+                <input class="form-control form-control-sm" type="date" name="valid_until" value="{{ certificate.valid_until.isoformat() if certificate.valid_until else '' }}">
+                <input class="form-control form-control-sm" name="holder" value="{{ certificate.holder or '' }}" placeholder="Держатель РУ">
+                <input class="form-control form-control-sm" name="country_code" value="{{ certificate.country_code or '' }}" placeholder="Страна">
+                <input class="form-control form-control-sm" name="dosage_form" value="{{ certificate.dosage_form or '' }}" placeholder="Лекарственная форма">
+                <input class="form-control form-control-sm" name="strength" value="{{ certificate.strength or '' }}" placeholder="Дозировка">
+                <input class="form-control form-control-sm product-registration-form-wide" name="comment" value="{{ certificate.comment or '' }}" placeholder="Комментарий">
+                <button class="btn btn-primary btn-sm icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Save') }}</span></button>
+            </form>
+            {% endif %}
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="product-empty-state">
+            <span>Регистрационные удостоверения не добавлены.</span>
+            {% if product_edit_mode %}
+            <button class="btn btn-outline-primary btn-sm icon-button" type="button" data-bs-toggle="collapse" data-bs-target="#product-registration-add-{{ product.id }}"><i data-lucide="plus"></i><span>Добавить РУ</span></button>
+            {% endif %}
+        </div>
+        {% endif %}
+        {% if product_edit_mode %}
+        <form class="collapse product-registration-form" id="product-registration-add-{{ product.id }}" method="post" action="/products/{{ product.id }}/registrations">
+            <input type="hidden" name="detail_form" value="true">
+            <input type="hidden" name="expected_version" value="{{ product.version }}">
+            <input class="form-control form-control-sm" name="registration_number" placeholder="ЛП-000000" required>
+            <select class="form-select form-select-sm" name="status">
+                {% for status in registration_status_options %}
+                <option value="{{ status }}">{{ _(status) }}</option>
+                {% endfor %}
+            </select>
+            <input class="form-control form-control-sm" type="date" name="registration_date">
+            <input class="form-control form-control-sm" type="date" name="valid_until">
+            <input class="form-control form-control-sm" name="holder" placeholder="Держатель РУ">
+            <input class="form-control form-control-sm" name="country_code" placeholder="Страна">
+            <input class="form-control form-control-sm" name="dosage_form" value="{{ dosage_form_label(product) }}" placeholder="Лекарственная форма">
+            <input class="form-control form-control-sm" name="strength" value="{{ product.strength or '' }}" placeholder="Дозировка">
+            <input class="form-control form-control-sm product-registration-form-wide" name="comment" placeholder="Комментарий">
+            <button class="btn btn-primary btn-sm icon-button" type="submit"><i data-lucide="save"></i><span>Сохранить РУ</span></button>
+        </form>
+        {% endif %}
+    </div>
+
+    <div class="product-card-section">
+        <h4>Связанные записи</h4>
+        <div class="product-related-list">
+            <div><span>Регистрационные удостоверения:</span><strong>{{ registration_count }}</strong></div>
+            <div><span>Партнеры:</span><strong>{{ partner_count }}</strong></div>
+            <div>
+                <span>Договоры и ДС:</span><strong>{{ contract_count }}</strong>
+                {% if contract_count == 0 and (product_edit_mode) %}
+                <a class="btn btn-outline-primary btn-sm icon-button" href="#product-contracts-{{ product.id }}"><i data-lucide="link"></i><span>Привязать договор</span></a>
+                {% endif %}
+            </div>
+            <div><span>Действующие вещества:</span><strong>{{ substance_count }}</strong></div>
+            <div>
+                <span>Документы:</span><strong>{{ document_count }}</strong>
+                {% if document_count == 0 and product_edit_mode %}
+                <a class="btn btn-outline-primary btn-sm icon-button" href="/documents?product_id={{ product.id }}"><i data-lucide="upload"></i><span>Загрузить документ</span></a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="product-card-grid">
+        <div class="product-card-section">
+            <h4>Требуется заполнение</h4>
+            {% if registration_count == 0 or contract_count == 0 or not product.mah_partner or substance_count == 0 or not (dosage_form_label(product)) %}
+            <ul class="product-missing-list">
+                {% if registration_count == 0 %}<li>регистрационное удостоверение</li>{% endif %}
+                {% if contract_count == 0 %}<li>договор или ДС</li>{% endif %}
+                {% if not product.mah_partner %}<li>партнер</li>{% endif %}
+                {% if substance_count == 0 %}<li>действующее вещество</li>{% endif %}
+                {% if not (dosage_form_label(product)) %}<li>лекарственная форма</li>{% endif %}
+            </ul>
+            {% else %}
+            <div class="text-secondary small">Основные сведения заполнены.</div>
+            {% endif %}
+        </div>
+
+        <div class="product-card-section product-card-warning">
+            <h4>Требует внимания</h4>
+            {% if product_warnings %}
+            <ul class="product-missing-list">
+                {% for warning in product_warnings %}<li>{{ warning }}</li>{% endfor %}
+            </ul>
+            {% else %}
+            <div class="text-secondary small">Важных подсказок по карточке сейчас нет.</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="product-card-section">
+        <h4>Следующее действие</h4>
+        <div class="pv-action-list">
+            {% if registration_count == 0 and (product_edit_mode) %}
+            <button class="btn btn-primary btn-sm icon-button" type="button" data-bs-toggle="collapse" data-bs-target="#product-registration-add-{{ product.id }}"><i data-lucide="plus"></i><span>Добавить РУ</span></button>
+            {% elif contract_count == 0 and (product_edit_mode) %}
+            <a class="btn btn-primary btn-sm icon-button" href="#product-contracts-{{ product.id }}"><i data-lucide="link"></i><span>Привязать договор</span></a>
+            {% elif product_actions %}
+            <a class="btn btn-primary btn-sm icon-button" href="{{ product_actions[0].href }}"><i data-lucide="arrow-right"></i><span>{{ product_actions[0].label }}</span></a>
+            {% endif %}
+        </div>
+    </div>
+    {{ immutable_documents_block(documents_by_product.get(product.id, []), 'Product', product.id, product.mah_partner_id or '', 'Приложение З-3', 'PARTNER_SPECIFIC', '/products/' ~ product.id ~ ('?edit=1' if product_edit_mode else ''), 'Нередактируемые документы препарата', context_version=product.version, show_upload=product_edit_mode, read_only=not product_edit_mode) }}
+</div>

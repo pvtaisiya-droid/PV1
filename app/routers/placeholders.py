@@ -33,6 +33,7 @@ router = APIRouter()
 UPLOAD_ROOT = get_settings().storage_root / "documents"
 MAX_UPLOAD_BYTES = get_settings().max_upload_bytes
 ALLOWED_UPLOAD_EXTENSIONS = {
+    ".wav", ".mp3", ".m4a", ".ogg", ".zip",
     ".csv",
     ".doc",
     ".docx",
@@ -842,7 +843,7 @@ def resolve_document_path(storage_path: str | None) -> Path | None:
     from app.recovery_paths import resolve_storage
     try:candidate = resolve_storage(storage_path)
     except ValueError:return None
-    if not is_relative_to(candidate, UPLOAD_ROOT):
+    if not is_relative_to(candidate, get_settings().storage_root):
         return None
     return candidate
 

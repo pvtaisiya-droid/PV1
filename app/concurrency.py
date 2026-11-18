@@ -66,8 +66,8 @@ PSMF_INPUTS = ONBOARDING_INPUTS + ('PSMFComponent', 'PSMFComponentVersion', 'PSM
     'User', 'UserRole', 'Role', 'SOP', 'PSURPlan', 'AuditTrail')
 CASE_INPUTS = ONBOARDING_INPUTS + ('Case', 'CaseProduct', 'Reaction', 'Patient',
     'CasePartnerLink', 'CaseIdentifier', 'CaseDrugSubstance', 'CaseNarrative',
-    'CaseLiteratureReference', 'CaseProductReactionAssessment', 'CaseDrugDosage', 'CaseDrugIndication', 'CaseDrugRechallenge', 'FollowUp',
-    'SafetyReport', 'SafetyReportProduct')
+    'CaseLiteratureReference', 'CaseProductReactionAssessment', 'CaseDrugDosage', 'CaseDrugIndication', 'CaseDrugRechallenge', 'CaseClinicalRecord', 'FollowUp',
+    'SafetyReport', 'SafetyReportProduct', 'SafetyReportRoute', 'SafetyReportRouteDocument')
 PSUR_INPUTS = CASE_INPUTS + ('LiteratureResult', 'LiteratureResultProduct', 'PSURPartnerRequest')
 LITERATURE_INPUTS = ONBOARDING_INPUTS + ('LiteratureMonitoringPlan', 'LiteratureMonitoringPlanProduct',
     'LiteratureSearchLog', 'LiteratureSearchLogProduct', 'LiteratureResultProduct', 'PSURPlan', 'PSMFComponent')

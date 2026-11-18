@@ -1,0 +1,133 @@
+{% macro full_name(contact) -%}
+{{ contact.full_name }}
+{%- endmacro %}
+
+{% macro phone_summary(contact) -%}
+{% if contact.mobile_phone %}{{ contact.mobile_phone }}{% endif %}{% if contact.work_phone %}{% if contact.mobile_phone %} / {% endif %}{{ contact.work_phone }}{% endif %}{% if contact.extension_phone %}{% if contact.mobile_phone or contact.work_phone %} / {% endif %}{{ _('ext.') }} {{ contact.extension_phone }}{% endif %}
+{%- endmacro %}
+
+{% macro participation_label(contact) -%}
+{% if not contact.is_current %}
+{{ _('Does not participate') }}
+{% elif contact.is_reconciliation_recipient %}
+{{ _('Main reconciliation contact') }}
+{% elif contact.cc_reconciliation %}
+{{ _('Reconciliation copy') }}
+{% else %}
+{{ _('Does not participate') }}
+{% endif %}
+{%- endmacro %}
+
+{% macro participation_value(contact) -%}
+{% if contact.is_current and contact.is_reconciliation_recipient %}primary{% elif contact.is_current and contact.cc_reconciliation %}cc{% else %}none{% endif %}
+{%- endmacro %}
+
+{% macro contact_form_fields(prefix, contact, partners, contact_type_options, reconciliation_participation_options, small=False, selected_partner_id='') -%}
+{% set control_size = ' form-control-sm' if small else '' %}
+{% set select_size = ' form-select-sm' if small else '' %}
+{% set selected_type = contact.contact_type if contact and contact.contact_type else 'pv' %}
+{% set selected_status = 'current' if (not contact or contact.is_current) else 'inactive' %}
+{% set selected_participation = participation_value(contact) if contact else 'primary' %}
+<input type="hidden" name="csrf" value="{{ csrf_token(request) }}">
+<input type="hidden" name="contact_id" value="{{ contact.id if contact and prefix != 'add' else '' }}">
+<div class="col-12">
+    <div class="fw-semibold small text-uppercase text-secondary">{{ _('Basic information') }}</div>
+</div>
+<div class="col-md-3">
+    <label class="form-label">{{ _('Partner') }}</label>
+    <select class="form-select{{ select_size }}" name="partner_id" {% if prefix == 'add' %}data-partner-select{% endif %} data-version-field="expected_partner_version">
+        <option value="" {% if not (contact and contact.partner_id) and not selected_partner_id %}selected{% endif %}>Без партнёра</option>
+        {% for partner in partners %}
+        <option data-version="{{ partner.version }}" value="{{ partner.id }}" {% if (contact and contact.partner_id == partner.id) or (not contact and selected_partner_id == partner.id) %}selected{% endif %}>{{ partner.partner_name }}</option>
+        {% endfor %}
+    </select>
+</div>
+<div class="col-md-9">
+    <label class="form-label">Имя / ФИО, как сообщено</label>
+    <input class="form-control{{ control_size }}" name="display_name" value="{{ contact.display_name or '' if contact else '' }}" maxlength="255">
+</div>
+<div class="col-md-6"><label class="form-label">Страна</label><input class="form-control{{ control_size }}" name="country" maxlength="100" value="{{ contact.country or '' if contact else '' }}"></div>
+<div class="col-md-2">
+    <label class="form-label">{{ _('Last name') }}</label>
+    <input class="form-control{{ control_size }}" name="last_name" value="{{ contact.last_name or '' if contact else '' }}" placeholder="{{ _('Last name') }}">
+</div>
+<div class="col-md-2">
+    <label class="form-label">{{ _('First name') }}</label>
+    <input class="form-control{{ control_size }}" name="first_name" value="{{ contact.first_name or '' if contact else '' }}" placeholder="{{ _('First name') }}">
+</div>
+<div class="col-md-2">
+    <label class="form-label">{{ _('Patronymic') }}</label>
+    <input class="form-control{{ control_size }}" name="patronymic" value="{{ contact.patronymic if contact and contact.patronymic else '' }}">
+</div>
+<div class="col-md-3">
+    <label class="form-label">{{ _('Position') }}</label>
+    <input class="form-control{{ control_size }}" name="position" value="{{ contact.position or '' if contact else '' }}" placeholder="{{ _('Position') }}">
+</div>
+<div class="col-md-3">
+    <label class="form-label">{{ _('Contact type') }}</label>
+    <select class="form-select{{ select_size }}" name="contact_type">
+        {% for value, label in contact_type_options %}
+        <option value="{{ value }}" {% if selected_type == value %}selected{% endif %}>{{ _(label) }}</option>
+        {% endfor %}
+    </select>
+</div>
+<div class="col-md-3 d-flex align-items-end">
+    <div class="form-check mb-2">
+        <input class="form-check-input" type="checkbox" value="yes" name="is_billing_contact" id="{{ prefix }}-{{ contact.id if contact else 'new' }}-is-billing-contact" {% if contact and contact.is_billing_contact %}checked{% endif %}>
+        <label class="form-check-label" for="{{ prefix }}-{{ contact.id if contact else 'new' }}-is-billing-contact">Контакт для счетов</label>
+    </div>
+</div>
+<div class="col-md-2">
+    <label class="form-label">{{ _('Contact status') }}</label>
+    <select class="form-select{{ select_size }}" name="contact_status" data-contact-status>
+        <option value="current" {% if selected_status == 'current' %}selected{% endif %}>{{ _('Current') }}</option>
+        <option value="inactive" {% if selected_status == 'inactive' %}selected{% endif %}>{{ _('Not current') }}</option>
+    </select>
+</div>
+
+<div class="col-12 mt-2">
+    <div class="fw-semibold small text-uppercase text-secondary">{{ _('Contact details') }}</div>
+</div>
+<div class="col-md-3">
+    <label class="form-label">{{ _('Email') }}</label>
+    <input class="form-control{{ control_size }}" type="email" name="email" value="{{ contact.email if contact and contact.email else '' }}" placeholder="name@example.com">
+    <div class="form-text">{{ _('Use format name@example.com.') }}</div>
+</div>
+<div class="col-md-3">
+    <label class="form-label">{{ _('Mobile phone') }}</label>
+    <input class="form-control{{ control_size }}" name="mobile_phone" value="{{ contact.mobile_phone if contact and contact.mobile_phone else '' }}">
+</div>
+<div class="col-md-3">
+    <label class="form-label">{{ _('Work phone') }}</label>
+    <input class="form-control{{ control_size }}" name="work_phone" value="{{ contact.work_phone if contact and contact.work_phone else '' }}">
+</div>
+<div class="col-md-3">
+    <label class="form-label">{{ _('Extension phone') }}</label>
+    <input class="form-control{{ control_size }}" name="extension_phone" value="{{ contact.extension_phone if contact and contact.extension_phone else '' }}">
+</div>
+<div class="col-md-4">
+    <label class="form-label">{{ _('Company website') }}</label>
+    <input class="form-control{{ control_size }}" name="company_website" value="{{ contact.company_website if contact and contact.company_website else '' }}">
+</div>
+<div class="col-md-8">
+    <label class="form-label">{{ _('Address') }}</label>
+    <textarea class="form-control{{ control_size }}" name="address" rows="{{ 2 if small else 3 }}">{{ contact.address if contact and contact.address else '' }}</textarea>
+</div>
+
+<div class="col-12 mt-2">
+    <div class="fw-semibold small text-uppercase text-secondary">{{ _('PV process use') }}</div>
+</div>
+<div class="col-md-4">
+    <label class="form-label">{{ _('Reconciliation participation') }}</label>
+    <select class="form-select{{ select_size }}" name="reconciliation_participation" data-reconciliation-participation>
+        {% for value, label in reconciliation_participation_options %}
+        <option value="{{ value }}" {% if selected_participation|trim == value %}selected{% endif %}>{{ _(label) }}</option>
+        {% endfor %}
+    </select>
+    <div class="form-text text-warning d-none" data-reconciliation-warning>{{ _('Inactive contacts are not used in reconciliation emails.') }}</div>
+</div>
+<div class="col-md-8">
+    <label class="form-label">{{ _('Comments') }}</label>
+    <textarea class="form-control{{ control_size }}" name="comments" rows="{{ 2 if small else 3 }}">{{ contact.comments if contact and contact.comments else '' }}</textarea>
+</div>
+{%- endmacro %}

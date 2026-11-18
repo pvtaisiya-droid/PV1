@@ -52,7 +52,7 @@ def test_import_read_and_patch(client):
     preview=response.headers['location'].split('?')[0]
     assert '10000001' in client.get(preview).text and 'PT: не установлен' in client.get(preview).text
     response=post_current(client,preview+'/confirm',data=preview_data(client,preview,'confirm'),follow_redirects=False)
-    assert response.headers['location'].startswith('/cases/')
+    assert response.status_code == 303 and '/intake?step=pv' in response.headers['location']
     with SessionLocal() as db:
         case=db.query(Case).one(); reaction=db.query(Reaction).one(); tx=db.query(E2BTransmission).one()
         case_id,rid=case.id,reaction.id
@@ -159,5 +159,5 @@ def test_upgrade_0030(tmp_path):
             assert [r[:len(rows[0])] for r in after]==rows
         assert conn.execute('SELECT interpretation_profile,source_facts_json,reported_seriousness FROM tblReactions').fetchall()==[(None,None,None)]*2
         assert conn.execute('PRAGMA foreign_key_check').fetchall()==[]
-        assert conn.execute('SELECT version_num FROM alembic_version').fetchone()[0]=='20261110_0032'
+        assert conn.execute('SELECT version_num FROM alembic_version').fetchone()[0]=='20261117_0037'
     assert_matches_current_models(dbpath)

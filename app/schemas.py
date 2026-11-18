@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -244,12 +244,14 @@ class ContractRead(ContractBase, ORMModel):
 
 
 class ContractContactBase(BaseModel):
-    partner_id: str
-    last_name: str
-    first_name: str
+    country: str | None = Field(default=None, max_length=100)
+    partner_id: str | None = None
+    display_name: str | None = None
+    last_name: str | None = None
+    first_name: str | None = None
     patronymic: str | None = None
     email: str | None = None
-    position: str
+    position: str | None = None
     mobile_phone: str | None = None
     work_phone: str | None = None
     extension_phone: str | None = None
@@ -266,7 +268,13 @@ class ContractContactBase(BaseModel):
 
 
 class ContractContactCreate(ContractContactBase):
-    pass
+    allow_duplicate_contact: bool = False
+    @model_validator(mode="after")
+    def known_contact(self):
+        if not any((value or "").strip() for value in [self.display_name, self.last_name,
+                   self.first_name, self.email, self.mobile_phone, self.work_phone]):
+            raise ValueError("Укажите известное имя, email или телефон контакта.")
+        return self
 
 
 class ContractContactRead(ContractContactBase, ORMModel):
@@ -394,15 +402,25 @@ class SafetyReportBase(BaseModel):
     safety_report_number: str | None = None
     received_at: datetime | None = None
     received_date: date | None = None
+    received_time: time | None = None
     source_type: str | None = "email"
     message_direction: MessageDirection
     partner_id: str | None = None
     product_ids: list[str] = Field(default_factory=list)
-    reporter_name: str | None = None
-    reporter_email: str | None = None
+    sender_contact_id: str | None = Field(None, max_length=36)
+    sender_name: str | None = Field(None, max_length=255)
+    sender_email: str | None = Field(None, max_length=255)
+    sender_phone: str | None = Field(None, max_length=100)
+    reporter_contact_id: str | None = Field(None, max_length=36)
+    reporter_same_as_sender: bool = False
+    reporter_unknown: bool = False
+    reporter_name: str | None = Field(None, max_length=255)
+    reporter_email: str | None = Field(None, max_length=255)
+    reporter_phone: str | None = Field(None, max_length=100)
     reporter_country_code: str | None = None
     raw_subject: str | None = None
     raw_text: str | None = None
+    original_text: str | None = None
     triage_status: str = "new"
     triage_comment: str | None = None
     is_valid_icsr: bool = False
@@ -413,7 +431,15 @@ class SafetyReportBase(BaseModel):
 
 
 class SafetyReportCreate(SafetyReportBase):
-    pass
+    save_sender_contact: bool = False
+    allow_duplicate_contact: bool = False
+    allow_duplicate_message: bool = False
+    creation_token: str | None = Field(None, max_length=36)
+    intake_enabled: bool = False
+
+
+class SafetyReportIntakeUpdate(SafetyReportCreate):
+    expected_version: int = Field(..., gt=0)
 
 
 class SafetyReportRead(SafetyReportBase, ORMModel):
@@ -540,6 +566,10 @@ class CaseIdentifierRead(CaseIdentifierCreate, ORMModel):
 
 
 class PatientCreate(BaseModel):
+    full_name: str | None = Field(default=None, max_length=255)
+    phone: str | None = Field(default=None, max_length=100)
+    email: str | None = Field(default=None, max_length=255)
+    age_text: str | None = Field(default=None, max_length=100)
     patient_role: str = "patient"
     patient_initials: str | None = None
     patient_identifier: str | None = None
@@ -1032,6 +1062,7 @@ class IncomingRequestCreate(BaseModel):
 
 
 class IncomingRequestRead(IncomingRequestCreate, ORMModel):
+    legacy_message_number: str | None = None
     received_date_basis: str = "legacy_or_manual"
     input_snapshot: str | None = None
     version: int

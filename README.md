@@ -1,5 +1,13 @@
 # Pharmacovigilance System
 
+Integrated PV1 workflows: shared message registration, adverse event cards,
+package previews and product matching, with R3 clinical data, follow-up,
+immutable revisions, XML export, local AS2 and submission tracking.
+
+[Integration scope and validation](docs/merged-release-2026-11-18.md).
+Only source code is published; working databases, attachments and local
+operational reports remain outside Git.
+
 FastAPI + SQLAlchemy + SQLite internal system for pharmacovigilance workflows.
 
 ## Stack
@@ -34,6 +42,7 @@ For a **new, empty database**, initialize the schema and reference data, then
 set the first administrator's login and password:
 
 ```bash
+# New installation only: copy .env.example to .env and create data/storage first.
 python -m app.manage init-db
 python -m app.manage bootstrap-admin --login pv.admin
 ```
@@ -58,11 +67,27 @@ Windows one-command start from the project folder:
 .\start.cmd
 ```
 
-Use `.\start.cmd` when PowerShell script execution is disabled. It runs `start.ps1`
-with a process-only execution-policy bypass and starts the site at
-`http://127.0.0.1:8000/`. A busy port produces an error without terminating any
-process. Use `start.ps1 -Port 8001` to choose another port. Dependency installation
-requires `-InstallDependencies`; development auto-reload requires `-Reload`.
+`start.cmd` runs `start-site.ps1` and opens `http://127.0.0.1:8000/`.
+The launcher requires an existing `data/pv1.db` and `data/storage`, validates the
+schema without migrating or initializing it, and checks the identity and data
+configuration of an existing listener. It never stops another service.
+It uses `.venv/Scripts/python.exe`; set `PV1_PYTHON` to use another existing environment.
+Use `start-site.ps1 -Port 8001` for another port. `start.ps1` remains a separate
+development launcher with explicit `-InstallDependencies` / `-Reload` switches.
+
+For a brand-new Windows installation, after installing dependencies:
+
+```powershell
+Copy-Item .env.example .env
+New-Item -ItemType Directory -Force data/storage
+.\.venv\Scripts\python.exe -m app.manage init-db
+.\.venv\Scripts\python.exe -m app.manage bootstrap-admin --login pv.admin
+.\start.cmd
+```
+
+For an existing database, preserve its matching file storage and accounts.
+Use the migration/transfer instructions linked above; do not initialize a new
+empty database as a substitute or use `stamp head`.
 
 ## Optional demonstration data
 

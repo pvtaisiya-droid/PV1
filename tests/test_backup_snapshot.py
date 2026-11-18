@@ -32,6 +32,9 @@ def installation(tmp_path):
     (root / "app").mkdir()
     (root / "app/main.py").write_text("# synthetic source\n")
     (root / "requirements.lock.txt").write_text("# synthetic lock\n")
+    (root / "pytest.ini").write_text("[pytest]\ntestpaths = tests\n")
+    (root / "start-site.ps1").write_text("# synthetic main launcher\n")
+    (root / "start-test-site.ps1").write_text("# synthetic compatibility launcher\n")
     (root / "runtime.log").write_text("do not package")
     (root / ".env").write_text("SECRET=do-not-package")
     (root / "migration_access").mkdir()
@@ -60,6 +63,9 @@ def test_restore_uses_only_copy_preserves_wal_and_untracked_sources(installation
         assert report["row_counts"]["parent"] == 2
         assert len(report["references"]) == 3
     assert (snapshot / "source/requirements.lock.txt").is_file()
+    assert (snapshot / "source/pytest.ini").is_file()
+    assert (snapshot / "source/start-site.ps1").is_file()
+    assert (snapshot / "source/start-test-site.ps1").is_file()
     assert not (snapshot / "source/.env").exists()
     assert not (snapshot / "source/runtime.log").exists()
     assert not (snapshot / "source/migration_access/export.csv").exists()

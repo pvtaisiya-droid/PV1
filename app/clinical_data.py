@@ -101,6 +101,10 @@ def project(db, row, changed):
                 value = float(value) if value is not None else None
             if field == "sex":
                 value = {"1": "male", "2": "female"}.get(value, value)
+            if field == "age_unit":
+                value = {"a": "years", "mo": "months", "wk": "weeks", "d": "days"}.get(value, value)
+            if field in ("age_unit", "age_value"):
+                patient.age_text = None
             setattr(patient, field, value)
             if field in ("birth_date_raw", "death_date_raw"):
                 normalized = values[code].get("value")

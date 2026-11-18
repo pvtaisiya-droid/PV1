@@ -214,7 +214,7 @@ def test_stale_related_case(client, change):
         assert response.status_code == 303 and 'validation=' in response.headers['location']
         assert snapshot() == before
     elif change == 'edit':
-        assert send(client, batch_id, 'confirm').headers['location'].startswith('/cases/')
+        assert '/intake?step=pv' in send(client, batch_id, 'confirm').headers['location']
 
 
 def test_case_appearing_after_preview_is_conflict(client):

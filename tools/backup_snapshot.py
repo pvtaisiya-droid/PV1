@@ -25,7 +25,8 @@ SOURCE_FILES = {
     ".env.example", ".gitignore", "AGENTS.md", "README.md", "passport_PV1.md",
     "alembic.ini", "requirements.txt", "requirements.lock.txt",
     "requirements-dev.txt", "requirements-dev.lock.txt", "run.py",
-    "start.ps1", "start.cmd", "open-ais-rzn.cmd",
+    "start.ps1", "start.cmd", "start-site.ps1", "start-test-site.ps1",
+    "pytest.ini", "open-ais-rzn.cmd",
     "tools/as2-requirements.lock.txt", "config/as2-contours.example.json",
 }
 

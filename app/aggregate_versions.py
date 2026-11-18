@@ -9,6 +9,7 @@ def propagate_versions(db, flush_context, instances):
     created = db.info.setdefault('pv_records_created_in_transaction', set())
     created.update(db.new)
     links = {
+        'Case': [('safety_report_id', 'SafetyReport')],
         'Patient': [('case_id', 'Case')],
         'CaseProduct': [('case_id', 'Case')],
         'Reaction': [('case_id', 'Case')],
@@ -19,6 +20,10 @@ def propagate_versions(db, flush_context, instances):
         'CaseLiteratureReference': [('case_id', 'Case')],
         'CaseProductReactionAssessment': [('case_product_id', 'CaseProduct')],
         'CaseDrugSubstance': [('case_product_id', 'CaseProduct')],
+        'CaseDrugDosage': [('case_product_id', 'CaseProduct')],
+        'CaseDrugIndication': [('case_product_id', 'CaseProduct')],
+        'CaseDrugRechallenge': [('case_product_id', 'CaseProduct')],
+        'CaseClinicalRecord': [('case_id', 'Case')],
         'ProductSubstance': [('product_id', 'Product')],
         'ProductRegistrationCertificate': [('product_id', 'Product')],
         'ContractProduct': [('contract_id', 'Contract'), ('product_id', 'Product')],
@@ -29,6 +34,8 @@ def propagate_versions(db, flush_context, instances):
         'AccountingDataLine': [('accounting_period_id', 'AccountingDataPeriod')],
         'PartnerReconciliationItem': [('reconciliation_id', 'PartnerReconciliation')],
         'SafetyReportProduct': [('safety_report_id', 'SafetyReport')],
+        'SafetyReportRoute': [('safety_report_id', 'SafetyReport')],
+        'SafetyReportRouteDocument': [('route_id', 'SafetyReportRoute')],
         'IncomingRequestProduct': [('incoming_request_id', 'IncomingRequest')],
         'IncomingRequestCaseLink': [('incoming_request_id', 'IncomingRequest')],
         'E2BImportItem': [('batch_id', 'E2BImportBatch')],
@@ -58,6 +65,11 @@ def propagate_versions(db, flush_context, instances):
         if id(child) in visited:
             continue
         visited.add(id(child))
+        if isinstance(child, models.SafetyReport):
+            state = inspect(child)
+            if state.pending or state.attrs.raw_text.history.has_changes() or state.attrs.original_text.history.has_changes():
+                from app.duplicates import message_fingerprint
+                child.content_fingerprint = message_fingerprint(child.original_text or child.raw_text)
         child_links = list(links.get(type(child).__name__, []))
         if isinstance(child, models.PSMFComment):
             target = {'component': 'PSMFComponent', 'PSMFComponent': 'PSMFComponent',

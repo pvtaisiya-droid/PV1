@@ -48,9 +48,15 @@ from app.models import (
     Reaction,
     SafetyReport,
     SafetyReportProduct,
+    SafetyReportRoute,
     Substance,
     utcnow,
 )
+
+
+from app.e2b_groups import build_case_groups, case_key as grouped_case_key
+from app.e2b_products import match_product, source_token
+from app.models import CaseIdentifier
 
 
 IMPORTER_VERSION = "e2b-importer-3"
@@ -810,7 +816,15 @@ class E2BParser:
         return reactions
 
     def extract_products(self, root: ET.Element) -> list[dict[str, Any]]:
-        blocks = all_elements(root, {"patientdrug", "drug", "medication", "medicinalproduct"})
+        product_tags = {"patientdrug", "drug", "medication", "medicinalproduct"}
+        parents = {child: parent for parent in root.iter() for child in parent}
+        blocks = []
+        for candidate in all_elements(root, product_tags):
+            ancestor = parents.get(candidate)
+            while ancestor is not None and canonical_name(ancestor.tag) not in product_tags:
+                ancestor = parents.get(ancestor)
+            if ancestor is None:
+                blocks.append(candidate)
         products = []
         for block in blocks:
             name = child_text(block, "medicinalproduct", "drugname", "productname", "brandname")
@@ -1044,7 +1058,7 @@ class E2BPackageService:
         from app.models import IcsrMessage
         if db.query(IcsrMessage).filter_by(batch_id=batch.id).count():
             raise ValueError("Пакет уже разделён на сохраняемые сообщения R3. Его источники не перезаписываются; исправленный файл загрузите отдельным пакетом.")
-        if batch.status in {"imported", "not_pv_ars"}:
+        if batch.status in {"imported", "not_pv_ars", "partially_imported"}:
             raise ValueError("Finalized batch cannot be re-checked.")
         if not batch.source_zip_path or not Path(batch.source_zip_path).exists():
             raise ValueError("Original E2B source file is not available for re-check.")
@@ -1053,6 +1067,7 @@ class E2BPackageService:
         return batch
 
     def _recheck_batch(self, db, batch, files_dir, checked_by_user_id):
+        product_resolutions = json.loads(batch.normalized_json or "{}").get("product_resolutions", {})
         for issue in list(batch.issues):
             db.delete(issue)
         for item in list(batch.items):
@@ -1076,6 +1091,10 @@ class E2BPackageService:
         self.apply_product_scope_checks(db, batch, discovered)
         self.apply_multi_case_guard(db, batch, discovered)
         self.update_batch_summary(batch, discovered)
+        if product_resolutions:
+            data = json.loads(batch.normalized_json)
+            data["product_resolutions"] = product_resolutions
+            batch.normalized_json = json_dumps(data)
         batch.status = "requires_review" if batch.error_count == 0 else "error"
         log_audit(
             db,
@@ -1279,6 +1298,12 @@ class E2BPackageService:
             from app.models import IcsrMessage
             db.flush()
             incoming = db.query(IcsrMessage).filter_by(item_id=item.id).all()
+            for message in incoming:
+                for issue in json.loads(message.issues_json or '[]'):
+                    blocking = bool(issue.get('blocking'))
+                    self.add_issue(db, batch, item, 'error' if blocking else 'warning',
+                        issue.get('type') or 'message_parse', issue.get('message') or 'Ошибка разбора R3',
+                        blocking, technical_path='message:' + message.id)
             record.update(status="messages", e2b_version="E2B(R3)", message_count=len(incoming),
                           message_errors=sum(r.status == 'error' for r in incoming),
                           case_keys=[self.case_group_key(json.loads(r.normalized_json)['message']) for r in incoming if r.normalized_json])
@@ -1325,7 +1350,7 @@ class E2BPackageService:
         xml_records = [record for record in discovered if record["role"] == "xml"]
         parsed_records = [record for record in xml_records if record.get("normalized")]
         case_keys = {
-            self.case_group_key(record["normalized"]["message"])
+            self.case_group_key(record["normalized"]["message"], record["id"])
             for record in parsed_records
         }
         case_summaries = self.case_summaries(parsed_records)
@@ -1335,7 +1360,7 @@ class E2BPackageService:
         batch.detected_other_count = len([record for record in discovered if record["role"] == "other"])
         batch.detected_case_count = len(case_keys | {key for r in discovered for key in r.get('case_keys', [])})
         batch.detected_message_count = len(parsed_records) + sum(r.get('message_count', 0) for r in discovered)
-        batch.error_count = len([issue for issue in batch.issues if issue.severity == "error"]) + sum(r.get('message_errors', 0) for r in discovered)
+        batch.error_count = len([issue for issue in batch.issues if issue.severity == "error"])
         batch.warning_count = len([issue for issue in batch.issues if issue.severity == "warning"])
         batch.normalized_json = json_dumps(
             {
@@ -1400,63 +1425,12 @@ class E2BPackageService:
         batch: E2BImportBatch,
         discovered: list[dict[str, Any]],
     ) -> None:
-        parsed_records = [record for record in discovered if record.get("normalized")]
-        case_keys = {
-            self.case_group_key(record["normalized"]["message"])
-            for record in parsed_records
-        }
-        if len(case_keys) > 1:
-            self.add_issue(
-                db,
-                batch,
-                None,
-                "error",
-                "multiple_cases_not_supported",
-                (
-                    f"The package contains {len(case_keys)} distinct cases. "
-                    "Import one case per package to prevent unrelated medical data from being merged."
-                ),
-                True,
-            )
+        # Confirmation now selects an isolated case group. Keep this entry point
+        # for callers; readiness is evaluated separately for each selected group.
+        return None
 
     def match_product_scope(self, db: Session, product_data: dict[str, Any]) -> dict[str, Any]:
-        candidates = [product_data.get("reported_product_name"), product_data.get("normalized_product_name")]
-        candidates.extend(product_data.get("active_substances") or [])
-        normalized_candidates = {normalize_key(candidate) for candidate in candidates if normalize_key(candidate)}
-        products = (
-            db.query(Product)
-            .filter(Product.is_deleted.is_(False), Product.is_active.is_(True))
-            .all()
-        )
-        exact_matches = [
-            product
-            for product in products
-            if normalize_key(product.product_name) in normalized_candidates
-            or normalize_key(product.product_name_normalized) in normalized_candidates
-            or normalize_key(product.product_code) in normalized_candidates
-        ]
-        if len(exact_matches) == 1:
-            product = exact_matches[0]
-            return {
-                "status": "exact_company_product" if product.is_company_product else "exact_non_company_product",
-                "product_id": product.id,
-                "product_name": product.product_name,
-                "is_company_product": bool(product.is_company_product),
-            }
-        if len(exact_matches) > 1:
-            company_matches = [product for product in exact_matches if product.is_company_product]
-            return {
-                "status": "requires_choice",
-                "product_id": company_matches[0].id if len(company_matches) == 1 else None,
-                "product_name": company_matches[0].product_name if len(company_matches) == 1 else None,
-                "is_company_product": len(company_matches) == 1,
-            }
-        return {
-            "status": "not_found",
-            "product_id": None,
-            "product_name": None,
-            "is_company_product": False,
-        }
+        return match_product(db, product_data)
 
     def product_summary(self, parsed_records: list[dict[str, Any]]) -> dict[str, Any]:
         products = [
@@ -1466,7 +1440,7 @@ class E2BPackageService:
         ]
         company_matches = [product for product in products if product.get("match", {}).get("is_company_product")]
         not_found = [product for product in products if product.get("match", {}).get("status") == "not_found"]
-        non_company = [product for product in products if product.get("match", {}).get("status") == "exact_non_company_product"]
+        non_company = [product for product in products if product.get("match", {}).get("status") in {"exact_non_company_product", "confirmed_non_company_product"}]
         return {
             "total_products": len(products),
             "has_company_product": bool(company_matches),
@@ -1482,7 +1456,7 @@ class E2BPackageService:
         for record in parsed_records:
             normalized = record["normalized"]
             message = normalized["message"]
-            key = self.case_group_key(message)
+            key = self.case_group_key(message, record["id"])
             if key in seen:
                 continue
             seen.add(key)
@@ -1518,42 +1492,13 @@ class E2BPackageService:
             "has_company_product": product_summary["has_company_product"],
         }
 
-    def case_group_key(self, message: dict[str, Any]) -> str:
+    def case_group_key(self, message: dict[str, Any], file_id: str = "") -> str:
         if message.get("identity_profile") == R3_IDENTITY_PROFILE:
-            # Preserve case and whitespace; include both IDs to prevent merging
-            # conflicting messages within a package before database matching.
-            return json_dumps([message.get("worldwide_case_id"), message.get("sender_scope"),
-                               message.get("local_sender_case_id")])
-        return (
-            message.get("worldwide_case_id")
-            or message.get("local_sender_case_id")
-            or message.get("message_identifier")
-            or "unknown"
-        )
+            return json_dumps([message.get("worldwide_case_id"), message.get("sender_scope"), message.get("local_sender_case_id")])
+        return grouped_case_key(message, file_id or message.get("message_identifier") or "missing")
 
     def group_messages(self, parsed_records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        groups: dict[str, dict[str, Any]] = {}
-        for record in parsed_records:
-            message = record["normalized"]["message"]
-            key = self.case_group_key(message)
-            groups.setdefault(
-                key,
-                {
-                    "case_key": key,
-                    "worldwide_case_id": message.get("worldwide_case_id"),
-                    "local_sender_case_id": message.get("local_sender_case_id"),
-                    "messages": [],
-                },
-            )["messages"].append(
-                {
-                    "file_name": record["file_name"],
-                    "message_identifier": message.get("message_identifier"),
-                    "message_version": message.get("message_version"),
-                    "receiver": message.get("receiver"),
-                    "followup_type": message.get("followup_type"),
-                }
-            )
-        return list(groups.values())
+        return build_case_groups(parsed_records)
 
     def add_issue(
         self,
@@ -1596,17 +1541,10 @@ class E2BMatchingService:
         return None, "requires_choice" if len(matches) > 1 else "not_found"
 
     def find_product(self, db: Session, product_data: dict[str, Any]) -> tuple[str | None, str]:
-        name = normalize_key(product_data.get("reported_product_name"))
-        if not name:
-            return None, "not_found"
-        matches = [
-            product
-            for product in db.query(Product).filter(Product.is_deleted.is_(False)).all()
-            if normalize_key(product.product_name) == name or normalize_key(product.product_name_normalized) == name
-        ]
-        if len(matches) == 1:
-            return matches[0].id, "exact"
-        return None, "requires_choice" if len(matches) > 1 else "not_found"
+        match = match_product(db, product_data)
+        if match["product_id"]:
+            return match["product_id"], "manual" if match.get("decision") else "exact"
+        return None, "requires_choice" if match["candidates"] else "not_found"
 
     def find_substance(self, db: Session, substance_name: str | None) -> tuple[str | None, str]:
         normalized = normalize_key(substance_name)
@@ -1628,7 +1566,18 @@ class E2BImportService:
     def __init__(self) -> None:
         self.matching = E2BMatchingService()
 
-    def preview_case(self, db: Session, batch: E2BImportBatch) -> Case | None:
+    def preview_case(self, db: Session, batch: E2BImportBatch, case_group: str | None = None) -> Case | None:
+        if case_group:
+            group = next((group for group in batch_case_groups(batch) if group["token"] == case_group), None)
+            if group and group.get("merged"):
+                return self.find_existing_case(db, group["merged"]["message"])
+            return None
+        from app.models import IcsrMessage
+        incoming = db.query(IcsrMessage).filter_by(batch_id=batch.id, is_deleted=False).all()
+        if incoming:
+            if len(incoming) == 1 and incoming[0].normalized_json:
+                return self.find_existing_case(db, json.loads(incoming[0].normalized_json)['message'])
+            return None  # A multi-message package has no single implicit target.
         if batch.status == "imported":
             return batch.created_case
         candidates = set()
@@ -1650,6 +1599,102 @@ class E2BImportService:
     def case_token(case: Case | None) -> str:
         return f"{case.id}:{case.version}" if case else "none"
 
+    def preview_groups(self, db: Session, batch: E2BImportBatch) -> list[dict[str, Any]]:
+        groups = batch_case_groups(batch)
+        results = json.loads(batch.import_summary_json or "{}").get("groups", {})
+        for group in groups:
+            group["availability_blocked"] = len(groups) > 1 and not get_settings().e2b_group_import_enabled
+            group["recheck_required"] = batch.importer_version != IMPORTER_VERSION
+            primary = group.get("merged") or {}
+            decisions = json.loads(batch.normalized_json or "{}").get("product_resolutions", {}).get(group["case_key"], {})
+            for product in primary.get("products", []):
+                if source_token(product) in decisions:
+                    product["_product_resolution"] = decisions[source_token(product)]
+            group["product_matches"] = [match_product(db, product) for product in primary.get("products", [])]
+            group["stale_product_choices"] = any(match["stale_decision"] for match in group["product_matches"]) or bool(
+                set(decisions) - {source_token(product) for product in primary.get("products", [])})
+            group["has_company_product"] = any(
+                match["is_company_product"] for match in group["product_matches"])
+            group["blocking_issues"] = [issue for issue in batch.issues if issue.is_blocking
+                and issue.issue_type not in {"not_pv_ars_candidate", "multiple_cases_not_supported"}
+                and (not group.get('r3_message_id') or not (issue.technical_path or '').startswith('message:')
+                     or issue.technical_path == 'message:' + group['r3_message_id'])
+                and (issue.item_id in group["item_ids"] or issue.item_id is None)]
+            group["import_result"] = results.get(group["token"])
+            group["can_import"] = bool(primary and not group["unresolved_count"] and group["has_company_product"]
+                and not any(match["stale_decision"] for match in group["product_matches"])
+                and not group["blocking_issues"] and not group["import_result"]
+                and not group["availability_blocked"]
+                and not group["recheck_required"]
+                and batch.status not in {"cancelled", "not_pv_ars", "imported"})
+            try:
+                group["expected_case_token"] = self.case_token(self.preview_case(db, batch, group["token"]))
+            except ValueError as exc:
+                group['identity_error'] = str(exc)
+                group['can_import'] = False
+                group['expected_case_token'] = 'identity-conflict'
+            if group.get('r3_message_id'):
+                from app.models import IcsrMessage
+                row = db.get(IcsrMessage, group['r3_message_id'])
+                if row.status in ('applied', 'duplicate'):
+                    group['import_result'] = self.r3_summary(db, row)
+                # Existing cases require explicit per-field follow-up review.
+                group['can_import'] = bool(group['can_import'] and row.status == 'review'
+                                           and group['expected_case_token'] == 'none')
+        return groups
+
+    def resolve_products(self, db, batch, token, choices, reason, user_id):
+        group = next((row for row in self.preview_groups(db, batch) if row["token"] == token), None)
+        if (not group or group["import_result"] or batch.status in {"imported", "cancelled", "not_pv_ars"}
+                or group["unresolved_count"] or group["recheck_required"]):
+            raise ValueError("Product matching is unavailable for this case. Reload the preview.")
+        if not choices or not reason.strip():
+            raise ValueError("Select a product candidate and provide a reason.")
+        matches = {row["source_token"]: row for row in group["product_matches"]}
+        data = json.loads(batch.normalized_json or "{}")
+        saved = data.setdefault("product_resolutions", {}).setdefault(group["case_key"], {})
+        previous = dict(saved)
+        for obsolete in set(saved) - set(matches):
+            del saved[obsolete]
+        for source, product_id in choices.items():
+            match = matches.get(source)
+            if not match or (product_id and product_id not in {row["product_id"] for row in match["candidates"]}):
+                raise ValueError("Selected product is no longer a candidate. Reload the preview.")
+            if not product_id:
+                saved.pop(source, None)
+                continue
+            saved[source] = dict(product_id=product_id, input_token=match["input_token"],
+                                 matched_by=match["matched_by"], user_id=user_id, reason=reason.strip(),
+                                 confirmed_at=utcnow().isoformat())
+        batch.normalized_json = json_dumps(data)
+        log_audit(db, entity_type="E2BImportBatch", entity_id=batch.id, action="resolve_products",
+                  field_name="product_resolutions", old_value=json_dumps(previous), new_value=json_dumps(saved),
+                  user_id=user_id, source_module="E2B Import", change_reason=reason.strip())
+        db.commit()
+
+    def resolve_group(self, db, batch, token, choices, reason, user_id):
+        if batch.status in {"imported", "cancelled", "not_pv_ars"}:
+            raise ValueError("Finalized case sources cannot be changed.")
+        groups = batch_case_groups(batch)
+        group = next((group for group in groups if group["token"] == token), None)
+        if not group or not isinstance(choices, dict) or not reason.strip():
+            raise ValueError("Select valid source values and provide a reason.")
+        if token in json.loads(batch.import_summary_json or "{}").get("groups", {}):
+            raise ValueError("Finalized case sources cannot be changed.")
+        allowed = {conflict["path"]: {choice["file_id"] for choice in conflict["choices"]} for conflict in group["conflicts"]}
+        if any(path not in allowed or not isinstance(value, str) or value not in allowed[path] for path, value in choices.items()):
+            raise ValueError("Conflict resolution refers to an unavailable source.")
+        data = json.loads(batch.normalized_json or "{}")
+        resolutions = data.setdefault("case_resolutions", {})
+        resolutions.setdefault(group["case_key"], {}).update(choices)
+        # Validate the whole decision set before storing it.
+        build_case_groups(data.get("files", []), resolutions)
+        batch.normalized_json = json_dumps(data)
+        log_audit(db, entity_type="E2BImportBatch", entity_id=batch.id, action="resolve_case_sources",
+                  field_name="case_resolutions", new_value=json_dumps({"case_key": group["case_key"], "choices": choices}),
+                  user_id=user_id, source_module="E2B Import", change_reason=reason.strip())
+        db.commit()
+
     def confirm_batch(
         self,
         db: Session,
@@ -1657,35 +1702,132 @@ class E2BImportService:
         *,
         confirmed_by_user_id: str | None,
         expected_case_token: str,
+        case_group: str | None = None,
+        document_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         from app.models import IcsrMessage
-        if db.query(IcsrMessage).filter_by(batch_id=batch.id).count():
-            raise ValueError("R3: откройте отдельные сообщения пакета и подтвердите сопоставление клинических повторов.")
+        r3_selected = bool(db.query(IcsrMessage).filter_by(batch_id=batch.id).count())
+        if r3_selected:
+            groups = self.preview_groups(db, batch)
+            group = next((g for g in groups if case_group == g['token']), None) if case_group else (groups[0] if len(groups) == 1 else None)
+            if not group:
+                raise ValueError("R3: выберите отдельное сообщение пакета для клинического разбора.")
+            r3_selected = bool(group.get('r3_message_id'))
+        if r3_selected:
+            row = db.get(IcsrMessage, group['r3_message_id'])
+            if row.status in ('applied', 'duplicate'):
+                return self.r3_summary(db, row)
+            if expected_case_token != group['expected_case_token']:
+                raise StaleDataError('Related case has changed. Reload the E2B preview.')
+            if not group['can_import']:
+                raise ValueError("R3: откройте разбор сообщения и подтвердите сопоставление клинических повторов.")
+            from app import clinical_messages
+            info = clinical_messages.inspect_message(db, row)
+            choices = {}
+            saved = json.loads(batch.normalized_json or '{}').get('product_resolutions', {}).get(group['case_key'], {})
+            for node in info['nodes']:
+                if node['model'] != 'CaseProduct':
+                    continue
+                source = clinical_messages.product_source(json.loads(row.normalized_json), node)
+                decision = saved.get(source_token(source))
+                if decision:
+                    choices[node['key']] = {key: decision[key] for key in ('product_id', 'input_token')}
+            plan = clinical_messages.prepare(db, row, {n['key']: 'new' for n in info['nodes']},
+                'Подтверждение первичного сообщения из предпросмотра пакета',
+                attachment_item_ids=document_ids if document_ids is not None else
+                    [i for i in group['attachment_ids'] if i not in group['item_ids']], product_choices=choices)
+            clinical_messages.apply(db, plan, {})
+            return self.r3_summary(db, row)
         if batch.status == "imported":
-            return json.loads(batch.import_summary_json or "{}")
+            previous = json.loads(batch.import_summary_json or "{}")
+            if case_group:
+                if case_group not in previous.get("groups", {}):
+                    raise ValueError("Case group was not found. Reload the preview.")
+                return previous["groups"][case_group]
+            return previous
+        groups = self.preview_groups(db, batch)
+        if not case_group and len(groups) > 1:
+            raise ValueError("Select a case to import from this package.")
+        group = next((group for group in groups if not case_group or group["token"] == case_group), None)
+        if not group:
+            raise ValueError("Case group was not found. Reload the preview.")
+        if group["import_result"]:
+            return group["import_result"]
+        if group["recheck_required"]:
+            raise ValueError("This source was parsed by an earlier importer. Re-check it before import.")
+        if group["availability_blocked"]:
+            raise ValueError("Multiple-case import is not enabled for this installation.")
+        if not group["can_import"]:
+            raise ValueError("This case requires review before import.")
+        allowed = {item.id: item for item in batch.items}
+        selected = set(group["attachment_ids"]) if document_ids is None else set(group["item_ids"]) | set(document_ids)
+        if any(identifier not in allowed or (allowed[identifier].file_role == "xml" and identifier not in group["attachment_ids"]) for identifier in selected):
+            raise ValueError("Selected documents do not belong to this case group.")
+        scope = {"primary": group["merged"], "items": [item for item in batch.items if item.id in selected],
+                 "issues": group["blocking_issues"]}
+        old_status = batch.status
         with transaction_directory(db, batch, "embedded") as embedded_dir:
-            summary = self._confirm_batch(db, batch, confirmed_by_user_id, expected_case_token, embedded_dir)
+            summary = self._confirm_batch(db, batch, confirmed_by_user_id, expected_case_token, embedded_dir, scope=scope)
+            summary["case_key"] = group["case_key"]
+            summary["document_ids"] = sorted(selected)
+            summary["clinical_version"] = group["clinical_version"]
+            summary["source_provenance"] = group["provenance"]
+            summary["importer_version"] = IMPORTER_VERSION
+            summary["product_resolutions"] = json.loads(batch.normalized_json or "{}").get("product_resolutions", {}).get(group["case_key"], {})
+            previous = json.loads(batch.import_summary_json or "{}")
+            results = previous.get("groups", {})
+            results[group["token"]] = summary
+            root_summary = {key: value for key, value in previous.items() if key != "groups"} or dict(summary)
+            root_summary["groups"] = results
+            batch.import_summary_json = json_dumps(root_summary)
+            unparsed_xml = any(item.file_role == "xml" and item.status == "error" for item in batch.items)
+            batch.status = "imported" if all(row["token"] in results or row.get('import_result') for row in groups) and not unparsed_xml else "partially_imported"
+            batch.confirmed_at = utcnow()
+            batch.confirmed_by_user_id = confirmed_by_user_id
+            batch.imported_at = utcnow()
+            if not batch.created_case_id:
+                batch.created_case_id = summary["case_id"]
+                batch.created_safety_report_id = summary["safety_report_id"]
+                batch.created_incoming_request_id = summary["incoming_request_id"]
+            log_audit(db, entity_type="E2BImportBatch", entity_id=batch.id, action="import_progress",
+                      field_name="status", old_value=old_status, new_value=batch.status,
+                      case_id=summary["case_id"], user_id=confirmed_by_user_id, source_module="E2B Import")
         return summary
 
-    def _confirm_batch(self, db, batch, confirmed_by_user_id, expected_case_token, embedded_dir):
+    @staticmethod
+    def r3_summary(db, row):
+        tx = db.query(E2BTransmission).filter_by(import_message_id=row.id, is_deleted=False).first()
+        if tx is None and row.status == 'duplicate':
+            from app.models import IcsrMessage
+            original = db.query(IcsrMessage).filter_by(source_checksum=row.source_checksum,
+                fragment_checksum=row.fragment_checksum, status='applied').first()
+            tx = db.query(E2BTransmission).filter_by(import_message_id=original.id, is_deleted=False).first() if original else None
+        if tx is None:
+            raise ValueError('Для сообщения не найдена сохранённая связь с первичным источником.')
+        case = db.get(Case, row.case_id)
+        return dict(case_id=case.id, case_number=case.case_number, safety_report_id=tx.safety_report_id,
+            incoming_request_id=tx.incoming_request_id, transmission_count=1, existing_case_used=row.status=='duplicate',
+            duplicate_import=row.status=='duplicate')
+
+    def _confirm_batch(self, db, batch, confirmed_by_user_id, expected_case_token, embedded_dir, scope=None):
         if batch.status == "cancelled":
             raise ValueError("Cancelled package must be re-checked before import.")
         if batch.status == "not_pv_ars":
             raise ValueError("Package is marked as not PV system ARS LLC and cannot be imported.")
-        if any(issue.is_blocking for issue in batch.issues):
+        if any(issue.is_blocking for issue in (scope["issues"] if scope else batch.issues)):
             raise ValueError("Import has blocking errors.")
-        if not self.batch_has_company_product(batch):
+        if not scope and not self.batch_has_company_product(batch):
             raise ValueError("No company product was found in the E2B package.")
         xml_items = [
             item
-            for item in batch.items
+            for item in (scope["items"] if scope else batch.items)
             if item.file_role == "xml" and item.status == "parsed" and item.normalized_json
         ]
         if not xml_items:
             raise ValueError("No parsed XML messages are available for import.")
-        primary = json.loads(xml_items[0].normalized_json)
+        primary = scope["primary"] if scope else json.loads(xml_items[0].normalized_json)
         partner_id, partner_match_status = self.matching.find_partner(db, primary)
-        existing_case = self.preview_case(db, batch)
+        existing_case = self.find_existing_case(db, primary["message"])
         if primary.get("e2b_version") == "E2B(R3)":
             if len(xml_items) != 1:
                 raise ValueError("Новый блок препаратов R3 требует одного XML на импорт: иначе клинические повторы других сообщений потеряются.")
@@ -1695,6 +1837,34 @@ class E2BImportService:
                 raise ValueError("Клинический follow-up R3 с блоком препаратов пока не поддержан безопасно. Источник сохранён; повторное добавление/перезапись не выполнены.")
         if expected_case_token != self.case_token(existing_case):
             raise StaleDataError("Related case has changed. Reload the E2B preview.")
+        repeated = []
+        for item in xml_items:
+            prior = db.query(E2BTransmission).filter(E2BTransmission.xml_checksum_sha256 == item.checksum_sha256,
+                E2BTransmission.is_deleted.is_(False)).first()
+            if not prior:
+                source_message = json.loads(item.normalized_json)["message"]
+                identity = db.query(E2BTransmission).filter(
+                    E2BTransmission.message_identifier == source_message.get("message_identifier"),
+                    E2BTransmission.message_version == source_message.get("message_version"),
+                    E2BTransmission.sender == source_message.get("sender"),
+                    E2BTransmission.receiver == source_message.get("receiver"),
+                    E2BTransmission.is_deleted.is_(False)).first()
+                if identity:
+                    raise ValueError("An imported message has changed source content. Review before import.")
+            repeated.append(prior)
+        if all(repeated) and len({row.case_id for row in repeated}) == 1:
+            prior = repeated[0]
+            prior_case = db.get(Case, prior.case_id)
+            if not prior_case or prior_case.is_deleted:
+                raise ValueError("This case requires review before import.")
+            log_audit(db, entity_type="E2BImportBatch", entity_id=batch.id, action="repeated_sources",
+                      case_id=prior.case_id, user_id=confirmed_by_user_id, source_module="E2B Import")
+            return {"safety_report_id": prior.safety_report_id, "incoming_request_id": prior.incoming_request_id,
+                    "case_id": prior.case_id, "case_number": prior_case.case_number, "existing_case_used": True,
+                    "partner_match_status": partner_match_status, "transmission_count": len({row.id for row in repeated}),
+                    "duplicate_import": True}
+        if any(repeated):
+            raise ValueError("Some source transmissions were already imported. Review the mixed package before import.")
         if existing_case:
             assert_case_editable(existing_case)
         safety_report = self.create_safety_report(db, batch, primary, partner_id)
@@ -1706,7 +1876,8 @@ class E2BImportService:
             self.add_followup_for_existing_case(db, case, primary)
         self.apply_case_details(db, batch, case, primary)
         self.link_incoming_request(db, incoming_request, case, "follow_up" if existing_case else "created_from_message")
-        self.save_attachments(db, batch, case, safety_report, embedded_dir=embedded_dir)
+        self.save_attachments(db, batch, case, safety_report, embedded_dir=embedded_dir,
+                              items=scope["items"] if scope else None)
         transmissions = []
         for item in xml_items:
             parsed = json.loads(item.normalized_json or "{}")
@@ -1729,13 +1900,25 @@ class E2BImportService:
             )
             db.add(transmission)
             transmissions.append(transmission)
-        batch.status = "imported"
-        batch.confirmed_at = utcnow()
-        batch.confirmed_by_user_id = confirmed_by_user_id
-        batch.imported_at = utcnow()
-        batch.created_safety_report_id = safety_report.id
-        batch.created_incoming_request_id = incoming_request.id
-        batch.created_case_id = case.id
+        from app import ae_card, crud
+        safety_report.intake_enabled = True
+        db.flush()
+        # These collections may have been loaded before apply_case_details
+        # inserted the source rows by case_id. The shared intake card must see
+        # the imported rows even when the surrounding transaction defers commit.
+        db.expire(case, ["patients", "case_products", "reactions"])
+        state = ae_card.state_for(safety_report)
+        state["ae"] = any(not reaction.is_deleted for reaction in case.reactions)
+        pv_route = SafetyReportRoute(
+            report=safety_report, route_kind="pv",
+            route_number=f"{safety_report.safety_report_number}/ФН-01",
+            details=ae_card.details_from_state(state),
+        )
+        db.add(pv_route)
+        db.flush()
+        crud.log_create_event(db, entity_type="SafetyReportRoute", entity_id=pv_route.id,
+            data={"safety_report_id": safety_report.id, "route_kind": "pv",
+                  "route_number": pv_route.route_number}, user_id=confirmed_by_user_id)
         summary = {
             "safety_report_id": safety_report.id,
             "incoming_request_id": incoming_request.id,
@@ -1745,15 +1928,14 @@ class E2BImportService:
             "partner_match_status": partner_match_status,
             "transmission_count": len(transmissions),
         }
-        batch.import_summary_json = json_dumps(summary)
         log_audit(
             db,
             entity_type="E2BImportBatch",
             entity_id=batch.id,
-            action="import_confirmed",
-            field_name="status",
-            old_value="requires_review",
-            new_value="imported",
+            action="case_import_confirmed" if scope else "import_confirmed",
+            field_name="case" if scope else "status",
+            old_value=None if scope else "requires_review",
+            new_value=case.id if scope else "imported",
             case_id=case.id,
             user_id=confirmed_by_user_id,
             source_module="E2B Import",
@@ -1772,8 +1954,12 @@ class E2BImportService:
             raise ValueError("Imported batch cannot be marked as not PV system ARS LLC.")
         if batch.status == "cancelled":
             raise ValueError("Cancelled package must be re-checked before marking.")
+        if batch.status == "partially_imported" or len(batch_case_groups(batch)) > 1:
+            raise ValueError("Use separate case decisions for a package with multiple cases.")
         if batch.status == "not_pv_ars":
             return json.loads(batch.import_summary_json or "{}")
+        if any(group["has_company_product"] for group in self.preview_groups(db, batch)):
+            raise ValueError("A company product is matched. Review matching before marking this source outside PV ARS.")
         xml_items = [
             item
             for item in batch.items
@@ -1835,6 +2021,29 @@ class E2BImportService:
         local = message.get("local_sender_case_id") if r3 else clean_text(message.get("local_sender_case_id"))
         scope = message.get("sender_scope")
         query = db.query(Case).filter(Case.is_deleted.is_(False))
+        if not r3:
+            if local and any(not worldwide or row.worldwide_case_id != worldwide for row in query.filter(
+                    Case.local_sender_case_id == local, Case.e2b_identity_profile.is_not(None))):
+                raise ValueError('ID относится к пространству отправителя R3; глобальное сопоставление запрещено.')
+            if worldwide:
+                return query.filter(Case.worldwide_case_id == worldwide).first()
+            if local and message.get("sender"):
+                sender = normalize_key(message["sender"])
+                transmissions = db.query(E2BTransmission).filter(
+                    E2BTransmission.local_sender_case_id == local,
+                    E2BTransmission.is_deleted.is_(False)).all()
+                if any(json.loads(tx.normalized_json or '{}').get('message', {}).get('identity_profile') == R3_IDENTITY_PROFILE
+                       for tx in transmissions):
+                    raise ValueError('ID относится к пространству отправителя R3; требуется явная сверка источников.')
+                identifiers = {row.case_id for row in transmissions if normalize_key(row.sender) == sender}
+                aliases = db.query(CaseIdentifier).filter(CaseIdentifier.identifier_value == local,
+                    CaseIdentifier.is_deleted.is_(False)).all()
+                identifiers.update(row.case_id for row in aliases if normalize_key(row.organization_name) == sender)
+                if len(identifiers) > 1:
+                    raise ValueError("This case requires review before import.")
+                if identifiers:
+                    return query.filter(Case.id.in_(identifiers)).first()
+            return None
         matches = {}
         values = [v for v in (worldwide, local) if v is not None]
         if r3 and values:
@@ -2034,7 +2243,7 @@ class E2BImportService:
                 "not PV system ARS LLC / не ФН АРС if needed."
             ),
             validity_assessment="Marked as not PV system ARS LLC because no company product was matched.",
-            gpt_json_output=batch.normalized_json or json_dumps(parsed),
+            gpt_json_output=json_dumps(parsed),
             human_confirmed=True,
             status="closed_no_case",
             triage_status="completed",
@@ -2070,10 +2279,16 @@ class E2BImportService:
         if r3:
             first_received = date_field(message.get("first_received_date"))
             latest_received = date_field(message.get("latest_received_date"))
+        local_id = message.get("local_sender_case_id")
+        header_local_id = local_id
+        if not r3 and local_id and db.query(Case).filter(Case.local_sender_case_id == local_id).first():
+            # Preserve the original scoped number in CaseIdentifier and every
+            # transmission. The legacy header column has a global unique index.
+            header_local_id = None
         case = Case(
             case_number="",
             worldwide_case_id=message.get("worldwide_case_id"),
-            local_sender_case_id=message.get("local_sender_case_id"),
+            local_sender_case_id=header_local_id,
             e2b_identity_profile=R3_IDENTITY_PROFILE if r3 else None,
             e2b_sender_scope=message.get("sender_scope") if r3 else None,
             safety_report_id=safety_report_id,
@@ -2095,6 +2310,10 @@ class E2BImportService:
         assign_case_number(db, case, partner_id=partner_id)
         db.add(case)
         db.flush()
+        if local_id:
+            db.add(CaseIdentifier(case_id=case.id, identifier_value=local_id, partner_id=partner_id,
+                organization_name=message.get("sender"), identifier_type="partner_case_number",
+                received_date=first_received))
         return case
 
     def add_followup_for_existing_case(self, db: Session, case: Case, parsed: dict[str, Any]) -> None:
@@ -2308,12 +2527,14 @@ class E2BImportService:
         safety_report: SafetyReport,
         *,
         embedded_dir: Path,
+        items: list[E2BImportItem] | None = None,
         selected_item_id: str | None = None,
         selected_normalized: dict | None = None,
         selected_attachment_ids: list[str] | None = None,
     ) -> None:
         checksums_to_attachment: dict[str, Attachment] = {}
-        for item in batch.items:
+        scoped_items = batch.items if items is None else items
+        for item in scoped_items:
             if selected_item_id and item.id not in {selected_item_id, *(selected_attachment_ids or [])}:
                 continue
             if item.file_role not in {"xml", "pdf", "cioms", "literature_pdf", "other"}:
@@ -2347,7 +2568,7 @@ class E2BImportService:
         resolved_embedded_dir = embedded_dir.resolve()
         if upload_root not in resolved_embedded_dir.parents:
             raise ValueError("Embedded attachment path is outside E2B import storage.")
-        for item in batch.items:
+        for item in scoped_items:
             if selected_item_id and item.id != selected_item_id:
                 continue
             if item.file_role != "xml" or (item.status != "parsed" and not selected_normalized) or not item.normalized_json:
@@ -2409,9 +2630,51 @@ class E2BImportService:
         return "; ".join(part for part in parts if part) or None
 
 
+def batch_case_groups(batch: E2BImportBatch) -> list[dict[str, Any]]:
+    data = json.loads(batch.normalized_json or "{}")
+    records = data.get('files', [])
+    groups = build_case_groups([r for r in records if not (r.get('role')=='xml' and r.get('status')=='messages')],
+                               data.get("case_resolutions", {}))
+    from sqlalchemy.orm import object_session
+    from app.models import IcsrMessage
+    db = object_session(batch)
+    if db is not None:
+        items = {item.id: item for item in batch.items}
+        incoming = db.query(IcsrMessage).filter_by(batch_id=batch.id, is_deleted=False).order_by(IcsrMessage.item_id, IcsrMessage.ordinal).all()
+        for row in incoming:
+            if not row.normalized_json:
+                continue
+            item = items[row.item_id]
+            source_records = [dict(id=item.id, path=item.original_path, file_name=item.file_name,
+                            normalized=json.loads(row.normalized_json))]
+            group = build_case_groups(source_records)[0]
+            # An independent R3 source already has an explicit repeat graph.
+            # Preserve same-name products with different roles/doses verbatim;
+            # the legacy assembler cannot decide their cross-source identity.
+            group['merged'] = json.loads(row.normalized_json)
+            group['conflicts'] = []
+            group['unresolved_count'] = 0
+            group['provenance'] = {'source': [dict(file_id=item.id, file=item.original_path)]}
+            group['case_key'] += ':message:' + row.id
+            group['r3_message_id'] = row.id
+            groups.append(group)
+        if incoming:
+            for group in groups:
+                group['item_ids'] = sorted({message['file_id'] for message in group['messages']})
+            from app.e2b_groups import assign_documents
+            # Compare all cases together. A single R3 group must not claim another
+            # case's XML or an ambiguous document just because it was processed first.
+            document_records = [dict(r, normalized=True) if r.get('role')=='xml' and r.get('status')=='messages'
+                                else r for r in records]
+            assign_documents(groups, document_records)
+    for group in groups:
+        group["token"] = hashlib.sha256(group["case_key"].encode()).hexdigest()
+    return groups
+
+
 def batch_preview_context(batch: E2BImportBatch) -> dict[str, Any]:
     normalized = json.loads(batch.normalized_json or "{}")
-    case_groups = normalized.get("case_groups", [])
+    case_groups = batch_case_groups(batch) or normalized.get("case_groups", [])
     case_summaries = normalized.get("case_summaries") or [
         {
             "case_key": group.get("case_key"),
@@ -2456,6 +2719,14 @@ def batch_preview_context(batch: E2BImportBatch) -> dict[str, Any]:
                 "warnings": file.get("normalized", {}).get("message", {}).get("identity_warnings", []),
             }
             for file in normalized.get("files", []) if file.get("normalized", {}).get("e2b_version") == "E2B(R3)"
+        ] + [
+            dict(interpretation=group['merged']['message'].get('identity_profile') or 'legacy_unverified',
+                 import_batch_id=batch.id, import_item_id=group['item_ids'][0], registered_at=batch.created_at,
+                 checksum_sha256=next((i.checksum_sha256 for i in batch.items if i.id==group['item_ids'][0]), None),
+                 identifiers=group['merged']['message'].get('identifiers', {}),
+                 dates={k: group['merged']['message'].get(k) for k in ('first_received_date','latest_received_date')},
+                 warnings=group['merged']['message'].get('identity_warnings', []))
+            for group in case_groups if group.get('r3_message_id')
         ],
         "case_groups": case_groups,
         "case_summaries": case_summaries,

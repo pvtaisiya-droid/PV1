@@ -28,6 +28,12 @@ def snapshot(db, case_id):
         data["records"][name] = [columns(r) for r in db.query(cls).filter(cls.case_product_id.in_(products)).order_by(cls.id)]
     request_ids = [r['incoming_request_id'] for r in data['records']['IncomingRequestCaseLink']]
     data['records']['IncomingRequest'] = [columns(r) for r in db.query(m.IncomingRequest).filter(m.IncomingRequest.id.in_(request_ids)).order_by(m.IncomingRequest.id)]
+    report_ids = [r['id'] for r in data['records']['SafetyReport']]
+    routes = db.query(m.SafetyReportRoute).filter(m.SafetyReportRoute.safety_report_id.in_(report_ids)).order_by(m.SafetyReportRoute.id).all()
+    data['records']['SafetyReportRoute'] = [columns(r) for r in routes]
+    route_ids = [r.id for r in routes]
+    data['records']['SafetyReportRouteDocument'] = [columns(r) for r in db.query(m.SafetyReportRouteDocument)
+        .filter(m.SafetyReportRouteDocument.route_id.in_(route_ids)).order_by(m.SafetyReportRouteDocument.id)]
     data['records']['IcsrMessage'] = [columns(r) for r in db.query(m.IcsrMessage).filter_by(case_id=case_id).order_by(m.IcsrMessage.id)]
     return json.loads(dump(data))
 

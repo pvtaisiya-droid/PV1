@@ -17,6 +17,8 @@ ENTITY_SOURCE_MODULES = {
     "PartnerReconciliation": "Partner Reconciliation",
     "PartnerReconciliationItem": "Partner Reconciliation",
     "SafetyReport": "PV Intake",
+    "SafetyReportRoute": "PV Intake",
+    "SafetyReportRouteDocument": "PV Intake",
     "Case": "ICSRs",
     "CasePartnerLink": "ICSRs",
     "CaseIdentifier": "ICSRs",

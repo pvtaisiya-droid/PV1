@@ -1,4 +1,4 @@
-{% macro immutable_documents_block(documents, context_type, context_id, partner_id='', annex_code='', scope='GLOBAL', return_to='/documents', title='Нередактируемые документы', show_upload=True, context_version=None) -%}
+{% macro immutable_documents_block(documents, context_type, context_id, partner_id='', annex_code='', scope='GLOBAL', return_to='/documents', title='Нередактируемые документы', show_upload=True, context_version=None, read_only=False) -%}
 {% set block_key = (context_type ~ '-' ~ context_id)|replace(' ', '-')|replace('.', '-') %}
 <section class="surface immutable-documents-block mt-4" data-document-context="{{ context_type }}" data-context-id="{{ context_id }}">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
@@ -6,14 +6,14 @@
             <h2 class="h6 section-title mb-1">{{ title }}</h2>
             <div class="text-secondary small">Показаны записи единого реестра, относящиеся к этой карточке. Файл не копируется.</div>
         </div>
-        {% if show_upload and (has_permission('upload') or has_permission('create') or has_permission('manage_document_versions')) %}
+        {% if not read_only and show_upload and (has_permission('upload') or has_permission('create') or has_permission('manage_document_versions')) %}
         <button class="btn btn-outline-primary btn-sm icon-button" type="button" data-bs-toggle="collapse" data-bs-target="#upload-{{ block_key }}">
             <i data-lucide="upload"></i><span>Загрузить нередактируемый документ</span>
         </button>
         {% endif %}
     </div>
 
-    {% if show_upload and (has_permission('upload') or has_permission('create') or has_permission('manage_document_versions')) %}
+    {% if not read_only and show_upload and (has_permission('upload') or has_permission('create') or has_permission('manage_document_versions')) %}
     <form class="collapse row g-2 align-items-end mb-3 immutable-document-upload" id="upload-{{ block_key }}" method="post" action="/documents" enctype="multipart/form-data">
         <input type="hidden" name="expected_related_version" value="{{ context_version or '' }}">
         <input type="hidden" name="related_object_type" value="{{ context_type }}">
@@ -67,8 +67,8 @@
                     <div class="d-flex flex-wrap gap-1">
                         <a class="btn btn-outline-secondary btn-sm" href="/documents/{{ document.id }}/view" target="_blank">Просмотреть</a>
                         {% if document.storage_path %}<a class="btn btn-outline-secondary btn-sm" href="/documents/{{ document.id }}/download">Скачать</a>{% endif %}
-                        {% if has_permission('upload') or has_permission('manage_document_versions') %}<button class="btn btn-outline-primary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#new-version-{{ document.id }}">Добавить новую версию</button>{% endif %}
-                        {% if has_permission('edit') or has_permission('manage_document_versions') %}
+                        {% if not read_only and (has_permission('upload') or has_permission('manage_document_versions')) %}<button class="btn btn-outline-primary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#new-version-{{ document.id }}">Добавить новую версию</button>{% endif %}
+                        {% if not read_only and (has_permission('edit') or has_permission('manage_document_versions')) %}
                         <form method="post" action="/documents/{{ document.id }}/psmf-inclusion">
                             <input type="hidden" name="expected_version" value="{{ document.version }}">
                             <input type="hidden" name="return_to" value="{{ return_to }}">
@@ -79,7 +79,7 @@
                     </div>
                 </td>
             </tr>
-            {% if has_permission('upload') or has_permission('manage_document_versions') %}
+            {% if not read_only and (has_permission('upload') or has_permission('manage_document_versions')) %}
             <tr class="collapse" id="new-version-{{ document.id }}"><td colspan="13">
                 <form class="row g-2 align-items-end" method="post" action="/documents/{{ document.id }}/versions" enctype="multipart/form-data">
                     <input type="hidden" name="expected_version" value="{{ document.version }}">

@@ -8,16 +8,20 @@ import sys
 
 import pytest
 
-from tests.test_migrations import database_contents, migrate_test_database, assert_matches_current_models
+from tests.test_migrations import (database_contents, migrate_test_database,
+                                   assert_matches_current_models, legacy_database_template)
 from tools.incoming_number_repair import prepare_plan, apply_plan, ACTION
 
 
 @pytest.fixture()
-def duplicate_database(tmp_path, database_template):
+def duplicate_database(tmp_path, legacy_database_template):
     path = tmp_path / "review.db"
-    shutil.copy2(database_template, path)
+    shutil.copy2(legacy_database_template, path)
     with sqlite3.connect(path) as db:
         db.execute("UPDATE alembic_version SET version_num='20260824_0025'")
+        # Reproduce the reviewed pre-R3 database, with the optional history
+        # column used by the repair scenarios; do not relabel a current schema.
+        db.execute('ALTER TABLE tblIncomingRequests ADD COLUMN legacy_message_number VARCHAR(50)')
         db.execute('DROP INDEX "ix_tblIncomingRequests_message_number"')
         db.executemany('''INSERT INTO tblIncomingRequests
             (id, source_text, message_number, possible_icsr, human_confirmed,
@@ -53,6 +57,136 @@ def test_prepare_is_read_only_deterministic_and_retains_earliest_numbers(duplica
         ("late-a", "2023-018"), ("late-b", "2023-019")]
     assert database_contents(duplicate_database) == before
     assert hashlib.sha256(duplicate_database.read_bytes()).hexdigest() == digest
+
+
+def test_suffix_plan_retains_original_numbers_and_migrates_without_history_loss(duplicate_database):
+    before_schema, before_rows = database_contents(duplicate_database)
+    plan = prepare_plan(duplicate_database, preserve_legacy=True)
+    assert plan["format"] == 2
+    assert [row["new_message_number"] for row in plan["changes"]] == ["2023-001-02", "2023-002-02"]
+    assert database_contents(duplicate_database) == (before_schema, before_rows)
+    result = repair(duplicate_database, plan)
+    assert result["preserved_original_numbers"] == 4
+    assert result["appended_audit_events"] == 6
+    migration = migrate_test_database(duplicate_database)
+    assert migration.returncode == 0, migration.stdout + migration.stderr
+    assert_matches_current_models(duplicate_database)
+    with sqlite3.connect(duplicate_database) as db:
+        actual = dict(db.execute("SELECT id, legacy_message_number FROM tblIncomingRequests"))
+        assert actual == {"early-a": "2023-001", "late-a": "2023-001", "early-b": "2023-002", "late-b": "2023-002", "unique": None}
+        assert db.execute("SELECT COUNT(*) FROM tblAuditTrail").fetchone()[0] == len(before_rows["tblAuditTrail"]) + 6
+
+
+def test_current_registration_plan_preserves_history_and_matches_application(duplicate_database):
+    with sqlite3.connect(duplicate_database) as db:
+        for identifier, number, deleted in [("current-1", "MSG-2031-0001", 1), ("current-3", "MSG-2031-0003", 0)]:
+            db.execute('''INSERT INTO tblIncomingRequests
+                (id,source_text,message_number,possible_icsr,human_confirmed,status,
+                 created_at,updated_at,is_active,is_deleted,version)
+                VALUES (?,'synthetic existing',?,'no',0,'new','2031-01-01','2031-01-01',1,?,1)''',
+                (identifier, number, deleted))
+    before = database_contents(duplicate_database)
+    plan = prepare_plan(duplicate_database, numbering_policy="current", numbering_year=2031)
+    assert plan["format"] == 3
+    assert [c["new_message_number"] for c in plan["changes"]] == ["MSG-2031-0004", "MSG-2031-0005"]
+    assert database_contents(duplicate_database) == before
+    # Compare with the actual application generator on this isolated database.
+    # Flush each simulated registration, then roll the whole transaction back.
+    import os
+    environment = dict(os.environ, DATABASE_URL="sqlite:///" + duplicate_database.as_posix(),
+                       PV_STORAGE_ROOT=str(duplicate_database.parent / "generator-storage"))
+    command = '''
+from datetime import date
+from unittest.mock import patch
+from app.database import SessionLocal
+from app.crud import generate_number
+from app.models import IncomingRequest
+with SessionLocal() as db, patch('app.crud.date') as clock:
+    clock.today.return_value = date(2031, 1, 1)
+    for identifier, expected in [('late-a','MSG-2031-0004'),('late-b','MSG-2031-0005')]:
+        actual = generate_number(db, IncomingRequest, 'message_number', 'MSG')
+        assert actual == expected
+        db.get(IncomingRequest, identifier).message_number = actual
+        db.flush()
+    db.rollback()
+'''
+    result = subprocess.run([sys.executable, "-c", command], env=environment,
+                            capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert database_contents(duplicate_database) == before
+    repaired = repair(duplicate_database, plan)
+    assert repaired["changed_records"] == 2
+    assert repaired["preserved_original_numbers"] == 4
+    assert repaired["appended_audit_events"] == 6
+    migration = migrate_test_database(duplicate_database)
+    assert migration.returncode == 0, migration.stdout + migration.stderr
+    assert_matches_current_models(duplicate_database)
+    with sqlite3.connect(duplicate_database) as db:
+        assert db.execute("SELECT message_number,legacy_message_number FROM tblIncomingRequests WHERE id='late-a'").fetchone() == ("MSG-2031-0004", "2023-001")
+
+
+@pytest.mark.parametrize("violation", ["missing_year", "changed_number", "changed_year", "missing_original"])
+def test_current_registration_refuses_incomplete_or_changed_plans(duplicate_database, violation):
+    before = database_contents(duplicate_database)
+    if violation == "missing_year":
+        with pytest.raises(ValueError, match="explicit numbering year"):
+            prepare_plan(duplicate_database, numbering_policy="current")
+    else:
+        plan = prepare_plan(duplicate_database, numbering_policy="current", numbering_year=2031)
+        if violation == "changed_number":
+            plan["changes"][0]["new_message_number"] = "2023-999"
+        elif violation == "changed_year":
+            plan["numbering_year"] = 2032
+        else:
+            plan["legacy_originals"].pop()
+        with pytest.raises(ValueError):
+            repair(duplicate_database, plan)
+    assert database_contents(duplicate_database) == before
+
+
+def test_current_registration_uses_chronological_order_and_rolls_back_audit_failure(duplicate_database):
+    with sqlite3.connect(duplicate_database) as db:
+        db.execute("UPDATE tblIncomingRequests SET received_date='2022-12-31' WHERE id='late-b'")
+        db.execute("UPDATE tblIncomingRequests SET received_date='2022-12-01' WHERE id='early-b'")
+        db.execute("ALTER TABLE tblIncomingRequests DROP COLUMN legacy_message_number")
+        db.execute('''CREATE TRIGGER reject_current_audit BEFORE INSERT ON tblAuditTrail
+            WHEN NEW.action='message_number_repair'
+            BEGIN SELECT RAISE(ABORT,'Synthetic current-number failure'); END''')
+    plan = prepare_plan(duplicate_database, numbering_policy="current", numbering_year=2031)
+    assert [c["id"] for c in plan["changes"]] == ["late-b", "late-a"]
+    before = database_contents(duplicate_database)
+    with pytest.raises(sqlite3.IntegrityError):
+        repair(duplicate_database, plan)
+    assert database_contents(duplicate_database) == before
+
+
+def test_suffix_repair_and_new_historical_column_roll_back_together(duplicate_database):
+    with sqlite3.connect(duplicate_database) as db:
+        db.execute("ALTER TABLE tblIncomingRequests DROP COLUMN legacy_message_number")
+        db.execute("""CREATE TRIGGER reject_legacy_audit BEFORE INSERT ON tblAuditTrail
+            WHEN NEW.action='message_number_repair'
+            BEGIN SELECT RAISE(ABORT, 'Synthetic repair failure'); END""")
+    plan = prepare_plan(duplicate_database, preserve_legacy=True)
+    before = database_contents(duplicate_database)
+    with pytest.raises(sqlite3.IntegrityError):
+        repair(duplicate_database, plan)
+    assert database_contents(duplicate_database) == before
+
+
+@pytest.mark.parametrize("violation", ["missing_original", "wrong_original", "existing_history"])
+def test_suffix_plan_refuses_incomplete_or_conflicting_history(duplicate_database, violation):
+    if violation == "existing_history":
+        with sqlite3.connect(duplicate_database) as db:
+            db.execute("UPDATE tblIncomingRequests SET legacy_message_number='preserve me' WHERE id='late-a'")
+    plan = prepare_plan(duplicate_database, preserve_legacy=True)
+    if violation == "missing_original":
+        plan["legacy_originals"].pop()
+    elif violation == "wrong_original":
+        plan["legacy_originals"][0]["message_number"] = "wrong"
+    before = database_contents(duplicate_database)
+    with pytest.raises(ValueError):
+        repair(duplicate_database, plan)
+    assert database_contents(duplicate_database) == before
 
 
 def test_repair_preserves_original_fields_history_and_enables_migration(duplicate_database):
@@ -182,3 +316,33 @@ def test_malformed_manual_review_is_a_controlled_refusal(duplicate_database, inv
     with pytest.raises(ValueError):
         repair(duplicate_database, plan)
     assert database_contents(duplicate_database) == before
+
+
+def test_historical_number_is_visible_searchable_and_exported(client):
+    import csv
+    import io
+    from app.database import SessionLocal
+    from app.models import IncomingRequest
+
+    with SessionLocal() as db:
+        row = IncomingRequest(message_number="MSG-2031-0070", legacy_message_number="2023-001",
+                              source_text="Synthetic history lookup", status="confirmed")
+        db.add(row)
+        db.commit()
+        identifier = row.id
+    page = client.get("/incoming-requests", params={"search": "2023-001"})
+    assert page.status_code == 200
+    assert "MSG-2031-0070" in page.text
+    assert "Другие номера: 2023-001 (исторический)" in page.text
+    absent = client.get("/incoming-requests", params={"search": "2023-999"})
+    assert absent.status_code == 200 and "MSG-2031-0070" not in absent.text
+    response = client.get("/api/incoming-requests")
+    assert response.status_code == 200
+    api_row = next(row for row in response.json() if row["id"] == identifier)
+    assert api_row["message_number"] == "MSG-2031-0070"
+    assert api_row["legacy_message_number"] == "2023-001"
+    response = client.get("/incoming-requests/export.csv")
+    assert response.status_code == 200
+    records = list(csv.reader(io.StringIO(response.content.decode("utf-8-sig"))))
+    exported = next(row for row in records[1:] if "MSG-2031-0070" in row)
+    assert exported[-1] == "2023-001"

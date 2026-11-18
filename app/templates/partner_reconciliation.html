@@ -3,7 +3,7 @@
 {% set has_result = preview or reconciliation %}
 {% set selected_partner = reconciliation.partner if reconciliation else (preview.partner if preview else none) %}
 {% set selected_partner_name = selected_partner.partner_name if selected_partner else '' %}
-{% set selected_contact_name = reconciliation.contact_name if reconciliation else (preview.contact.last_name ~ ' ' ~ preview.contact.first_name if preview and preview.contact else '') %}
+{% set selected_contact_name = reconciliation.contact_name if reconciliation else (preview.contact.full_name if preview and preview.contact else '') %}
 {% set selected_contact_email = reconciliation.contact_email if reconciliation else (preview.contact.email if preview and preview.contact else '') %}
 
 {% macro empty_panel(text, icon='inbox') -%}

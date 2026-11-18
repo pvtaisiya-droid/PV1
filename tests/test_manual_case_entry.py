@@ -3,34 +3,37 @@ from pathlib import Path
 from uuid import uuid4
 
 
-def test_manual_case_form_is_available_without_e2b_file(client):
+def test_manual_registration_uses_one_shared_form_without_e2b_file(client):
     safety_page = client.get("/safety-reports")
     assert safety_page.status_code == 200
-    assert 'href="/cases/new"' in safety_page.text
-    assert "Создать кейс вручную" in safety_page.text
+    assert 'href="/safety-reports/new"' in safety_page.text
+    assert "Зарегистрировать сообщение" in safety_page.text
 
-    form_page = client.get("/cases/new")
+    cases_page = client.get("/cases")
+    assert cases_page.status_code == 200
+    assert 'href="/safety-reports/new"' in cases_page.text
+    assert "Зарегистрировать сообщение" in cases_page.text
+    assert 'href="/cases/new"' not in cases_page.text
+
+    old_address = client.get("/cases/new", follow_redirects=False)
+    assert old_address.status_code == 303
+    assert old_address.headers["location"] == "/safety-reports/new"
+    form_page = client.get(old_address.headers["location"])
     assert form_page.status_code == 200
-    assert 'action="/cases/manual"' in form_page.text
-    assert 'name="reporter_name"' in form_page.text
-    assert 'name="patient_initials"' in form_page.text
-    assert 'name="reported_product_name"' in form_page.text
-    assert 'name="reported_term"' in form_page.text
-    assert 'name="next_step" value="assessment"' in form_page.text
-    assert "Создать и оценить" in form_page.text
-    creation_tab_ids = (
-        "new-overview-tab",
-        "new-source-tab",
-        "new-product-tab",
-        "new-patient-tab",
-        "new-reactions-tab",
-        "new-additional-tab",
-        "new-documents-tab",
-    )
-    tab_positions = [form_page.text.index(f'id="{tab_id}"') for tab_id in creation_tab_ids]
-    assert tab_positions == sorted(tab_positions)
-    assert form_page.text.count('data-next-case-tab=') == 6
-    assert "Следующий шаг" in form_page.text
+    assert 'action="/safety-reports/intake"' in form_page.text
+    assert 'action="/cases/manual"' not in form_page.text
+    assert 'name="received_date"' in form_page.text
+    assert 'name="raw_text"' in form_page.text
+    assert {kind for kind, _, _ in form_page.context["routes"]} == {"quality", "medical", "pv", "other"}
+    assert "НЯ и особые ситуации" in form_page.text
+    assert 'id="intake-method-manual" value="manual" autocomplete="off" checked' in form_page.text
+
+
+def test_old_registration_address_preserves_validation_notice(client):
+    response = client.get("/cases/new", params={"validation": "Проверьте дату получения."})
+    assert response.status_code == 200
+    assert response.url.path == "/safety-reports/new"
+    assert "Проверьте дату получения." in response.text
 
 
 def test_manual_case_creates_complete_linked_icsr_atomically(client):

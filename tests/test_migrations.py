@@ -92,6 +92,18 @@ def migrate_test_database(path, revision="head"):
     return application_command(path, "-m", "alembic", "upgrade", revision)
 
 
+@pytest.fixture(scope="session")
+def legacy_database_template(tmp_path_factory):
+    """A real pre-R3 schema, not a current schema stamped with an old revision."""
+    path = tmp_path_factory.mktemp('legacy-installation')/'template.db'
+    result = migrate_test_database(path, '20261002_0028')
+    assert result.returncode == 0, result.stderr
+    result = application_command(path, '-c',
+        'from app.database import initialize_reference_data; initialize_reference_data()')
+    assert result.returncode == 0, result.stdout + result.stderr
+    return path
+
+
 def test_baseline_is_historical_not_current_models(tmp_path):
     path = tmp_path / "baseline.db"
     result = migrate_test_database(path, "20260616_0001")
@@ -103,16 +115,16 @@ def test_baseline_is_historical_not_current_models(tmp_path):
         assert "login" not in {r[1] for r in connection.execute('PRAGMA table_info("tblUsers")')}
 
 
-def test_reconciliation_preserves_legacy_data_and_matches_model_schema(tmp_path, database_template):
+def test_reconciliation_preserves_legacy_data_and_matches_model_schema(tmp_path, legacy_database_template):
     import shutil
     path = tmp_path / "legacy.db"
-    shutil.copy2(database_template, path)
+    shutil.copy2(legacy_database_template, path)
     with sqlite3.connect(path) as connection:
         connection.execute("UPDATE alembic_version SET version_num='20260824_0025'")
         connection.execute("CREATE TABLE access_import_id_map (id TEXT PRIMARY KEY, source TEXT)")
         connection.execute("INSERT INTO access_import_id_map VALUES ('legacy', 'preserve')")
         connection.execute("ALTER TABLE tblCases ADD COLUMN legacy_note TEXT")
-    result = migrate_test_database(path)
+    result = migrate_test_database(path, "20260930_0026")
     assert result.returncode == 0, result.stderr
     with sqlite3.connect(path) as connection:
         assert connection.execute("SELECT * FROM access_import_id_map").fetchall() == [("legacy", "preserve")]
@@ -133,6 +145,8 @@ def test_reconciliation_preserves_legacy_data_and_matches_model_schema(tmp_path,
             warnings.simplefilter("error")
             assert compare_metadata(context, comparison_metadata(metadata)) == []
     db_engine.dispose()
+    result = migrate_test_database(path)
+    assert result.returncode == 0, result.stderr
     assert_matches_current_models(path)
 
 
@@ -201,10 +215,10 @@ def test_failed_legacy_adoption_preserves_unversioned_schema(tmp_path, database_
     assert database_contents(path) == before
 
 
-def test_legacy_adoption_and_restart_preserve_data(tmp_path, database_template):
+def test_legacy_adoption_and_restart_preserve_data(tmp_path, legacy_database_template):
     import shutil
     path = tmp_path / "unversioned.db"
-    shutil.copy2(database_template, path)
+    shutil.copy2(legacy_database_template, path)
     with sqlite3.connect(path) as connection:
         connection.execute("DROP TABLE alembic_version")
     result = application_command(path, "-m", "app.manage", "adopt-legacy")
@@ -315,10 +329,10 @@ def test_cyclic_reconciliation_rebuilds_constraints_and_preserves_rows(tmp_path)
     assert database_contents(path) == before_repeat
 
 
-def test_valid_e2b_import_after_legacy_upgrade(tmp_path, database_template):
+def test_valid_e2b_import_after_legacy_upgrade(tmp_path, legacy_database_template):
     import shutil
     path = tmp_path / "import-after-upgrade.db"
-    shutil.copy2(database_template, path)
+    shutil.copy2(legacy_database_template, path)
     with sqlite3.connect(path) as connection:
         connection.execute("UPDATE alembic_version SET version_num='20260824_0025'")
         connection.execute("ALTER TABLE tblCases ADD COLUMN legacy_note TEXT")
@@ -439,7 +453,7 @@ def test_alembic_upgrades_empty_database_to_head(tmp_path):
             row[1] for row in connection.execute('PRAGMA table_info("psmf_build_documents")')
         }
 
-    assert revision == ("20261002_0028",)
+    assert revision == ("20261117_0037",)
     assert "is_pv_contact" in contact_columns
     assert "is_billing_contact" in contact_columns
     assert "message_direction" in safety_report_columns
@@ -669,7 +683,7 @@ def test_lallemand_numbers_move_to_additional_identifiers(tmp_path):
             '''
         ).fetchone()[0]
 
-    assert revision == ("20261002_0028",)
+    assert revision == ("20261117_0037",)
     assert cases == [
         ("case-a", "2023-015", 2023, 15),
         ("case-b", "2022-025", 2022, 25),

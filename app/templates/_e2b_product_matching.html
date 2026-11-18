@@ -1,0 +1,33 @@
+<section class="pv-section">
+<h4>{{ _('Product matching') }}</h4>
+<p>{{ _('Search order: trade name first, then INN if no trade name matches. INN candidates require confirmation.') }}</p>
+{% if group.stale_product_choices %}<div class="pv-note warn">{{ _('Previous product matching changed. Review and confirm the candidates again.') }}</div>{% endif %}
+{% if not group.import_result and not group.unresolved_count %}
+{% if has_permission('create') or has_permission('icsr_workflow') %}<form method="post" action="/safety-reports/e2b-imports/{{ batch.id }}/resolve-products?case_group={{ group.token }}">
+{{ tokens(group) }}
+{% set matching = namespace(editable=false, seen=[]) %}
+{% for product in group.products if product.match.source_token not in matching.seen %}
+{% set match = product.match %}{% set matching.seen = matching.seen + [match.source_token] %}
+<div class="pv-note">
+<strong>{{ product.reported_product_name or product.active_substances|join(', ') or _('Unknown value') }}</strong>
+<div class="pv-label">{{ _('Trade name match') if match.matched_by == 'trade_name' else _('INN search') }} · {{ coded(match.status, 'match') }}</div>
+{% if match.product_name %}<div>{{ match.product_name }}</div>{% endif %}
+{% if match.candidates and (match.matched_by == 'inn' or match.candidates|length > 1 or match.stale_decision) %}
+{% set matching.editable = true %}
+<input type="hidden" name="product_sources" value="{{ match.source_token }}">
+<label class="pv-form-label">{{ _('Select product') }}
+<select name="product_choices">
+<option value="">{{ _('Leave unmatched') }}</option>
+{% for candidate in match.candidates %}<option value="{{ candidate.product_id }}" {% if candidate.product_id == match.product_id %}selected{% endif %}>{{ candidate.product_name }} · {{ candidate.product_code }}{% if candidate.strength %} · {{ candidate.strength }}{% endif %}{% if candidate.dosage_form %} · {{ candidate.dosage_form }}{% endif %} · {{ _('Company product') if candidate.is_company_product else _('Non-company product') }}</option>{% endfor %}
+</select></label>
+<ul class="pv-line-list">{% for candidate in match.candidates %}<li><span>{{ candidate.product_name }} · {{ candidate.product_code }}</span><span class="pv-subtext">{% for substance in candidate.substances %}{{ substance.name }}{% if substance.inn and substance.inn != substance.name %} / {{ substance.inn }}{% endif %}{{ ', ' if not loop.last else '' }}{% endfor %}</span></li>{% endfor %}</ul>
+{% elif match.stale_decision %}
+{% set matching.editable = true %}<input type="hidden" name="product_sources" value="{{ match.source_token }}"><input type="hidden" name="product_choices" value="">
+{% endif %}
+{% if match.decision %}<div class="pv-subtext">{{ _('Decision reason') }}: {{ match.decision.reason }}</div>{% endif %}
+</div>
+{% endfor %}
+{% if matching.editable %}<label class="pv-form-label">{{ _('Decision reason') }}<textarea name="reason" maxlength="2000" required></textarea></label><button type="submit" class="pv-btn primary">{{ _('Confirm product matching') }}</button>{% endif %}
+</form>{% endif %}
+{% endif %}
+</section>

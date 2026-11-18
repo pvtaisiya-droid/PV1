@@ -1,0 +1,64 @@
+{% set selected_substance = namespace(id='') %}
+{% for link in product.substance_links if not link.is_deleted and link.substance and not link.substance.is_deleted and link.substance_role == 'active' and link.is_primary %}
+    {% if not selected_substance.id %}
+        {% set selected_substance.id = link.substance_id %}
+    {% endif %}
+{% endfor %}
+{% set normalized_product_status = product.display_status %}
+<form class="row g-2 align-items-end" method="post" action="/products/{{ product.id }}/edit">
+    <input type="hidden" name="detail_form" value="true">
+    <input type="hidden" name="expected_version" value="{{ product.version }}">
+    <div class="col-md-3">
+        <label class="form-label">{{ _('Trade name') }}</label>
+        <input class="form-control form-control-sm" name="product_name" value="{{ product.product_name }}" placeholder="{{ _('Trade name') }}" required>
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">{{ _('Active substance') }}</label>
+        <select class="form-select form-select-sm" name="active_substance_id">
+            <option value="">{{ _('None') }}</option>
+            {% for substance in substances %}
+            <option value="{{ substance.id }}" {% if selected_substance.id == substance.id %}selected{% endif %}>{{ substance.substance_name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">{{ _('Dosage form') }}</label>
+        <select class="form-select form-select-sm" name="dosage_form_id">
+            <option value="">{{ _('None') }}</option>
+            {% for dosage_form in dosage_forms if dosage_form.is_active or product.dosage_form_id == dosage_form.id %}
+            <option value="{{ dosage_form.id }}" {% if product.dosage_form_id == dosage_form.id %}selected{% endif %}>{{ dosage_form.name_ru }}{% if not dosage_form.is_active %} ({{ _('Inactive') }}){% endif %}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">{{ _('Strength') }}</label>
+        <input class="form-control form-control-sm" name="strength" value="{{ product.strength or '' }}" placeholder="500 mg">
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">{{ _('DRA') }}</label>
+        <select class="form-select form-select-sm" name="mah_partner_id">
+            <option value="">{{ _('None') }}</option>
+            {% for partner in partners %}
+            <option value="{{ partner.id }}" {% if product.mah_partner_id == partner.id %}selected{% endif %}>{{ partner.partner_name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">{{ _('Status') }}</label>
+        <select class="form-select form-select-sm" name="authorization_status">
+            <option value="">{{ _('None') }}</option>
+            {% if normalized_product_status and normalized_product_status not in status_options %}<option value="{{ normalized_product_status }}" selected>{{ _(normalized_product_status) }}</option>{% endif %}
+            {% for product_status in status_options %}
+            <option value="{{ product_status }}" {% if normalized_product_status == product_status %}selected{% endif %}>{{ _(product_status) }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-5">
+        <label class="form-label">{{ _('Comment') }}</label>
+        <input class="form-control form-control-sm" name="comment" value="{{ product.comment or '' }}" placeholder="{{ _('Short note for colleagues') }}">
+    </div>
+    <div class="col-md-3 d-flex gap-2">
+        <button class="btn btn-primary btn-sm icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Save product') }}</span></button>
+        <a class="btn btn-outline-secondary btn-sm icon-button" href="/products/{{ product.id }}"><i data-lucide="x"></i><span>{{ _('Cancel') }}</span></a>
+    </div>
+</form>

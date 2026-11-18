@@ -15,10 +15,20 @@ from app.audit import log_audit
 H = "{urn:hl7-org:v3}"
 
 
+def product_source(parsed, node):
+    return parsed['products'][int(node['key'].split(':')[1])]
+
+
+def product_matches(db, parsed, nodes):
+    from app.e2b_products import match_product
+    return {n['key']: match_product(db, product_source(parsed, n))
+            for n in nodes if n['model'] == 'CaseProduct'}
+
+
 def ingest(db, service, batch, item, xml):
     from app.e2b_import import MAX_SINGLE_FILE_BYTES
     if len(xml) > MAX_SINGLE_FILE_BYTES or b"<!doctype" in xml.lower() or b"<!entity" in xml.lower():
-        raise ValueError('XML превышает лимит или содержит запрещённое объявление DTD/entity.')
+        raise ValueError('XML превышает лимит или содержит запрещённое объявление DOCTYPE / external entity.')
     try:
         root = E.fromstring(xml)
     except E.ParseError:
@@ -113,14 +123,17 @@ def inspect_message(db, row):
     if row.status == "error" or not row.normalized_json:
         return dict(message_id=row.id, status=row.status, issues=json.loads(row.issues_json), nodes=[])
     case = existing(db, row)
-    nodes = g.graph(json.loads(row.normalized_json))
+    parsed = json.loads(row.normalized_json)
+    nodes = g.graph(parsed)
+    matches = product_matches(db, parsed, nodes)
     return dict(message_id=row.id, status=row.status, issues=json.loads(row.issues_json),
                 case_id=case.id if case else None, source=json.loads(row.normalized_json)["message"],
                 documents=[dict(id=i.id, name=i.file_name, checksum=i.checksum_sha256) for i in db.query(m.E2BImportItem).filter_by(batch_id=row.batch_id, is_deleted=False) if i.file_role in ('pdf','cioms','literature_pdf','other')],
-                nodes=[{**n, "fields": g.fields(n), "candidates": candidates(db, case, n)} for n in nodes])
+                nodes=[{**n, "fields": g.fields(n), "candidates": candidates(db, case, n),
+                        "product_match": matches.get(n['key'])} for n in nodes])
 
 
-def prepare(db, row, mappings, reason, sequence_reason="", attachment_item_ids=None):
+def prepare(db, row, mappings, reason, sequence_reason="", attachment_item_ids=None, product_choices=None):
     if row.status == "applied":
         raise ValueError("Сообщение уже применено; повторное подтверждение не создаёт записи.")
     if row.status != "review" or len(reason.strip()) < 10:
@@ -131,6 +144,23 @@ def prepare(db, row, mappings, reason, sequence_reason="", attachment_item_ids=N
     nodes = g.graph(json.loads(row.normalized_json))
     if set(mappings) != {n["key"] for n in nodes}:
         raise ValueError("Для каждого входящего повтора выберите добавить, сопоставить или не применять.")
+    matches = product_matches(db, json.loads(row.normalized_json), nodes)
+    resolutions = {}
+    if set(product_choices or {}) - set(matches):
+        raise ValueError('Выбор препарата не относится к этому сообщению.')
+    for key, match in matches.items():
+        if mappings[key] == 'ignore':
+            continue
+        choice = (product_choices or {}).get(key)
+        if choice:
+            if (choice.get('input_token') != match['input_token'] or
+                    choice.get('product_id') not in {v['product_id'] for v in match['candidates']}):
+                raise StaleDataError('Список препаратов изменился. Обновите сопоставление.')
+        resolutions[key] = dict(input_token=match['input_token'],
+            product_id=choice['product_id'] if choice else match['product_id'],
+            manual=bool(choice), reason=reason, author_id=audit_user_id(db))
+        resolutions[key]['product_name'] = next((c['product_name'] for c in match['candidates']
+            if c['product_id'] == resolutions[key]['product_id']), None)
     seen, decisions, diff = set(), {}, []
     for node in nodes:
         target = mappings[node["key"]]
@@ -168,7 +198,8 @@ def prepare(db, row, mappings, reason, sequence_reason="", attachment_item_ids=N
             siblings.append(other.id)
     if siblings and len(sequence_reason.strip()) < 10:
         raise ValueError("Есть другие сообщения этого случая. Укажите основание применения именно этого сообщения следующим; порядок файлов не используется.")
-    preview = dict(nodes=nodes, mappings=decisions, diff=diff, reason=reason, sequence_reason=sequence_reason, pending_same_case=siblings)
+    preview = dict(nodes=nodes, mappings=decisions, diff=diff, reason=reason, sequence_reason=sequence_reason,
+                   pending_same_case=siblings, product_resolutions=resolutions)
     selected = []
     for item_id in sorted(set(attachment_item_ids or [])):
         item = db.get(m.E2BImportItem, item_id)
@@ -209,6 +240,10 @@ def apply(db, plan, choices):
     if (case.id if case else None) != plan.case_id or revisions.digest(revisions.snapshot(db, case.id) if case else None) != plan.current_checksum or revisions.digest(parsed) != plan.incoming_checksum:
         raise StaleDataError("Случай или входящие данные изменились; сопоставление нужно просмотреть заново.")
     preview = json.loads(plan.preview_json)
+    current_matches = product_matches(db, parsed, preview['nodes'])
+    for key, decision in preview.get('product_resolutions', {}).items():
+        if decision['input_token'] != current_matches[key]['input_token']:
+            raise StaleDataError('Справочник препаратов изменился после просмотра. Подготовьте новое сопоставление.')
     required = {(n["key"], f) for n in preview["nodes"] if preview["mappings"][n["key"]] not in ("new", "ignore") for f in g.fields(n)}
     if {(k, f) for k, fs in choices.items() for f in fs} != required or any(v not in ("accept", "keep") for fs in choices.values() for v in fs.values()):
         raise ValueError("Для каждого поля сопоставленного повтора явно выберите входящее или текущее значение.")
@@ -217,6 +252,12 @@ def apply(db, plan, choices):
         raise ValueError("Пакет отменён или выведен из обработки.")
     if any(i.is_blocking and i.item_id is None and i.issue_type not in ("multiple_cases_not_supported",) for i in batch.issues):
         raise ValueError("Пакет содержит блокирующую ошибку уровня архива.")
+    if case is None:
+        product_ids = {v['product_id'] for v in preview.get('product_resolutions', {}).values() if v.get('product_id')}
+        company_product = db.query(m.Product).filter(m.Product.id.in_(product_ids),
+            m.Product.is_company_product.is_(True), m.Product.is_active.is_(True), m.Product.is_deleted.is_(False)).first()
+        if company_product is None:
+            raise ValueError('Для нового случая сопоставьте хотя бы один препарат сообщения с препаратом нашей компании. Исходник сохранён для разбора.')
     if case:
         protect_record(db, m.Case, case.id, int(plan.case_token))
         assert_case_editable(case)
@@ -264,13 +305,18 @@ def apply(db, plan, choices):
             if cls is m.Reaction:
                 from app.reaction_semantics import aggregate, CRITERIA
                 obj.is_serious = aggregate([getattr(obj,k) for k in CRITERIA], obj.reported_seriousness)
-            if new and cls is m.CaseProduct:
-                obj.product_id, obj.product_match_status = service.matching.find_product(db, node["values"])
+            if cls is m.CaseProduct:
+                decision = preview.get('product_resolutions', {}).get(node['key'])
+                if decision and (new or decision['manual']):
+                    obj.product_id = decision['product_id']
+                    obj.product_match_status = 'manual' if decision['manual'] else 'exact' if obj.product_id else 'not_found'
+                elif new:
+                    obj.product_id, obj.product_match_status = service.matching.find_product(db, node["values"])
             origins = json.loads(obj.current_sources_json or '{}')
             origins.update({f: dict(origin='source_xml', import_source=node['source']['import_source'], confirmed_by=audit_user_id(db), plan_id=plan.id, source_fact={k:v for k,v in node['source'].items() if k not in ('xml','subobservations')}, reason=preview['reason']) for f in selected})
             if cls is m.Reaction:
                 origins["is_serious"] = dict(origin="computed", rule="reaction_semantics.aggregate", inputs=list(CRITERIA)+["reported_seriousness"])
-            if new and cls is m.CaseProduct:
+            if cls is m.CaseProduct and (new or preview.get('product_resolutions', {}).get(node['key'], {}).get('manual')):
                 origins["product_id"] = dict(origin="catalog", match_status=obj.product_match_status, product_id=obj.product_id)
             obj.current_sources_json = dump(origins)
         if new:
@@ -310,7 +356,8 @@ def apply(db, plan, choices):
         setattr(tx, f, parsed["message"].get(f))
     db.add(tx)
     row.status, row.case_id, row.applied_at, row.applied_by = "applied", case.id, m.utcnow(), audit_user_id(db)
-    row.decision_json = dump(dict(mappings=preview["mappings"], choices=choices, reason=preview["reason"], sequence_reason=preview["sequence_reason"], plan_id=plan.id))
+    row.decision_json = dump(dict(mappings=preview["mappings"], choices=choices, reason=preview["reason"],
+        sequence_reason=preview["sequence_reason"], plan_id=plan.id, product_resolutions=preview.get('product_resolutions', {})))
     plan.applied_at, plan.decision_json = row.applied_at, row.decision_json
     db.flush()
     validation = revisions.validate(revisions.snapshot(db, case.id))
@@ -323,6 +370,10 @@ def apply(db, plan, choices):
     revisions.create(db, case.id, preview["reason"], source_message_id=row.id)
     remaining = db.query(m.IcsrMessage).filter_by(batch_id=batch.id).filter(m.IcsrMessage.status.notin_(['applied','duplicate'])).count()
     failed_files = db.query(m.E2BImportItem).filter_by(batch_id=batch.id, file_role="xml").filter(m.E2BImportItem.status.in_(["error","detected"])).count()
-    batch.status = "partially_processed" if remaining or failed_files else "imported"
+    from app.e2b_import import batch_case_groups
+    legacy_done = json.loads(batch.import_summary_json or '{}').get('groups', {})
+    legacy_pending = any(not group.get('r3_message_id') and group['token'] not in legacy_done
+                         for group in batch_case_groups(batch))
+    batch.status = "partially_processed" if remaining or failed_files or legacy_pending else "imported"
     db.commit()
     return case.id

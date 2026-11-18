@@ -1,0 +1,30 @@
+{% macro package_document_picker(documents, case_count, default_selected_ids=[]) -%}
+<fieldset data-package-documents>
+    <legend class="fs-6">{{ _('All documents from the archive') }}</legend>
+    <div class="alert alert-info py-2" role="status" data-document-scope>
+        {% if case_count|default(1) > 1 %}
+        {{ _('This archive contains several cases. All PDF files and other attachments are shown below. Check the allocation and select the documents for the current case.') }}
+        {% else %}
+        {{ _('All PDF files and other attachments from the archive are shown below. Select the documents for the current case.') }}
+        {% endif %}
+        <div class="small mt-1">{{ _('Allocation is based on the archive folders. Check it against the document contents.') }}</div>
+    </div>
+    {% for document in documents %}
+    {% set assignment = document.assignment|default('current' if document.id in default_selected_ids else 'unassigned') %}
+    <label class="d-flex align-items-start gap-2 border rounded p-2 mb-2" data-package-document="{{ document.id }}" data-document-assignment="{{ assignment }}">
+        <input class="mt-1" type="checkbox" name="document_ids" value="{{ document.id }}" {% if document.selected|default(document.id in default_selected_ids) %}checked{% endif %}>
+        <span class="text-break">
+            <span class="d-block">{{ document.path }}</span>
+            <span class="d-block small text-secondary">
+                {% if assignment == 'current' %}{{ _('Suggested for this case') }}
+                {% elif assignment == 'other' %}{{ _('Suggested for another case') }}
+                {% else %}{{ _('Not assigned to a case. Check manually.') }}{% endif %}
+                {% if document.case_labels %} · {{ document.case_labels|join(', ') }}{% endif %}
+            </span>
+        </span>
+    </label>
+    {% else %}<p class="small text-secondary">{{ _('No additional documents in this archive.') }}</p>{% endfor %}
+    <p class="small text-secondary mb-1">{{ _('Selected documents will be attached to this case.') }}</p>
+    <p class="small text-secondary mb-0">{{ _('Unchecked documents remain in the source package.') }}</p>
+</fieldset>
+{%- endmacro %}

@@ -14,7 +14,7 @@ from uuid import uuid4
 import pytest
 
 PROJECT=Path(__file__).resolve().parents[1]
-ENGINE=PROJECT/'.tools/as2-venv/Scripts/python.exe'
+ENGINE=Path(os.environ.get('PV_AS2_ENGINE_PYTHON', str(PROJECT/'.tools/as2-venv/Scripts/python.exe')))
 FLAGS=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0
 
 

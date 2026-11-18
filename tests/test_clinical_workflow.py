@@ -278,7 +278,7 @@ def test_migration_preserves_history(tmp_path):
         for name,rows in before.items():
             assert [r[:len(rows[0])] for r in c.execute(f'SELECT * FROM "{name}" ORDER BY id').fetchall()]==rows
         assert c.execute('PRAGMA foreign_key_check').fetchall()==[]
-        assert c.execute('SELECT version_num FROM alembic_version').fetchone()[0]=='20261111_0033'
+        assert c.execute('SELECT version_num FROM alembic_version').fetchone()[0]=='20261117_0037'
         migrated=c.execute('SELECT kind,fields_json,interpretation_profile FROM tblCaseClinicalRecords').fetchall()
         assert len(migrated)==4 and all(x[2]=='legacy_unverified' for x in migrated)
         assert c.execute('SELECT COUNT(*) FROM tblIcsrRevisions').fetchone()[0]==0

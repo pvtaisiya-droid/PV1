@@ -11,7 +11,7 @@ from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app import crud, schemas
+from app import ae_card, crud, schemas
 from app.auth import require_any_permission, require_permission
 from app.causality import (
     ASSESSOR_ROLES,
@@ -109,24 +109,12 @@ def cases_page(
     response_class=HTMLResponse,
     dependencies=[Depends(require_permission("create"))],
 )
-def new_case_page(request: Request, db: Session = Depends(get_db)):
-    available_reports = [
-        report for report in crud.list_safety_reports(db) if not report.case_id
-    ]
-    return templates.TemplateResponse(
-        request,
-        "case_new.html",
-        {
-            "request": request,
-            "partners": crud.list_partners(db),
-            "products": crud.list_products(db),
-            "reports": available_reports,
-            "today": date.today(),
-            "message": request.query_params.get("message"),
-            "error": request.query_params.get("error"),
-            "validation": request.query_params.get("validation"),
-            "active_page": "cases",
-        },
+def new_case_page(request: Request):
+    # Keep existing bookmarks pointing to the single message registration form.
+    return redirect_with_message(
+        "/safety-reports/new",
+        message=request.query_params.get("message"),
+        validation=request.query_params.get("validation") or request.query_params.get("error"),
     )
 
 
@@ -249,6 +237,8 @@ def create_manual_case_form(
     expected_report_version: int | None = Form(None, gt=0),
     db: Session = Depends(get_db),
 ):
+    # Compatibility for forms opened before registration moved to message intake.
+    # New forms are served exclusively by /safety-reports/new.
     if safety_report_id:
         if expected_report_version is None:
             raise HTTPException(status_code=422, detail="Expected report version is required")
@@ -376,6 +366,14 @@ def case_detail(case_id: str, request: Request, audit_page: int = 1, db: Session
         audit_entries, audit_pagination = paginate_query(crud.case_audit_query(db, case.id), audit_page, 25)
     causality_assessments = crud.list_case_causality_assessments(db, case)
     current_user = getattr(request.state, "current_user", None)
+    ae_context = {}
+    if case.safety_report and case.safety_report.intake_enabled:
+        pv_route = ae_card.route_for(case.safety_report)
+        if pv_route:
+            ae_context = dict(ae_state=ae_card.state_for(case.safety_report, pv_route.details),
+                ae_contacts=[ae_card.directory_person(row) for row in crud.list_contract_contacts(db)],
+                ae_products=[dict(id=row.id, name=row.product_name) for row in crud.list_products(db)],
+                ae_case_mode=True, report=case.safety_report, route_numbers={"pv": pv_route.route_number})
     return templates.TemplateResponse(
         request,
         "case_detail.html",
@@ -407,6 +405,7 @@ def case_detail(case_id: str, request: Request, audit_page: int = 1, db: Session
             "error": request.query_params.get("error"),
             "validation": request.query_params.get("validation"),
             "active_page": "cases",
+            **ae_context,
         },
     )
 

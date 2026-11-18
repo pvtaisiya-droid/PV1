@@ -216,7 +216,7 @@ def test_action_query_parameters_do_not_change_records_or_files_on_read_pages(cl
     for url in urls:
         separator = "&" if "?" in url else "?"
         response = client.get(url + separator + "recheck=1&action=delete&confirm=1&cancel=1&generate=1&sync=1", follow_redirects=False)
-        assert response.status_code == 200, (url, response.text)
+        assert response.status_code == (303 if url == "/cases/new" else 200), (url, response.text)
         assert state_snapshot() == before, url
 
 

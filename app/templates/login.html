@@ -19,6 +19,7 @@
             </div>
 
             <h1 class="h4 mb-3" id="login-title">Вход в систему</h1>
+            {% if instance_label %}<div class="alert alert-info" role="status">{{ instance_label }}</div>{% endif %}
 
             <div class="alert alert-info" role="status">
                 Пожалуйста, запросите доступ у администратора системы

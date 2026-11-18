@@ -111,7 +111,7 @@ def short_text(value: str | None, limit: int = 240) -> str:
 def contact_full_name(contact: ContractContact | None) -> str | None:
     if not contact:
         return None
-    parts = [contact.last_name, contact.first_name, contact.patronymic]
+    parts = [contact.display_name] if contact.display_name else [contact.last_name, contact.first_name, contact.patronymic]
     return " ".join(part for part in parts if part)
 
 
