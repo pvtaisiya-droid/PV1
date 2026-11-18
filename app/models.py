@@ -12,8 +12,10 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    JSON,
     String,
     Text,
+    Time,
     UniqueConstraint,
     text,
 )
@@ -563,12 +565,14 @@ class ContractContact(CommonMixin, Base):
         Index("ix_contract_contact_current", "is_current"),
     )
 
-    partner_id = Column(String(36), ForeignKey("tblPartners.id"), nullable=False, index=True)
-    last_name = Column(String(100), nullable=False, index=True)
-    first_name = Column(String(100), nullable=False)
+    partner_id = Column(String(36), ForeignKey("tblPartners.id"), nullable=True, index=True)
+    display_name = Column(String(255), nullable=True)
+    country = Column(String(100), nullable=True)
+    last_name = Column(String(100), nullable=True, index=True)
+    first_name = Column(String(100), nullable=True)
     patronymic = Column(String(100), nullable=True)
     email = Column(String(255), nullable=True)
-    position = Column(String(255), nullable=False)
+    position = Column(String(255), nullable=True)
     mobile_phone = Column(String(100), nullable=True)
     work_phone = Column(String(100), nullable=True)
     extension_phone = Column(String(50), nullable=True)
@@ -585,6 +589,16 @@ class ContractContact(CommonMixin, Base):
 
     partner = relationship("Partner", back_populates="contract_contacts")
     psur_partner_requests = relationship("PSURPartnerRequest", back_populates="contact_person")
+
+    @property
+    def known_name(self) -> str | None:
+        return self.display_name or " ".join(
+            value for value in (self.last_name, self.first_name, self.patronymic) if value
+        ) or None
+
+    @property
+    def full_name(self) -> str:
+        return self.known_name or self.email or self.mobile_phone or self.work_phone or "Контакт"
 
 
 class AccountingService(Base):
@@ -837,6 +851,7 @@ class SafetyReport(CommonMixin, Base):
     safety_report_number = Column(String(50), unique=True, index=True, nullable=False)
     received_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     received_date = Column(Date, index=True, nullable=True)
+    received_time = Column(Time, nullable=True)
     source_type = Column(String(50), index=True, nullable=True)
     message_direction = Column(
         String(50),
@@ -845,11 +860,20 @@ class SafetyReport(CommonMixin, Base):
         index=True,
     )
     partner_id = Column(String(36), ForeignKey("tblPartners.id"), index=True, nullable=True)
+    sender_contact_id = Column(String(36), ForeignKey("tblContractContacts.id"), nullable=True, index=True)
+    sender_name = Column(String(255), nullable=True)
+    sender_email = Column(String(255), nullable=True)
+    sender_phone = Column(String(100), nullable=True)
+    reporter_contact_id = Column(String(36), ForeignKey("tblContractContacts.id"), nullable=True, index=True)
+    reporter_same_as_sender = Column(Boolean, default=False, nullable=False)
+    reporter_unknown = Column(Boolean, default=False, nullable=False)
     reporter_name = Column(String(255), nullable=True)
     reporter_email = Column(String(255), nullable=True)
+    reporter_phone = Column(String(100), nullable=True)
     reporter_country_code = Column(String(2), nullable=True)
     raw_subject = Column(String(500), nullable=True)
     raw_text = Column(Text, nullable=True)
+    original_text = Column(Text, nullable=True)
     triage_status = Column(String(50), default="new", index=True, nullable=False)
     triage_comment = Column(Text, nullable=True)
     triaged_by_user_id = Column(String(36), ForeignKey("tblUsers.id"), nullable=True)
@@ -866,9 +890,15 @@ class SafetyReport(CommonMixin, Base):
     e2b_message_version = Column(String(50), nullable=True)
     e2b_followup_type = Column(String(100), nullable=True)
     source_checksum_sha256 = Column(String(64), nullable=True, index=True)
+    creation_token = Column(String(36), unique=True, nullable=True)
+    content_fingerprint = Column(String(64), nullable=True, index=True)
+    intake_enabled = Column(Boolean, default=False, nullable=False)
 
     partner = relationship("Partner", back_populates="safety_reports")
     triaged_by = relationship("User", foreign_keys=[triaged_by_user_id])
+    sender_contact = relationship("ContractContact", foreign_keys=[sender_contact_id])
+    reporter_contact = relationship("ContractContact", foreign_keys=[reporter_contact_id])
+    processing_routes = relationship("SafetyReportRoute", back_populates="report", cascade="all, delete-orphan")
     case = relationship(
         "Case",
         back_populates="safety_report",
@@ -922,6 +952,29 @@ class SafetyReport(CommonMixin, Base):
             if name and name not in names:
                 names.append(name)
         return names
+
+
+class SafetyReportRoute(CommonMixin, Base):
+    __tablename__ = "tblSafetyReportRoutes"
+    __table_args__ = (
+        UniqueConstraint("safety_report_id", "route_kind", name="uq_safety_report_route_kind"),
+        CheckConstraint("route_kind IN ('quality', 'other', 'medical', 'pv')", name="ck_safety_report_route_kind"),
+    )
+    safety_report_id = Column(String(36), ForeignKey("tblSafetyReports.id"), nullable=False, index=True)
+    route_kind = Column(String(20), nullable=False)
+    route_number = Column(String(100), nullable=False, unique=True)
+    details = Column(JSON, nullable=False, default=dict)
+    report = relationship("SafetyReport", back_populates="processing_routes")
+    document_links = relationship("SafetyReportRouteDocument", back_populates="route", cascade="all, delete-orphan")
+
+
+class SafetyReportRouteDocument(CommonMixin, Base):
+    __tablename__ = "tblSafetyReportRouteDocuments"
+    __table_args__ = (UniqueConstraint("route_id", "attachment_id", name="uq_safety_report_route_document"),)
+    route_id = Column(String(36), ForeignKey("tblSafetyReportRoutes.id"), nullable=False, index=True)
+    attachment_id = Column(String(36), ForeignKey("tblAttachments.id"), nullable=False, index=True)
+    route = relationship("SafetyReportRoute", back_populates="document_links")
+    attachment = relationship("Attachment")
 
 
 class SafetyReportProduct(CommonMixin, Base):
@@ -1008,6 +1061,7 @@ class Case(CommonMixin, Base):
     latest_received_date = Column(Date, index=True, nullable=True)
     country_of_occurrence = Column(String(2), index=True, nullable=True)
     seriousness = Column(String(50), index=True, nullable=True)
+    seriousness_criteria = Column(JSON, nullable=True)
     listedness = Column(String(50), nullable=True)
     expectedness = Column(String(50), nullable=True)
     case_outcome = Column(String(100), nullable=True)
@@ -1470,6 +1524,10 @@ class Patient(CommonMixin, Base):
     case_id = Column(String(36), ForeignKey("tblCases.id"), nullable=False, index=True)
     patient_role = Column(String(50), default="patient", nullable=False)
     patient_initials = Column(String(50), nullable=True)
+    full_name = Column(String(255), nullable=True)
+    phone = Column(String(100), nullable=True)
+    email = Column(String(255), nullable=True)
+    age_text = Column(String(100), nullable=True)
     patient_identifier = Column(String(100), nullable=True)
     sex = Column(String(50), nullable=True)
     date_of_birth = Column(Date, nullable=True)
@@ -2000,6 +2058,8 @@ class IncomingRequest(CommonMixin, Base):
     )
 
     message_number = Column(String(50), unique=True, index=True, nullable=True)
+    # Original registration number, retained by an explicitly reviewed repair.
+    legacy_message_number = Column(String(50), nullable=True)
     received_date = Column(Date, nullable=True, index=True)
     received_time = Column(String(20), nullable=True)
     source_text = Column(Text, nullable=False)

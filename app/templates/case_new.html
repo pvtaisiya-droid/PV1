@@ -124,7 +124,7 @@
                 <div class="row g-3">
                     <div class="col-md-4"><label class="form-label">Listedness</label><input class="form-control" name="listedness"></div>
                     <div class="col-md-4"><label class="form-label">Expectedness</label><input class="form-control" name="expectedness"></div>
-                    <div class="col-md-4"><label class="form-label">Исход кейса</label><input class="form-control" name="case_outcome"></div>
+                    <div class="col-md-4"><label class="form-label">Исход ИСНР</label><input class="form-control" name="case_outcome"></div>
                     <div class="col-12"><label class="form-label">{{ _('Narrative') }}</label><textarea class="form-control" name="narrative" rows="5"></textarea></div>
                 </div>
             </section>
@@ -194,7 +194,7 @@
                 </div>
             </section>
             <div class="d-flex flex-wrap gap-2 mb-4">
-                <button class="btn btn-primary icon-button" type="submit" name="next_step" value="entry"><i data-lucide="save"></i><span>Создать ручной кейс</span></button>
+                <button class="btn btn-primary icon-button" type="submit" name="next_step" value="entry"><i data-lucide="save"></i><span>Создать ИСНР вручную</span></button>
                 {% if has_permission('edit') or has_permission('icsr_workflow') %}<button class="btn btn-outline-primary icon-button" type="submit" name="next_step" value="assessment"><i data-lucide="clipboard-check"></i><span>Создать и оценить</span></button>{% endif %}
                 <a class="btn btn-outline-secondary" href="/cases">{{ _('Cancel') }}</a>
             </div>

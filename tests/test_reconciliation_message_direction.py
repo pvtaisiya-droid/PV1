@@ -115,15 +115,19 @@ def test_reconciliation_uses_one_initial_item_and_separate_followup(client):
         assert saved_followup.message_direction == "partner_to_our_company"
 
 
-def test_safety_report_direction_is_required_and_source_type_is_unchanged(client):
+def test_optional_intake_receiver_keeps_legacy_direction_contract_and_source(client):
+    import re
     from app.database import SessionLocal
+    from app.i18n import translate
     from app.models import SafetyReport
 
-    page = client.get("/safety-reports")
+    page = client.get("/safety-reports/new")
     assert page.status_code == 200
-    assert 'name="message_direction" required' in page.text
-    assert "Партнёр → наша компания" in page.text
-    assert "Наша компания → партнёр" in page.text
+    select = re.search(r'<select[^>]*name="message_direction"[^>]*>', page.text).group(0)
+    assert "required" not in select
+    assert "Кем первоначально получено" in page.text
+    assert re.search(r'<option value="partner_to_our_company"\s*>' + re.escape(translate("Partner", "ru")) + r'</option>', page.text)
+    assert re.search(r'<option value="our_company_to_partner"\s*selected\s*>' + re.escape(translate("Our company", "ru")) + r'</option>', page.text)
 
     missing = client.post(
         "/safety-reports",

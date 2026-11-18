@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Request, HTTPException, Query, Body, For
 from sqlalchemy.orm import Session
 from app import models as m, clinical_data as data, clinical_messages as messages, clinical_revision as revisions
 from app.clinical_values import ClinicalWrite, CONTRACT
-from app.auth import require_permission
+from app.auth import require_permission, require_any_permission
 from app.database import get_db
 from app.security import require_csrf
 from app.unit_of_work import atomic_write
@@ -23,6 +23,7 @@ class PlanWrite(BaseModel):
     reason: str = Field(min_length=10, max_length=2000)
     sequence_reason: str = Field(default='', max_length=2000)
     attachment_item_ids: list[str] = Field(default_factory=list)
+    product_choices: dict[str, dict[str, str]] = Field(default_factory=dict)
 
 
 def case(db, cid):
@@ -87,7 +88,8 @@ def page(case_id: str, request: Request, kind: str | None = None, row_id: str | 
         validation=revisions.validate(revisions.snapshot(db, case_id)), active_page='cases'))
 
 
-@router.post('/cases/{case_id}/clinical/{kind}', dependencies=[Depends(require_csrf)])
+@router.post('/cases/{case_id}/clinical/{kind}', dependencies=[Depends(require_csrf),
+    Depends(require_any_permission('create', 'edit', 'soft_delete'))])
 @atomic_write
 async def form_save(case_id: str, kind: str, request: Request, db: Session = Depends(get_db)):
     raw = await request.form()
@@ -176,7 +178,8 @@ def plan_create(message_id: str, request: Request, payload: PlanWrite, db: Sessi
         source = messages.message(db, message_id)
         if source.status == 'review' and messages.existing(db, source) is None:
             require_permission('create')(request)
-        row = messages.prepare(db, source, payload.mappings, payload.reason, payload.sequence_reason, payload.attachment_item_ids)
+        row = messages.prepare(db, source, payload.mappings, payload.reason, payload.sequence_reason,
+                               payload.attachment_item_ids, payload.product_choices)
         return dict(id=row.id, preview=json.loads(row.preview_json))
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
@@ -236,7 +239,11 @@ async def message_form(message_id: str, request: Request, db: Session = Depends(
         source = messages.message(db, message_id)
         if source.status == 'review' and messages.existing(db, source) is None:
             require_permission('create')(request)
-        plan = messages.prepare(db, source, mappings, raw.get('reason', ''), raw.get('sequence_reason', ''), raw.getlist('attachment_item_ids'))
+        products = {k.removeprefix('product:'): dict(product_id=v,
+                    input_token=raw.get('product-token:' + k.removeprefix('product:'), ''))
+                    for k, v in raw.items() if k.startswith('product:') and v}
+        plan = messages.prepare(db, source, mappings, raw.get('reason', ''), raw.get('sequence_reason', ''),
+                                raw.getlist('attachment_item_ids'), products)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
     return redirect_with_message(f'/e2b/messages/{message_id}?plan_id={plan.id}', message='Проверьте каждое изменение.')

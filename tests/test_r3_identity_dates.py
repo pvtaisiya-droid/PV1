@@ -133,7 +133,7 @@ def test_import_readback_preserves_source_and_registration(client):
     assert "Batch-MixedCase-07" in preview.text and "Message-NotVersion-99" in preview.text
     assert "C.1.4" in preview.text and "null_flavor" in preview.text
     response = post_current(client, preview_path+"/confirm", data=preview_data(client,preview_path,"confirm"), follow_redirects=False)
-    assert response.headers["location"].startswith("/cases/")
+    assert response.status_code == 303 and "/intake?step=pv" in response.headers["location"]
     with SessionLocal() as db:
         case = db.query(Case).one(); tx = db.query(E2BTransmission).one()
         report = db.query(SafetyReport).one(); incoming = db.query(IncomingRequest).one()
@@ -197,5 +197,5 @@ def test_upgrade_0028_preserves_linked_history(tmp_path):
             assert [r[:len(old[0])] for r in new] == old
         assert conn.execute('SELECT e2b_identity_profile,e2b_sender_scope FROM tblCases').fetchall() == [(None,None),(None,None)]
         assert conn.execute('PRAGMA foreign_key_check').fetchall() == []
-        assert conn.execute('SELECT version_num FROM alembic_version').fetchone()[0] == '20261110_0032'
+        assert conn.execute('SELECT version_num FROM alembic_version').fetchone()[0] == '20261117_0037'
     assert_matches_current_models(path)

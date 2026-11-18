@@ -104,7 +104,7 @@
                 <thead><tr><th>ФИО</th><th>E-mail</th><th>Должность</th><th>Тип</th><th>Сверка</th></tr></thead>
                 <tbody>
                 {% for contact in contacts %}
-                <tr><td>{{ contact.last_name }} {{ contact.first_name }} {{ contact.patronymic or '' }}</td><td>{{ contact.email or '' }}</td><td>{{ contact.position }}</td><td>{{ contact.contact_type }}</td><td>{% if contact.is_reconciliation_recipient %}основной{% elif contact.cc_reconciliation %}копия{% else %}-{% endif %}</td></tr>
+                <tr><td>{{ contact.full_name }}</td><td>{{ contact.email or '' }}</td><td>{{ contact.position or '' }}</td><td>{{ contact.contact_type }}</td><td>{% if contact.is_reconciliation_recipient %}основной{% elif contact.cc_reconciliation %}копия{% else %}-{% endif %}</td></tr>
                 {% else %}
                 <tr><td colspan="5" class="text-secondary">Контакты пока не добавлены.</td></tr>
                 {% endfor %}

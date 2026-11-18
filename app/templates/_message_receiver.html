@@ -1,0 +1,9 @@
+{% macro receiver_label(direction) -%}
+{% if direction == 'partner_to_our_company' %}{{ _('Partner') }}{% elif direction == 'our_company_to_partner' %}{{ _('Our company') }}{% else %}{{ _('needs_review') }}{% endif %}
+{%- endmacro %}
+
+{% macro receiver_options(selected='') -%}
+<option value="" disabled {% if selected not in ['partner_to_our_company', 'our_company_to_partner'] %}selected{% endif %}>{{ _('Select who received the message') }}</option>
+<option value="our_company_to_partner" {% if selected == 'our_company_to_partner' %}selected{% endif %}>{{ _('Our company') }}</option>
+<option value="partner_to_our_company" {% if selected == 'partner_to_our_company' %}selected{% endif %}>{{ _('Partner') }}</option>
+{%- endmacro %}

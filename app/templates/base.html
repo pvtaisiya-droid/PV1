@@ -5,9 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}{{ _('PV System') }}{% endblock %}</title>
     <link href="{{ url_for('static', path='vendor/bootstrap-5.3.3.min.css') }}" rel="stylesheet">
-    <link href="{{ url_for('static', path='style.css') }}?v=20260818-2" rel="stylesheet">
+    <link href="{{ url_for('static', path='style.css') }}?v=20261117-merged-1" rel="stylesheet">
 </head>
 <body data-page="{{ active_page|default('dashboard') }}" data-lang="{{ request.state.lang }}">
+{% if instance_label %}<div class="alert alert-info rounded-0 mb-0 text-center" role="status">{{ instance_label }}</div>{% endif %}
 {% set nav_page = active_page|default('dashboard') %}
 {% set active_user = current_user() %}
 {% set active_roles = current_roles() %}
@@ -316,7 +317,7 @@
         }
     });
 </script>
-<script src="{{ url_for('static', path='user_guide.js') }}"></script>
+<script src="{{ url_for('static', path='user_guide.js') }}?v=20261116-unified-registration-1"></script>
 <script src="{{ url_for('static', path='concurrency_forms.js') }}"></script>
 </body>
 </html>

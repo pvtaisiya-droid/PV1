@@ -44,11 +44,11 @@ def target(kind):
         elif kind == "product":
             row = crud.create_product(db, schemas.ProductCreate(product_name="Concurrent form"))
             data = dict(product_name=row.product_name)
-            page, url, field = "/products", f"/products/{row.id}/edit", "product_name"
+            page, url, field = f"/products/{row.id}?edit=1", f"/products/{row.id}/edit", "product_name"
         elif kind == "partner":
             row = crud.create_partner(db, schemas.PartnerCreate(partner_code="CONCURRENT", partner_name="Original"))
             data = dict(partner_code=row.partner_code, partner_name=row.partner_name)
-            page, url, field = "/partners", f"/partners/{row.id}/edit", "partner_name"
+            page, url, field = f"/partners/{row.id}?edit=1", f"/partners/{row.id}/edit", "partner_name"
         elif kind == "contact":
             partner = crud.create_partner(db, schemas.PartnerCreate(
                 partner_code="CONTACT-PARENT", partner_name="Contact parent"))
@@ -56,7 +56,7 @@ def target(kind):
                 partner_id=partner.id, last_name="Original", first_name="Contact", position="PV"))
             data = dict(partner_id=partner.id, last_name=row.last_name,
                         first_name=row.first_name, position=row.position)
-            page, url, field = "/contract-contacts", f"/contract-contacts/{row.id}/edit", "last_name"
+            page, url, field = f"/contract-contacts/{row.id}?edit=1", f"/contract-contacts/{row.id}/edit", "last_name"
         elif kind == "substance":
             row = crud.create_substance(db, schemas.SubstanceCreate(substance_name="Concurrent form"))
             data = dict(substance_name=row.substance_name)
@@ -66,7 +66,7 @@ def target(kind):
             row = crud.create_product_registration_certificate(db, schemas.ProductRegistrationCertificateCreate(
                 product_id=product.id, registration_number="CONCURRENT"))
             data = dict(registration_number=row.registration_number)
-            page, url, field = "/products", f"/products/registrations/{row.id}/edit", "registration_number"
+            page, url, field = f"/products/{row.product_id}?edit=1", f"/products/registrations/{row.id}/edit", "registration_number"
         elif kind == "sop":
             row = db.query(SOP).filter_by(is_deleted=False).first()
             data = dict(sop_code=row.sop_code, title=row.title, version=row.version, owner=row.owner,

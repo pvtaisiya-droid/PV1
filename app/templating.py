@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 
 from fastapi.templating import Jinja2Templates
 
@@ -37,6 +38,7 @@ templates.env.globals["has_permission"] = template_has_permission
 templates.env.globals["sidebar_menu"] = template_sidebar_menu
 templates.env.globals["page_url"] = page_url
 templates.env.globals["csrf_token"] = csrf_token
+templates.env.globals["instance_label"] = os.getenv("PV_INSTANCE_LABEL", "")
 from app import clinical_presentation as clinical_ui
 templates.env.globals.update(clinical_label=clinical_ui.label,clinical_kind=clinical_ui.kind_label,
     clinical_display=clinical_ui.display,clinical_brief=clinical_ui.brief,clinical_structured=clinical_ui.structured,

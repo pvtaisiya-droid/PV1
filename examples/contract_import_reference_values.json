@@ -1,0 +1,196 @@
+{
+  "schema_name": "pv_contract_import_references",
+  "schema_version": "1.0",
+  "generated_from": {
+    "models": [
+      "app.models",
+      "app.schemas",
+      "app.routers.partners",
+      "app.routers.contract_contacts",
+      "app.routers.products",
+      "app.crud",
+      "app.database"
+    ],
+    "database": "pv_system.db"
+  },
+  "notes": [
+    "Use code fields in import JSON. Display names are informational.",
+    "Accounting services exist in tblAccountingServices by name. The import code is an external stable code mapped to the existing service name because the database table has no stable code column.",
+    "Currency values are accepted for preview/manual review only; current tblContractAccountingTariffs has no currency column."
+  ],
+  "partner_types": [
+    {"code": "fn", "name_ru": "Действующий", "name_en": "Active", "is_active": true},
+    {"code": "registration_in_progress", "name_ru": "Подключение", "name_en": "Onboarding", "is_active": true},
+    {"code": "archive", "name_ru": "Архив", "name_en": "Archive", "is_active": true}
+  ],
+  "contract_types": [
+    {"code": "pharmacovigilance_agreement", "name_ru": "Договор по фармаконадзору", "name_en": "Pharmacovigilance agreement", "is_active": true},
+    {"code": "additional_agreement", "name_ru": "Дополнительное соглашение", "name_en": "Additional agreement", "is_active": true}
+  ],
+  "additional_agreement_types": [
+    {"code": "additional_agreement", "name_ru": "Дополнительное соглашение к договору", "name_en": "Additional agreement", "is_active": true}
+  ],
+  "contact_types": [
+    {"code": "pv", "name_ru": "Фармаконадзор", "name_en": "Pharmacovigilance", "is_active": true},
+    {"code": "quality", "name_ru": "Качество", "name_en": "Quality", "is_active": true},
+    {"code": "regulatory", "name_ru": "Регуляторные вопросы", "name_en": "Regulatory affairs", "is_active": true},
+    {"code": "medical_information", "name_ru": "Медицинская информация", "name_en": "Medical information", "is_active": true},
+    {"code": "manufacturing_site", "name_ru": "Производственная площадка", "name_en": "Manufacturing site", "is_active": true},
+    {"code": "logistics_supply", "name_ru": "Логистика и поставки", "name_en": "Logistics / supply", "is_active": true},
+    {"code": "legal_contracts", "name_ru": "Договоры и юридические вопросы", "name_en": "Contracts / legal", "is_active": true},
+    {"code": "management", "name_ru": "Руководство", "name_en": "Management / director", "is_active": true},
+    {"code": "administrative", "name_ru": "Административный контакт", "name_en": "Administrative contact", "is_active": true},
+    {"code": "accounting", "name_ru": "Бухгалтерия", "name_en": "Accounting / billing", "is_active": true},
+    {"code": "other", "name_ru": "Другое", "name_en": "Other", "is_active": true}
+  ],
+  "contact_statuses": [
+    {"code": "current", "name_ru": "Действующий", "name_en": "Current", "is_active": true},
+    {"code": "inactive", "name_ru": "Неактивный", "name_en": "Inactive", "is_active": true}
+  ],
+  "reconciliation_participation": [
+    {"code": "primary", "name_ru": "Основной получатель сверки", "name_en": "Main reconciliation contact", "is_active": true},
+    {"code": "cc", "name_ru": "Копия при сверке", "name_en": "Reconciliation copy", "is_active": true},
+    {"code": "none", "name_ru": "Не участвует в сверке", "name_en": "Does not participate", "is_active": true}
+  ],
+  "reconciliation_frequencies": [
+    {"code": "monthly", "name_ru": "Ежемесячно", "name_en": "Monthly", "is_active": true},
+    {"code": "quarterly", "name_ru": "Ежеквартально", "name_en": "Quarterly", "is_active": true},
+    {"code": "not_conducted", "name_ru": "Не проводится", "name_en": "Not conducted", "is_active": true}
+  ],
+  "product_authorization_statuses": [
+    {"code": "registration_active", "name_ru": "Регистрация активна", "name_en": "Registration active", "is_active": true},
+    {"code": "registration_in_progress", "name_ru": "Регистрация в процессе", "name_en": "Registration in progress", "is_active": true},
+    {"code": "ma_change", "name_ru": "Изменение регистрационного статуса", "name_en": "MA change", "is_active": true},
+    {"code": "active", "name_ru": "Активно", "name_en": "Active", "is_active": true},
+    {"code": "inactive", "name_ru": "Неактивно", "name_en": "Inactive", "is_active": true}
+  ],
+  "registration_statuses": [
+    {"code": "active", "name_ru": "Действует", "name_en": "Active", "is_active": true},
+    {"code": "registration_active", "name_ru": "Регистрация активна", "name_en": "Registration active", "is_active": true},
+    {"code": "registration_in_progress", "name_ru": "Регистрация в процессе", "name_en": "Registration in progress", "is_active": true},
+    {"code": "suspended", "name_ru": "Приостановлено", "name_en": "Suspended", "is_active": true},
+    {"code": "cancelled", "name_ru": "Отменено", "name_en": "Cancelled", "is_active": true},
+    {"code": "replaced", "name_ru": "Заменено", "name_en": "Replaced", "is_active": true},
+    {"code": "archived", "name_ru": "Архив", "name_en": "Archived", "is_active": true},
+    {"code": "inactive", "name_ru": "Неактивно", "name_en": "Inactive", "is_active": true}
+  ],
+  "partner_roles": [
+    {"code": "mah", "name_ru": "Держатель регистрационного удостоверения", "name_en": "Marketing authorization holder", "is_active": true},
+    {"code": "local_representative", "name_ru": "Локальный представитель", "name_en": "Local representative", "is_active": true},
+    {"code": "pv_service_provider", "name_ru": "Поставщик услуг по фармаконадзору", "name_en": "PV service provider", "is_active": true},
+    {"code": "manufacturer", "name_ru": "Производитель", "name_en": "Manufacturer", "is_active": true},
+    {"code": "distributor", "name_ru": "Дистрибьютор", "name_en": "Distributor", "is_active": true},
+    {"code": "applicant", "name_ru": "Заявитель", "name_en": "Applicant", "is_active": true},
+    {"code": "other", "name_ru": "Другая роль", "name_en": "Other", "is_active": true}
+  ],
+  "accounting_services": [
+    {"code": "post_registration_pv", "name_ru": "Осуществление пострегистрационного фармаконадзора", "name_en": null, "default_unit_code": "service", "db_table": "tblAccountingServices", "db_lookup_name": "Осуществление пострегистрационного фармаконадзора", "is_active": true},
+    {"code": "spontaneous_message_collection", "name_ru": "Сбор и первичная оценка спонтанных сообщений", "name_en": null, "default_unit_code": "message", "db_table": "tblAccountingServices", "db_lookup_name": "Сбор и первичная оценка спонтанных сообщений", "is_active": true},
+    {"code": "message_validation_medical_assessment", "name_ru": "Валидация и медицинская оценка сообщения", "name_en": null, "default_unit_code": "message", "db_table": "tblAccountingServices", "db_lookup_name": "Валидация и медицинская оценка сообщения", "is_active": true},
+    {"code": "expedited_reporting", "name_ru": "Ускоренное репортирование", "name_en": null, "default_unit_code": "message", "db_table": "tblAccountingServices", "db_lookup_name": "Ускоренное репортирование", "is_active": true},
+    {"code": "literature_safety_screening", "name_ru": "Скрининг сообщений по безопасности в научно-медицинской литературе и других источниках", "name_en": null, "default_unit_code": "search", "db_table": "tblAccountingServices", "db_lookup_name": "Скрининг сообщений по безопасности в научно-медицинской литературе и других источниках", "is_active": true},
+    {"code": "psur_preparation_submission", "name_ru": "Подготовка и подача ПООБ", "name_en": null, "default_unit_code": "report", "db_table": "tblAccountingServices", "db_lookup_name": "Подготовка и подача ПООБ", "is_active": true},
+    {"code": "rmp_preparation", "name_ru": "Подготовка ПУР", "name_en": null, "default_unit_code": "document", "db_table": "tblAccountingServices", "db_lookup_name": "Подготовка ПУР", "is_active": true},
+    {"code": "psmf_maintenance", "name_ru": "Поддержание МФСФ", "name_en": null, "default_unit_code": "service", "db_table": "tblAccountingServices", "db_lookup_name": "Поддержание МФСФ", "is_active": true},
+    {"code": "partner_message_reconciliation", "name_ru": "Сверка сообщений с партнером", "name_en": null, "default_unit_code": "reconciliation", "db_table": "tblAccountingServices", "db_lookup_name": "Сверка сообщений с партнером", "is_active": true},
+    {"code": "regulator_request_response", "name_ru": "Ответ на запрос регулятора", "name_en": null, "default_unit_code": "request", "db_table": "tblAccountingServices", "db_lookup_name": "Ответ на запрос регулятора", "is_active": true},
+    {"code": "other", "name_ru": "Другое", "name_en": "Other", "default_unit_code": "service", "db_table": "tblAccountingServices", "db_lookup_name": "Другое", "is_active": true}
+  ],
+  "units": [
+    {"code": "service", "name_ru": "услуга", "name_en": "service", "is_active": true},
+    {"code": "message", "name_ru": "сообщение", "name_en": "message", "is_active": true},
+    {"code": "search", "name_ru": "поиск", "name_en": "search", "is_active": true},
+    {"code": "report", "name_ru": "отчет", "name_en": "report", "is_active": true},
+    {"code": "document", "name_ru": "документ", "name_en": "document", "is_active": true},
+    {"code": "reconciliation", "name_ru": "сверка", "name_en": "reconciliation", "is_active": true},
+    {"code": "request", "name_ru": "запрос", "name_en": "request", "is_active": true},
+    {"code": "hour", "name_ru": "час", "name_en": "hour", "is_active": true},
+    {"code": "month", "name_ru": "месяц", "name_en": "month", "is_active": true},
+    {"code": "quarter", "name_ru": "квартал", "name_en": "quarter", "is_active": true},
+    {"code": "year", "name_ru": "год", "name_en": "year", "is_active": true},
+    {"code": "other", "name_ru": "другое", "name_en": "other", "is_active": true}
+  ],
+  "currencies": [
+    {"code": "RUB", "name_ru": "Российский рубль", "name_en": "Russian ruble", "is_active": true},
+    {"code": "USD", "name_ru": "Доллар США", "name_en": "US dollar", "is_active": true},
+    {"code": "EUR", "name_ru": "Евро", "name_en": "Euro", "is_active": true},
+    {"code": "GBP", "name_ru": "Фунт стерлингов", "name_en": "Pound sterling", "is_active": true},
+    {"code": "CHF", "name_ru": "Швейцарский франк", "name_en": "Swiss franc", "is_active": true},
+    {"code": "CNY", "name_ru": "Китайский юань", "name_en": "Chinese yuan", "is_active": true}
+  ],
+  "obligation_types": [
+    {"code": "icsr_collection", "name_ru": "Сбор сообщений по безопасности", "name_en": "ICSR collection", "is_active": true},
+    {"code": "icsr_validation", "name_ru": "Валидация и медицинская оценка сообщений", "name_en": "ICSR validation and medical assessment", "is_active": true},
+    {"code": "expedited_reporting", "name_ru": "Ускоренное репортирование", "name_en": "Expedited reporting", "is_active": true},
+    {"code": "literature_monitoring", "name_ru": "Литературный мониторинг", "name_en": "Literature monitoring", "is_active": true},
+    {"code": "psur_pbrer", "name_ru": "ПООБ/PBRER", "name_en": "PSUR/PBRER", "is_active": true},
+    {"code": "rmp", "name_ru": "ПУР", "name_en": "RMP", "is_active": true},
+    {"code": "psmf", "name_ru": "МФСФ", "name_en": "PSMF", "is_active": true},
+    {"code": "signal_management", "name_ru": "Управление сигналами", "name_en": "Signal management", "is_active": true},
+    {"code": "training", "name_ru": "Обучение", "name_en": "Training", "is_active": true},
+    {"code": "audit", "name_ru": "Аудит", "name_en": "Audit", "is_active": true},
+    {"code": "capa", "name_ru": "CAPA", "name_en": "CAPA", "is_active": true},
+    {"code": "regulatory_request", "name_ru": "Ответ на запрос регулятора", "name_en": "Regulatory request", "is_active": true},
+    {"code": "reconciliation", "name_ru": "Сверка сообщений", "name_en": "Reconciliation", "is_active": true},
+    {"code": "other", "name_ru": "Другое", "name_en": "Other", "is_active": true}
+  ],
+  "responsible_parties": [
+    {"code": "our_company", "name_ru": "Наша компания", "name_en": "Our company", "is_active": true},
+    {"code": "partner", "name_ru": "Партнер", "name_en": "Partner", "is_active": true},
+    {"code": "both", "name_ru": "Обе стороны", "name_en": "Both parties", "is_active": true},
+    {"code": "mah", "name_ru": "ДРУ", "name_en": "MAH", "is_active": true},
+    {"code": "local_representative", "name_ru": "Локальный представитель", "name_en": "Local representative", "is_active": true},
+    {"code": "third_party", "name_ru": "Третья сторона", "name_en": "Third party", "is_active": true},
+    {"code": "unspecified", "name_ru": "Не указано", "name_en": "Unspecified", "is_active": true}
+  ],
+  "message_types": [
+    {"code": "serious_icsr", "name_ru": "Серьезное сообщение по безопасности", "name_en": "Serious ICSR", "is_active": true},
+    {"code": "non_serious_icsr", "name_ru": "Несерьезное сообщение по безопасности", "name_en": "Non-serious ICSR", "is_active": true},
+    {"code": "pregnancy", "name_ru": "Беременность", "name_en": "Pregnancy", "is_active": true},
+    {"code": "literature_case", "name_ru": "Случай из литературы", "name_en": "Literature case", "is_active": true},
+    {"code": "product_quality_complaint", "name_ru": "Претензия по качеству", "name_en": "Product quality complaint", "is_active": true},
+    {"code": "medical_information", "name_ru": "Медицинская информация", "name_en": "Medical information", "is_active": true},
+    {"code": "regulatory_request", "name_ru": "Запрос регулятора", "name_en": "Regulatory request", "is_active": true},
+    {"code": "aggregate_report", "name_ru": "Периодический отчет", "name_en": "Aggregate report", "is_active": true},
+    {"code": "other", "name_ru": "Другое", "name_en": "Other", "is_active": true}
+  ],
+  "document_statuses": [
+    {"code": "draft", "name_ru": "Черновик", "name_en": "Draft", "is_active": true},
+    {"code": "under_review", "name_ru": "На проверке", "name_en": "Under review", "is_active": true},
+    {"code": "active", "name_ru": "Активный", "name_en": "Active", "is_active": true},
+    {"code": "archived", "name_ru": "Архив", "name_en": "Archived", "is_active": true},
+    {"code": "imported", "name_ru": "Импортирован", "name_en": "Imported", "is_active": true},
+    {"code": "obsolete", "name_ru": "Устарел", "name_en": "Obsolete", "is_active": true}
+  ],
+  "accounting_statuses": [
+    {"code": "draft", "name_ru": "Черновик", "name_en": "Draft", "is_active": true},
+    {"code": "needs_review", "name_ru": "Требует проверки", "name_en": "Needs review", "is_active": true},
+    {"code": "ready_for_accounting", "name_ru": "Готово для бухгалтерии", "name_en": "Ready for accounting", "is_active": true},
+    {"code": "sent_to_accounting", "name_ru": "Передано в бухгалтерию", "name_en": "Sent to accounting", "is_active": true}
+  ],
+  "operation_types": [
+    {"code": "create", "name_ru": "Создать", "name_en": "Create", "is_active": true},
+    {"code": "update", "name_ru": "Обновить", "name_en": "Update", "is_active": true},
+    {"code": "link", "name_ru": "Связать", "name_en": "Link", "is_active": true},
+    {"code": "skip", "name_ru": "Пропустить", "name_en": "Skip", "is_active": true},
+    {"code": "manual_review", "name_ru": "Ручная проверка", "name_en": "Manual review", "is_active": true}
+  ],
+  "dosage_forms": [
+    {"code": "sublingual_tablets", "name_ru": "таблетки подъязычные", "name_en": "sublingual tablets", "group_ru": "таблетки", "group_en": "tablets", "db_id": 1, "is_active": true},
+    {"code": "effervescent_tablets", "name_ru": "таблетки шипучие", "name_en": "effervescent tablets", "group_ru": "таблетки", "group_en": "tablets", "db_id": 2, "is_active": true},
+    {"code": "capsules", "name_ru": "капсулы", "name_en": "capsules", "group_ru": "капсулы", "group_en": "capsules", "db_id": 3, "is_active": true},
+    {"code": "lyophilizate_solution_infusion", "name_ru": "лиофилизат для приготовления раствора для инфузий", "name_en": "lyophilizate for solution for infusion", "group_ru": "лиофилизат", "group_en": "lyophilizate", "db_id": 4, "is_active": true},
+    {"code": "lyophilizate_intravascular_intravesical", "name_ru": "лиофилизат для приготовления раствора для внутрисосудистого и внутрипузырного введения", "name_en": "lyophilizate for solution for intravascular and intravesical administration", "group_ru": "лиофилизат", "group_en": "lyophilizate", "db_id": 5, "is_active": true},
+    {"code": "powder_oral_solution", "name_ru": "порошок для приготовления раствора для приема внутрь", "name_en": "powder for oral solution", "group_ru": "порошок", "group_en": "powder", "db_id": 6, "is_active": true},
+    {"code": "tablets", "name_ru": "таблетки", "name_en": "tablets", "group_ru": "таблетки", "group_en": "tablets", "db_id": 7, "is_active": true},
+    {"code": "orodispersible_tablets", "name_ru": "таблетки, диспергируемые в полости рта", "name_en": "orodispersible tablets", "group_ru": "таблетки", "group_en": "tablets", "db_id": 8, "is_active": true},
+    {"code": "gel_external_use", "name_ru": "гель для наружного применения", "name_en": "gel for external use", "group_ru": "гель", "group_en": "gel", "db_id": 9, "is_active": true},
+    {"code": "film_coated_tablets", "name_ru": "таблетки, покрытые пленочной оболочкой", "name_en": "film-coated tablets", "group_ru": "таблетки", "group_en": "tablets", "db_id": 10, "is_active": true},
+    {"code": "syrup", "name_ru": "сироп", "name_en": "syrup", "group_ru": "сироп", "group_en": "syrup", "db_id": 11, "is_active": true},
+    {"code": "oral_suspension", "name_ru": "суспензия для приема внутрь", "name_en": "oral suspension", "group_ru": "суспензия", "group_en": "suspension", "db_id": 12, "is_active": true},
+    {"code": "powder_solution_intravenous_inhalation", "name_ru": "порошок для приготовления раствора для внутривенного введения и ингаляций", "name_en": "powder for solution for intravenous administration and inhalation", "group_ru": "порошок", "group_en": "powder", "db_id": 13, "is_active": true},
+    {"code": "solution_intravenous_subcutaneous", "name_ru": "раствор для внутривенного и подкожного введения", "name_en": "solution for intravenous and subcutaneous administration", "group_ru": "раствор", "group_en": "solution", "db_id": 14, "is_active": true},
+    {"code": "powder_solution_injection_infusion", "name_ru": "порошок для приготовления раствора для инъекций/инфузий", "name_en": "powder for solution for injection/infusion", "group_ru": "порошок", "group_en": "powder", "db_id": 15, "is_active": true},
+    {"code": "lyophilized_powder_intravenous_intramuscular", "name_ru": "лиофилизированный порошок для приготовления раствора для внутривенного и внутримышечного введения", "name_en": "lyophilized powder for solution for intravenous and intramuscular administration", "group_ru": "лиофилизированный порошок", "group_en": "lyophilized powder", "db_id": 16, "is_active": true}
+  ]
+}

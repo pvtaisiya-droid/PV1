@@ -283,8 +283,8 @@
             {% set active_links = item.case_links|selectattr('is_deleted', 'equalto', false)|list %}
             {% set can_create_case = (item.triage_status == 'completed' and item.validity_status == 'valid_icsr' and item.triage_result == 'create_case' and active_links|selectattr('link_type', 'in', ['initial', 'created_from_message'])|list|length == 0) %}
             <tr>
-                <td class="fw-medium">{{ item.message_number or item.id[:8] }}</td>
-                <td>{{ item.received_date or item.created_at.date() }}{% if item.received_date_basis == 'pv1_registration' %}<div class="small text-secondary">Регистрация в PV1</div>{% endif %}</td>
+                <td class="fw-medium">{{ item.message_number or item.id[:8] }}{% if item.legacy_message_number %}<div class="small text-secondary">Другие номера: {{ item.legacy_message_number }} (исторический)</div>{% endif %}</td>
+                <td>{{ item.received_date or item.created_at.date() }}{% if item.received_date_basis == "pv1_registration" %}<div class="small text-secondary">Регистрация в PV1</div>{% endif %}</td>
                 <td>{{ item.source_type or item.channel or item.request_type or "" }}</td>
                 <td>{{ item.message_category or item.request_type or "" }}</td>
                 <td>{{ item.partner.partner_name if item.partner else "" }}</td>

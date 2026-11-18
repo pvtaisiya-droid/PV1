@@ -1,0 +1,15 @@
+{% if group.r3_message_id %}
+<details class="pv-section"><summary>Подробные сведения о препаратах из XML</summary>
+{% for product in group.merged.products %}
+<h4>{{ product.reported_product_name or 'Название не указано' }}</h4>
+{% for indication in product.indications %}<p>Показание: {{ indication.reported_text or indication.null_flavor or 'Не указано' }}</p>{% endfor %}
+{% for dose in product.dosages %}
+<p>Доза: {{ dose.dose_value if dose.dose_value is not none else 'Не указана' }} {{ dose.dose_unit or '' }};
+интервал: {{ dose.interval_value or '—' }} {{ dose.interval_unit or '' }};
+начало: {{ dose.start_raw or dose.start_null_flavor or 'Не указано' }};
+окончание: {{ dose.end_raw or dose.end_null_flavor or 'Не указано' }}.
+{{ dose.dosage_text or '' }}</p>
+{% endfor %}
+{% endfor %}
+</details>
+{% endif %}

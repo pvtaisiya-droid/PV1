@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_message_receiver.html" import receiver_label, receiver_options with context %}
 {% from "_e2b_source_facts.html" import e2b_source_facts %}
 {% from "_immutable_documents.html" import immutable_documents_block with context %}
 {% block title %}{{ report.safety_report_number }} - {{ _('PV System') }}{% endblock %}
@@ -13,18 +14,19 @@
         <div class="text-secondary small">Сообщение по безопасности</div>
         <h1 class="h3 mb-1">{{ report.safety_report_number }}</h1>
         <div class="d-flex flex-wrap gap-2 align-items-center">
-            <span class="status-pill {% if report.case %}pv-status-success{% elif triage_needs_completion %}pv-status-warning{% else %}pv-status-neutral{% endif %}">{% if report.case %}Кейс создан{% elif triage_needs_completion %}Требует проверки{% else %}{{ _(report.triage_status) }}{% endif %}</span>
-            <span class="text-secondary small">{% if report.case %}Сообщение связано с кейсом.{% elif triage_needs_completion %}Проверьте критерии и завершите триаж.{% else %}Сообщение проверено и готово к следующему шагу.{% endif %}</span>
+            <span class="status-pill {% if report.case %}pv-status-success{% elif triage_needs_completion %}pv-status-warning{% else %}pv-status-neutral{% endif %}">{% if report.case %}ИСНР создан{% elif triage_needs_completion %}Требует проверки{% else %}{{ _(report.triage_status) }}{% endif %}</span>
+            <span class="text-secondary small">{% if report.case %}Сообщение связано с ИСНР.{% elif triage_needs_completion %}Проверьте критерии и завершите триаж.{% else %}Сообщение проверено и готово к следующему шагу.{% endif %}</span>
         </div>
     </div>
     <div class="d-flex flex-wrap gap-2">
+        <a class="btn btn-outline-primary btn-sm" href="/safety-reports/{{ report.id }}/intake">Открыть обработку сообщения</a>
         <a class="btn btn-outline-secondary btn-sm icon-button" href="/safety-reports"><i data-lucide="arrow-left"></i><span>{{ _('Back') }}</span></a>
         {% if report.case %}
-        <a class="btn btn-primary btn-sm icon-button" href="/cases/{{ report.case.id }}"><i data-lucide="folder-open"></i><span>Открыть кейс</span></a>
+        <a class="btn btn-primary btn-sm icon-button" href="/cases/{{ report.case.id }}"><i data-lucide="folder-open"></i><span>Открыть ИСНР</span></a>
         {% elif report.is_valid_icsr and (has_permission('create') or has_permission('icsr_workflow')) %}
         <form method="post" action="/safety-reports/{{ report.id }}/create-case">
 <input type="hidden" name="expected_inputs" value="{{ input_snapshot }}">
-                <input type="hidden" name="expected_version" value="{{ report.version }}"><button class="btn btn-primary btn-sm icon-button" type="submit"><i data-lucide="folder-plus"></i><span>Создать кейс</span></button></form>
+                <input type="hidden" name="expected_version" value="{{ report.version }}"><button class="btn btn-primary btn-sm icon-button" type="submit"><i data-lucide="folder-plus"></i><span>Создать ИСНР</span></button></form>
         {% elif has_permission('edit') or has_permission('icsr_workflow') %}
         <button class="btn btn-primary btn-sm icon-button" type="button" data-safety-triage-toggle aria-controls="safety-triage-edit" aria-expanded="false"><i data-lucide="list-checks"></i><span>Завершить триаж</span></button>
         {% endif %}
@@ -57,18 +59,17 @@
                 <dd class="col-sm-9">{{ report.product_names|join(', ') }}</dd>
                 <dt class="col-sm-3">{{ _('Source') }}</dt>
                 <dd class="col-sm-9">{{ _(report.source_type) }}</dd>
-                <dt class="col-sm-3">{{ _('Message direction') }}</dt>
-                <dd class="col-sm-9"><span class="status-pill {% if report.message_direction == 'needs_review' %}pv-status-warning{% endif %}">{{ _(report.message_direction) }}</span></dd>
+                <dt class="col-sm-3">{{ _('Message received by') }}</dt>
+                <dd class="col-sm-9"><span class="status-pill {% if report.message_direction == 'needs_review' %}pv-status-warning{% endif %}">{{ receiver_label(report.message_direction) }}</span></dd>
             </dl>
             <form class="row g-2 align-items-end mb-3" method="post" action="/safety-reports/{{ report.id }}/direction">
                 <input type="hidden" name="expected_version" value="{{ report.version }}">
                 <div class="col-md-8">
-                    <label class="form-label">{{ _('Message direction') }}</label>
+                    <label class="form-label">{{ _('Message received by') }}</label>
                     <select class="form-select" name="message_direction" required>
-                        <option value="" disabled {% if report.message_direction == 'needs_review' %}selected{% endif %}>{{ _('Select message direction') }}</option>
-                        <option value="partner_to_our_company" {% if report.message_direction == 'partner_to_our_company' %}selected{% endif %}>{{ _('partner_to_our_company') }}</option>
-                        <option value="our_company_to_partner" {% if report.message_direction == 'our_company_to_partner' %}selected{% endif %}>{{ _('our_company_to_partner') }}</option>
+                        {{ receiver_options(report.message_direction) }}
                     </select>
+                    <div class="form-text">{{ _('Who first received the message.') }}</div>
                 </div>
                 <div class="col-md-4">
                     <button class="btn btn-outline-primary w-100 icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Save') }}</span></button>

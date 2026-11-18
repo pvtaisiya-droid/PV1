@@ -30,6 +30,7 @@ from app.routers import (
     psmf,
     psur,
     safety_reports,
+    message_intake,
     sops,
     substances,
     submissions,
@@ -80,6 +81,7 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 app.include_router(authentication.router)
 app.include_router(dashboard.router)
+app.include_router(message_intake.router)
 app.include_router(safety_reports.router)
 app.include_router(cases.router)
 from app.routers import drug_blocks

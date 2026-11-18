@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% from "_product_fields.html" import contract_label, substance_badges, dosage_form_label with context %}
+{% from "_immutable_documents.html" import immutable_documents_block with context %}
+{% block title %}{{ product.product_name }} — {{ _('Product card') }}{% endblock %}
+{% block content %}
+{% set can_edit = has_permission('edit') or has_permission('manage_reference_data') %}
+{% set product_edit_mode = edit_mode and can_edit %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div><div class="text-secondary small">{{ _('Product card') }}</div><h1 class="h3 mb-1">{{ product.product_name }}</h1></div>
+    <div class="d-flex flex-wrap gap-2">
+        <a class="btn btn-outline-secondary btn-sm icon-button" href="/products"><i data-lucide="arrow-left"></i><span>{{ _('Products') }}</span></a>
+        {% if product_edit_mode %}
+        <a class="btn btn-outline-secondary btn-sm icon-button" href="/products/{{ product.id }}"><i data-lucide="eye"></i><span>{{ _('View') }}</span></a>
+        {% elif can_edit %}
+        <a class="btn btn-outline-primary btn-sm icon-button" href="/products/{{ product.id }}?edit=1"><i data-lucide="pencil"></i><span>{{ _('Edit') }}</span></a>
+        {% endif %}
+    </div>
+</div>
+{% if message %}<div class="alert alert-success py-2" role="status">{{ _(message) }}</div>{% endif %}
+{% if error %}<div class="alert alert-danger py-2" role="alert">{{ _(error) }}</div>{% endif %}
+{% if validation %}<div class="alert alert-warning py-2" role="alert">{{ _(validation) }}</div>{% endif %}
+{% if product_edit_mode %}
+<section class="surface mb-4"><h2 class="h6 section-title">{{ _('Edit') }}</h2>{% include "_product_edit_form.html" %}</section>
+{% endif %}
+<section class="surface mb-4">{% include "_product_card_content.html" %}</section>
+<section class="surface" id="product-contracts-{{ product.id }}">
+    <h2 class="h6 section-title">{{ _('Contracts') }}</h2>
+    <div class="product-contract-list">
+    {% for link in product.contract_links if not link.is_deleted and link.contract and not link.contract.is_deleted %}
+        <div class="product-contract-entry">
+            <div><strong>{{ contract_label(link.contract) }}</strong><div class="text-secondary small">{{ _('Valid until') }}: {{ link.contract.valid_until }}</div></div>
+            {% if product_edit_mode %}
+            <form method="post" action="/products/{{ product.id }}/contract-links/{{ link.contract.id }}/delete">
+                <input type="hidden" name="detail_form" value="true">
+                <input type="hidden" name="expected_version" value="{{ product.version }}">
+                <input type="hidden" name="expected_contract_version" value="{{ link.contract.version }}">
+                <button class="btn btn-outline-danger btn-sm icon-button" type="submit" data-confirm-message="{{ _('Unlink contract confirmation') }}"><i data-lucide="unlink"></i><span>{{ _('Delete') }}</span></button>
+            </form>
+            {% endif %}
+        </div>
+    {% else %}
+        <div class="text-secondary">{{ _('No contracts yet.') }}</div>
+    {% endfor %}
+    </div>
+    {% if product_edit_mode %}
+    <form class="row g-2 align-items-end mt-3" method="post" action="/products/{{ product.id }}/contract-links">
+        <input type="hidden" name="detail_form" value="true">
+        <input type="hidden" name="expected_version" value="{{ product.version }}">
+        <input type="hidden" name="expected_contract_version" value="">
+        <div class="col-md-9">
+            <label class="form-label" for="product-contract-select">{{ _('Link contract') }}</label>
+            <select class="form-select" id="product-contract-select" name="contract_id" required data-version-field="expected_contract_version">
+                <option value="">{{ _('Select base contract') }}</option>
+                {% for contract in contracts %}<option value="{{ contract.id }}" data-version="{{ contract.version }}">{{ contract_label(contract) }}</option>{% endfor %}
+            </select>
+        </div>
+        <div class="col-md-3"><button class="btn btn-primary icon-button" type="submit"><i data-lucide="link"></i><span>{{ _('Link contract') }}</span></button></div>
+    </form>
+    {% endif %}
+</section>
+{% endblock %}

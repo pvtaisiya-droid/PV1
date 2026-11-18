@@ -1,7 +1,7 @@
 import csv
 import io
 import json
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
 
@@ -1259,6 +1259,20 @@ def product_contract_links(product: Product) -> list[ContractProduct]:
     )
 
 
+def _registration_sort_key(certificate: ProductRegistrationCertificate):
+    created_at = certificate.created_at or datetime.min
+    created_at = (
+        created_at.replace(tzinfo=timezone.utc)
+        if created_at.tzinfo is None
+        else created_at.astimezone(timezone.utc)
+    )
+    return (
+        certificate.status not in {"active", "registration_active", "authorized"},
+        certificate.registration_date or date.min,
+        created_at,
+    )
+
+
 def product_registration_certificates(product: Product) -> list[ProductRegistrationCertificate]:
     return sorted(
         [
@@ -1266,11 +1280,7 @@ def product_registration_certificates(product: Product) -> list[ProductRegistrat
             for certificate in product.registration_certificates
             if not certificate.is_deleted
         ],
-        key=lambda certificate: (
-            certificate.status not in {"active", "registration_active", "authorized"},
-            certificate.registration_date or date.min,
-            certificate.created_at or datetime.min,
-        ),
+        key=_registration_sort_key,
         reverse=True,
     )
 
@@ -1392,7 +1402,8 @@ def _sync_product_registration_legacy_fields(product: Product) -> None:
     current = current_product_registration(product)
     if current:
         product.authorization_number = current.registration_number
-        product.authorization_status = current.status
+        if product.authorization_status not in {"registration_in_progress", "archived", "archive", "ma_change"}:
+            product.authorization_status = current.status
 
 
 def list_product_registration_certificates(
@@ -1617,16 +1628,18 @@ def delete_product_registration_certificate(
     delete_reason: str | None = None,
 ) -> ProductRegistrationCertificate:
     product = get_product(db, certificate.product_id)
-    soft_delete_object(
-        certificate,
-        deleted_by_user_id=deleted_by_user_id,
-        delete_reason=delete_reason,
-    )
+    certificate.is_deleted = True
+    certificate.is_active = False
+    certificate.deleted_at = utcnow()
+    certificate.deleted_by = deleted_by_user_id
+    certificate.delete_reason = delete_reason
+    certificate.version += 1
     if product and product.authorization_number == certificate.registration_number:
         product.authorization_number = None
-        product.authorization_status = None
+        if product.authorization_status not in {"registration_in_progress", "archived", "archive", "ma_change"}:
+            product.authorization_status = None
         _sync_product_registration_legacy_fields(product)
-    log_soft_delete_event(
+    log_delete_event(
         db,
         entity_type="ProductRegistrationCertificate",
         entity_id=certificate.id,
@@ -2918,19 +2931,18 @@ def create_contract_contact(
     payload: schemas.ContractContactCreate,
 ) -> ContractContact:
     data = clean_form_data(model_data(payload))
-    email = (data.get("email") or "").strip()
-    if email:
-        existing = (
-            db.query(ContractContact)
-            .filter(
-                ContractContact.partner_id == data.get("partner_id"),
-                func.lower(ContractContact.email) == email.lower(),
-                ContractContact.is_deleted.is_(False),
-            )
-            .first()
-        )
-        if existing:
-            raise ValueError("Contact already exists for this partner.")
+    allow_duplicate = data.pop("allow_duplicate_contact", False)
+    from app.concurrency import lock_snapshot_inputs, ONBOARDING_INPUTS
+    from app.duplicates import DuplicateContactError, blocked_contact_candidates, contact_candidates
+    lock_snapshot_inputs(db, ONBOARDING_INPUTS)
+    matches = contact_candidates(db, name=data.get("display_name") or " ".join(
+        value for value in (data.get("last_name"), data.get("first_name"), data.get("patronymic")) if value),
+        email=data.get("email"), phones=[data.get("mobile_phone"), data.get("work_phone")],
+        partner_id=data.get("partner_id"))
+    blocked = blocked_contact_candidates(matches, allowed=allow_duplicate,
+                                          partner_id=data.get("partner_id"), email=data.get("email"))
+    if blocked:
+        raise DuplicateContactError(blocked)
     contact = ContractContact(**data)
     db.add(contact)
     db.flush()
@@ -2951,20 +2963,18 @@ def update_contract_contact(
     payload: schemas.ContractContactCreate,
 ) -> ContractContact:
     data = clean_form_data(model_data(payload))
-    email = (data.get("email") or "").strip()
-    if email:
-        existing = (
-            db.query(ContractContact)
-            .filter(
-                ContractContact.id != contact.id,
-                ContractContact.partner_id == data.get("partner_id"),
-                func.lower(ContractContact.email) == email.lower(),
-                ContractContact.is_deleted.is_(False),
-            )
-            .first()
-        )
-        if existing:
-            raise ValueError("Contact already exists for this partner.")
+    allow_duplicate = data.pop("allow_duplicate_contact", False)
+    from app.concurrency import lock_snapshot_inputs, ONBOARDING_INPUTS
+    from app.duplicates import DuplicateContactError, blocked_contact_candidates, contact_candidates
+    lock_snapshot_inputs(db, ONBOARDING_INPUTS)
+    matches = contact_candidates(db, name=data.get("display_name") or " ".join(
+        value for value in (data.get("last_name"), data.get("first_name"), data.get("patronymic")) if value),
+        email=data.get("email"), phones=[data.get("mobile_phone"), data.get("work_phone")],
+        partner_id=data.get("partner_id"), exclude_id=contact.id)
+    blocked = blocked_contact_candidates(matches, allowed=allow_duplicate,
+                                          partner_id=data.get("partner_id"), email=data.get("email"))
+    if blocked:
+        raise DuplicateContactError(blocked)
     old_values = {field: getattr(contact, field, None) for field in data}
     for field, value in data.items():
         setattr(contact, field, value)
@@ -3077,18 +3087,7 @@ def create_partner_reconciliation(
         reconciliation_status="draft",
         created_by=actor_id,
         updated_by=actor_id,
-        contact_name=(
-            " ".join(
-                part
-                for part in [
-                    contact.last_name if contact else None,
-                    contact.first_name if contact else None,
-                    contact.patronymic if contact else None,
-                ]
-                if part
-            )
-            or None
-        ),
+        contact_name=contact.known_name if contact else None,
         contact_email=contact.email if contact else None,
         our_case_count=sum(1 for item in items if item.get("source_side") == "our_company"),
         partner_case_count=sum(1 for item in items if item.get("source_side") == "partner"),
@@ -3564,8 +3563,16 @@ def create_product_substance(
 
 
 def safety_reports_query(db: Session, *, search=None, status_filter=None, partner_id=None,
-                         date_from=None, date_to=None):
+                         product_id=None, date_from=None, date_to=None):
     query = db.query(SafetyReport).filter(SafetyReport.is_deleted.is_(False))
+    if product_id:
+        query = query.filter(or_(
+            SafetyReport.product_links.any(product_id=product_id, is_deleted=False),
+            SafetyReport.case.has(
+                Case.is_deleted.is_(False)
+                & Case.case_products.any(product_id=product_id, is_deleted=False)
+            ),
+        ))
     if status_filter:
         query = query.filter(SafetyReport.triage_status == status_filter)
     if partner_id:
@@ -3614,7 +3621,26 @@ def get_safety_report(db: Session, report_id: str) -> SafetyReport | None:
 
 def create_safety_report(db: Session, payload: schemas.SafetyReportCreate) -> SafetyReport:
     data = clean_form_data(model_data(payload))
+    from app.concurrency import lock_snapshot_inputs, ONBOARDING_INPUTS
+    from app.duplicates import DuplicateMessageError, message_candidates, message_fingerprint
+    from app.message_contacts import prepare_message_contacts
+    lock_snapshot_inputs(db, ONBOARDING_INPUTS + ("SafetyReport",))
+    if data.get("creation_token"):
+        existing = db.query(SafetyReport).filter_by(creation_token=data["creation_token"]).first()
+        if existing:
+            if existing.is_deleted:
+                raise ValueError("Эта регистрационная форма уже использована. Обновите страницу.")
+            return existing
+    allow_duplicate = data.pop("allow_duplicate_message", False)
+    allow_contact_duplicate = data.pop("allow_duplicate_contact", False)
+    save_sender = data.pop("save_sender_contact", False)
+    matches = message_candidates(db, text=data.get("original_text") or data.get("raw_text"), received_date=data.get("received_date"),
+                                 sender_email=data.get("sender_email"), sender_phone=data.get("sender_phone"))
+    if matches and not allow_duplicate:
+        raise DuplicateMessageError(matches)
     product_ids = validate_message_product_ids(db, data.pop("product_ids", []))
+    prepare_message_contacts(db, data, save_sender=save_sender, allow_duplicate=allow_contact_duplicate)
+    data["content_fingerprint"] = message_fingerprint(data.get("original_text") or data.get("raw_text"))
     data["safety_report_number"] = data.get("safety_report_number") or generate_number(
         db,
         SafetyReport,
@@ -4192,7 +4218,8 @@ def create_manual_case(
     return case
 
 
-def create_case_from_report(db: Session, report: SafetyReport) -> Case:
+def create_case_from_report(db: Session, report: SafetyReport, *, as_draft: bool = False,
+                            selected_product_ids: list[str] | None = None) -> Case:
     if report.case:
         return report.case
 
@@ -4215,6 +4242,8 @@ def create_case_from_report(db: Session, report: SafetyReport) -> Case:
     for link in report.product_links:
         if link.is_deleted:
             continue
+        if selected_product_ids is not None and link.product_id not in selected_product_ids:
+            continue
         db.add(
             CaseProduct(
                 case_id=case.id,
@@ -4225,8 +4254,10 @@ def create_case_from_report(db: Session, report: SafetyReport) -> Case:
             )
         )
     report.case_id = case.id
+    old_triage_status = report.triage_status
     report.triage_status = "converted_to_case"
-    report.is_valid_icsr = True
+    if not as_draft:
+        report.is_valid_icsr = True
     report.version += 1
     user_id = audit_user_id(db)
     log_create_event(
@@ -4248,7 +4279,7 @@ def create_case_from_report(db: Session, report: SafetyReport) -> Case:
         entity_id=report.id,
         action="status_change",
         field_name="triage_status",
-        old_value="valid_icsr",
+        old_value=old_triage_status,
         new_value="converted_to_case",
         case_id=case.id,
         user_id=user_id,
@@ -6133,6 +6164,7 @@ INCOMING_REQUEST_EXPORT_HEADERS = [
     "case creation status",
     "linked cases",
     "source text",
+    "original message number",
 ]
 
 
@@ -6181,9 +6213,10 @@ def incoming_request_export_rows(
                 row.missing_information or "",
                 row.recommended_next_action or "",
                 row.case.case_number if row.case else "",
-                "Кейс создан" if row.case or linked_cases else "Кейс не создан",
+                "ИСНР создан" if row.case or linked_cases else "ИСНР не создан",
                 "; ".join(linked_cases),
                 row.source_text,
+                row.legacy_message_number or "",
             ]
         )
     return rows

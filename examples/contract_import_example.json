@@ -1,0 +1,113 @@
+{
+  "schema_name": "pv_contract_import",
+  "schema_version": "1.0",
+  "source_document": {
+    "file_name": "PV_Agreement_Example_2026.pdf",
+    "language": "ru"
+  },
+  "partner": {
+    "partner_code": {"value": "EXAMPLE-PHARMA"},
+    "partner_name": {
+      "value": "ООО «Пример Фарма»",
+      "source": {"page": 1, "clause": "1.1", "quote": "ООО «Пример Фарма»", "confidence": 0.96, "requires_manual_review": false}
+    },
+    "partner_type": "fn",
+    "reconciliation_frequency": {
+      "value": "monthly",
+      "source": {"page": 7, "clause": "6.3", "quote": "сверка проводится ежемесячно", "confidence": 0.95, "requires_manual_review": false}
+    },
+    "accounting": {
+      "legal_entity_name": {
+        "value": "ООО «Пример Фарма»",
+        "source": {"page": 1, "clause": "1.1", "quote": "ООО «Пример Фарма»", "confidence": 0.96, "requires_manual_review": false}
+      },
+      "inn": {
+        "value": "7701234567",
+        "source": {"page": 12, "clause": "Реквизиты", "quote": "ИНН 7701234567", "confidence": 0.99, "requires_manual_review": false}
+      },
+      "kpp": {
+        "value": "770101001",
+        "source": {"page": 12, "clause": "Реквизиты", "quote": "КПП 770101001", "confidence": 0.99, "requires_manual_review": false}
+      },
+      "billing_contact_name": "Петрова Анна Сергеевна",
+      "billing_email": "invoices@example-pharma.ru",
+      "comment": "Счета направляются на специальный e-mail invoices@example-pharma.ru, получатель — Петрова Анна Сергеевна."
+    }
+  },
+  "contract": {
+    "contract_type": "pharmacovigilance_agreement",
+    "contract_number": {"value": "PV-2026-014", "source": {"page": 1, "quote": "№ PV-2026-014", "confidence": 0.99, "requires_manual_review": false}},
+    "contract_date": {"value": "2026-02-15", "source": {"page": 1, "quote": "от 15 февраля 2026 г.", "confidence": 0.99, "requires_manual_review": false}},
+    "valid_until": {"value": null}
+  },
+  "contacts": [
+    {
+      "contact_type": "pv",
+      "contact_status": "current",
+      "is_current": true,
+      "last_name": {"value": "Иванова"},
+      "first_name": {"value": "Мария"},
+      "patronymic": {"value": "Петровна"},
+      "position": {"value": "Менеджер по фармаконадзору"},
+      "email": {"value": "pv@example-pharma.ru"},
+      "phones": {
+        "mobile": {"value": "+7 900 000-00-00"},
+        "work": {"value": "+7 495 000-00-00"},
+        "extension": {"value": "123"}
+      },
+      "company_website": "https://example-pharma.ru",
+      "address": {"value": "Москва"},
+      "reconciliation_participation": "primary",
+      "comments": "Контакт указан в договоре."
+    }
+  ],
+  "products": [
+    {
+      "import_key": "product-1",
+      "product_name": {"value": "Препарат А"},
+      "active_substances": [
+        {
+          "reference_name": null,
+          "name_ru": {"value": "Вещество А"},
+          "name_en": {"value": "Substance A"},
+          "atc_code": "A00AA00",
+          "add_new": true
+        }
+      ],
+      "dosage_form": {
+        "reference_code": "tablets",
+        "name_ru": {"value": "таблетки"},
+        "name_en": {"value": "tablets"},
+        "group_ru": {"value": "таблетки"},
+        "group_en": {"value": "tablets"},
+        "add_new": false
+      },
+      "strength": {"value": "100 мг"},
+      "comment": "Проверить написание торгового наименования."
+    }
+  ],
+  "services": [
+    {
+      "contract_number": {"value": "PV-2026-014"},
+      "service_code": "partner_message_reconciliation",
+      "unit": "month",
+      "price": {"amount": {"value": 17000}},
+      "comment": {"value": "Ежемесячная сверка сообщений."}
+    }
+  ],
+  "manual_review": [
+    {
+      "category": "missing_required_data",
+      "description": "Срок действия договора не найден — заполнить вручную.",
+      "possible_values": [],
+      "recommended_action": "Указать дату в форме предпросмотра перед сохранением."
+    },
+    {
+      "category": "unrecognized_product",
+      "description": "Действующее вещество отсутствует в справочнике.",
+      "possible_values": ["Вещество А / Substance A / A00AA00"],
+      "recommended_action": "Подтвердить создание нового действующего вещества."
+    }
+  ],
+  "warnings": []
+}

@@ -5,7 +5,7 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 from app import models, drug_data
 from app.drug_schemas import SCHEMAS, DrugWrite
-from app.auth import require_permission
+from app.auth import require_permission, require_any_permission
 from app.database import get_db
 from app.security import require_csrf
 from app.unit_of_work import atomic_write
@@ -114,7 +114,8 @@ def editor(case_id:str,kind:Literal['product','dosage','indication','substance',
         active_page='cases',validation=request.query_params.get('validation')))
 
 
-@router.post('/cases/{case_id}/drug-editor/{kind}',dependencies=[Depends(require_csrf)])
+@router.post('/cases/{case_id}/drug-editor/{kind}',dependencies=[Depends(require_csrf),
+    Depends(require_any_permission('create', 'edit'))])
 @atomic_write
 async def editor_save(case_id:str,kind:Literal['product','dosage','indication','substance','assessment','rechallenge'],request:Request,
     expected_case_version:int=Form(...,gt=0),product_id:str|None=Form(None),row_id:str|None=Form(None),

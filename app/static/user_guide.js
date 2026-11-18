@@ -41,9 +41,9 @@
             reconChooseTitle: "Выберите партнёра и период",
             reconChooseBody: "Укажите партнёра, контакт и даты сверки. Для быстрого выбора периода можно нажать готовый вариант, затем проверьте заполненные даты.",
             reconGenerateTitle: "Сформируйте сверку",
-            reconGenerateBody: "Нажмите основную кнопку в этом блоке. Система сопоставит сообщения партнёра с внутренними кейсами за выбранный период.",
+            reconGenerateBody: "Нажмите основную кнопку в этом блоке. Система сопоставит сообщения партнёра с внутренними ИСНР за выбранный период.",
             reconReviewTitle: "Проверьте результат и расхождения",
-            reconReviewBody: "Сравните количества и строки с расхождениями. Для спорных записей укажите связь с внутренним кейсом и сохраните решение.",
+            reconReviewBody: "Сравните количества и строки с расхождениями. Для спорных записей укажите связь с внутренним ИСНР и сохраните решение.",
             reconFinishTitle: "Зафиксируйте результат",
             reconFinishBody: "После проверки обновите статус, сформируйте файл или сохраните ответ партнёра. Завершайте сверку только когда все расхождения разобраны."
         },
@@ -124,16 +124,16 @@
             en: "Search existing dosage forms before creating a new one to avoid duplicates."
         },
         safety_reports: {
-            ru: "Найдите входящее сообщение или загрузите E2B, выполните первичную проверку и создайте кейс только после подтверждения критериев.",
-            en: "Find an incoming report or import E2B, complete triage, and create a case only after confirming the criteria."
+            ru: "Нажмите «Зарегистрировать сообщение», заполните дату и краткое содержание, затем выберите направления обработки. Подробная карточка ИСНР доступна в шаге «НЯ и особые ситуации». Для XML / ZIP используйте импорт E2B.",
+            en: "Register the receipt date and a short summary, then select processing routes. Open the detailed ICSR from the adverse events and special situations step. Use E2B import for XML / ZIP files."
         },
         incoming_requests: {
             ru: "Откройте входящее сообщение, проверьте классификацию и связи, затем назначьте дальнейший маршрут обработки.",
             en: "Open an incoming message, verify its classification and links, then assign the next processing route."
         },
         cases: {
-            ru: "Найдите кейс, последовательно заполните данные, добавьте follow-up при необходимости и только затем готовьте отправку.",
-            en: "Find a case, complete its data in sequence, add follow-up if needed, and only then prepare submission."
+            ru: "Для нового ИСНР нажмите «Зарегистрировать сообщение» и выберите в общей форме направление «НЯ и особые ситуации». В существующем ИСНР последовательно заполните данные, добавьте follow-up при необходимости и подготовьте отправку.",
+            en: "For a new ICSR, select Register message and choose Adverse events and special situations in the shared registration form. Complete existing cases in sequence, add follow-up if needed, then prepare submission."
         },
         partner_reconciliation: {
             ru: "Шаг 1 — выберите партнёра и период. Шаг 2 — сформируйте сверку. Шаг 3 — проверьте расхождения и сохраните результат.",
@@ -152,7 +152,7 @@
             en: "Work through the tabs: verify settings, complete chapters and annexes, build the document, approve it, and create the final version."
         },
         psur: {
-            ru: "Создайте план, добавьте препараты и кейсы, соберите ответы партнёров и разделы отчёта, затем проверьте документы и задачи.",
+            ru: "Создайте план, добавьте препараты и ИСНР, соберите ответы партнёров и разделы отчёта, затем проверьте документы и задачи.",
             en: "Create a plan, add products and cases, collect partner responses and report sections, then review documents and tasks."
         },
         sops: {
@@ -160,7 +160,7 @@
             en: "Find the active procedure or add a new version, then review linked files, training and history."
         },
         submissions: {
-            ru: "Создайте отправку для готового кейса, укажите получателя и срок, затем контролируйте изменение статуса.",
+            ru: "Создайте отправку для готового ИСНР, укажите получателя и срок, затем контролируйте изменение статуса.",
             en: "Create a submission for a ready case, specify recipient and due date, then monitor its status."
         },
         tasks: {
@@ -345,12 +345,14 @@
     const h1 = main.querySelector("h1");
     const pageHeader = h1 && (h1.closest("header") || h1.closest(".d-flex.mb-3") || h1.parentElement);
     const constrainedPageGrid = pageHeader && pageHeader.closest(".pv-home");
-    if (constrainedPageGrid && constrainedPageGrid.parentElement) {
-        constrainedPageGrid.insertAdjacentElement("beforebegin", summary);
-    } else if (pageHeader && pageHeader.parentElement) {
-        pageHeader.insertAdjacentElement("afterend", summary);
-    } else {
-        main.prepend(summary);
+    if (pageKey !== "safety_reports") {
+        if (constrainedPageGrid && constrainedPageGrid.parentElement) {
+            constrainedPageGrid.insertAdjacentElement("beforebegin", summary);
+        } else if (pageHeader && pageHeader.parentElement) {
+            pageHeader.insertAdjacentElement("afterend", summary);
+        } else {
+            main.prepend(summary);
+        }
     }
 
     const backdrop = document.createElement("div");

@@ -8,6 +8,8 @@
 {% if has_permission('export') %}<a class="btn btn-outline-primary" href="/cases/{{ case.id }}/as2">Локальная очередь AS2</a>{% endif %}</p>
 {{ e2b_source_facts(case.e2b_source_facts) }}
 {% set case_needs_review = case.workflow_status in ['new', 'triage', 'data_entry', 'medical_review', 'qc', 'reopened'] %}
+{% set intake_source = namespace(pv={}) %}
+{% if case.safety_report and case.safety_report.intake_enabled %}{% for route in case.safety_report.processing_routes if route.route_kind == 'pv' and not route.is_deleted %}{% set intake_source.pv = route.details or {} %}{% endfor %}{% endif %}
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
     <div>
         <div class="text-secondary small">Карточка ИСНР</div>
@@ -15,7 +17,7 @@
         <div class="text-secondary small">Полный код: <span class="font-monospace">{{ case.full_case_code }}</span></div>
         <div class="d-flex flex-wrap gap-2 align-items-center">
             <span class="status-pill {% if case.workflow_status in ['closed', 'submitted'] %}pv-status-success{% elif case_needs_review %}pv-status-warning{% else %}pv-status-neutral{% endif %}">{{ _(case.workflow_status) }}</span>
-            <span class="text-secondary small">{% if case.workflow_status == 'closed' %}Кейс завершён.{% elif case.workflow_status == 'ready_for_submission' %}Кейс готов к отправке.{% elif case_needs_review %}Проверьте данные и обновите этап работы.{% else %}Текущий этап обработки указан в карточке.{% endif %}</span>
+            <span class="text-secondary small">{% if case.workflow_status == 'closed' %}ИСНР завершён.{% elif case.workflow_status == 'ready_for_submission' %}ИСНР готов к отправке.{% elif case_needs_review %}Проверьте данные и обновите этап работы.{% else %}Текущий этап обработки указан в карточке.{% endif %}</span>
         </div>
     </div>
     <div class="d-flex flex-wrap gap-2">
@@ -138,8 +140,8 @@
                         <div class="col-md-4">
                             <span class="text-secondary small">{{ _('Patient') }}</span>
                             {% set active_patients = case.patients|rejectattr('is_deleted')|selectattr('patient_role','equalto','patient')|list %}{% set patient = active_patients[0] if active_patients|length == 1 else none %}
-                            <div class="fw-semibold">{% if patient %}{{ patient.patient_initials or patient.patient_identifier or _('Patient') }}{% else %}{{ _('No patients.') }}{% endif %}</div>
-                            {% if patient %}<div class="small">{{ _(patient.sex) }} {{ patient.age_value or "" }} {{ patient.age_unit or "" }}</div>{% endif %}
+                            <div class="fw-semibold">{% if patient %}{{ (patient.full_name if patient.full_name is not none else patient.patient_initials) or patient.patient_identifier or _('Patient') }}{% else %}{{ _('No patients.') }}{% endif %}</div>
+                            {% if patient %}<div class="small">{{ _(patient.sex) }} {{ patient.age_text if patient.age_text is not none else ((patient.age_value|string if patient.age_value is not none else "") ~ " " ~ (patient.age_unit or "")) }}</div>{% endif %}
                         </div>
                         <div class="col-md-4">
                             <span class="text-secondary small">{{ _('Main reactions') }}</span>
@@ -195,6 +197,11 @@
     </div>
 
     <div class="tab-pane fade" id="patient" role="tabpanel" aria-labelledby="patient-tab" tabindex="0">
+        {% if intake_source.pv.get('patient_unknown') %}
+        <section class="surface mb-4"><h2 class="h6 section-title">Сведения о пациенте из исходного сообщения</h2>
+            {% if intake_source.pv.get('patient_unknown') %}<div class="text-secondary">Сведения о пациенте пока неизвестны.</div>{% endif %}
+        </section>
+        {% endif %}
         {% if has_permission('create') %}
         <div class="row g-4">
             <div class="col-lg-6">
@@ -222,12 +229,12 @@
             <h2 class="h6 section-title">{{ _('Patients') }}</h2>
             <div class="table-responsive">
                 <table class="table table-sm align-middle mb-0">
-                    <thead><tr><th>{{ _('Initials') }}</th><th>{{ _('Identifier') }}</th><th>{{ _('Sex') }}</th><th>{{ _('Age') }}</th><th>{{ _('Weight kg') }}</th><th>{{ _('Height cm') }}</th><th>{{ _('Pregnancy') }}</th><th>{{ _('Medical history') }}</th></tr></thead>
+                    <thead><tr><th>Ф.И.О.</th><th>{{ _('Identifier') }}</th><th>{{ _('Sex') }}</th><th>{{ _('Age') }}</th><th>{{ _('Weight kg') }}</th><th>{{ _('Height cm') }}</th><th>{{ _('Pregnancy') }}</th><th>{{ _('Medical history') }}</th><th>Телефон</th><th>Email</th></tr></thead>
                     <tbody>
                     {% for patient in case.patients if not patient.is_deleted %}
-                    <tr><td>{{ patient.patient_initials or "" }}</td><td>{{ patient.patient_identifier or "" }}</td><td>{{ _(patient.sex) }}</td><td>{{ patient.age_value or "" }} {{ patient.age_unit or "" }}</td><td>{{ patient.weight_kg or "" }}</td><td>{{ patient.height_cm or "" }}</td><td>{{ patient.pregnancy_status or "" }}</td><td>{{ patient.medical_history_text or "" }}</td></tr>
+                    <tr><td>{{ patient.full_name if patient.full_name is not none else patient.patient_initials or "" }}</td><td>{{ patient.patient_identifier or "" }}</td><td>{{ _(patient.sex) }}</td><td>{{ patient.age_text if patient.age_text is not none else ((patient.age_value|string if patient.age_value is not none else "") ~ " " ~ (patient.age_unit or "")) }}</td><td>{{ patient.weight_kg or "" }}</td><td>{{ patient.height_cm or "" }}</td><td>{{ patient.pregnancy_status or "" }}</td><td>{{ patient.medical_history_text or "" }}</td><td>{{ patient.phone or "" }}</td><td>{{ patient.email or "" }}</td></tr>
                     {% else %}
-                    <tr><td colspan="8" class="text-secondary">{{ _('No patients.') }}</td></tr>
+                    <tr><td colspan="10" class="text-secondary">{{ _('No patients.') }}</td></tr>
                     {% endfor %}
                     </tbody>
                 </table>
@@ -245,6 +252,15 @@
     </div>
 
     <div class="tab-pane fade" id="reactions" role="tabpanel" aria-labelledby="reactions-tab" tabindex="0">
+        {% if intake_source.pv %}
+        <section class="surface mb-4"><h2 class="h6 section-title">НЯ и особые ситуации из исходного сообщения</h2>
+            <div>{% if intake_source.pv.get('ae') %}<span class="status-pill">Нежелательное явление</span>{% endif %}{% if intake_source.pv.get('special') %}<span class="status-pill">Особая ситуация</span>{% endif %}</div>
+            {% if intake_source.pv.get('event_text') %}<div class="raw-text mt-2">{{ intake_source.pv.event_text }}</div>{% endif %}
+            {% if intake_source.pv.get('event_unknown') %}<div class="text-secondary mt-2">Описание пока неизвестно.</div>{% endif %}
+            {% if intake_source.pv.get('special') %}<div class="mt-2">{{ (intake_source.pv.get('special_types') or [])|join('; ') }}{% if intake_source.pv.get('special_other') %}<div class="raw-text">{{ intake_source.pv.special_other }}</div>{% endif %}</div>{% endif %}
+            {% if intake_source.pv.get('seriousness') == 'yes' and intake_source.pv.get('seriousness_text') %}<div class="mt-2">Сведения о серьёзности: <span class="raw-text">{{ intake_source.pv.seriousness_text }}</span></div>{% endif %}
+        </section>
+        {% endif %}
         {% if has_permission('create') %}
         <div class="row g-4">
             <div class="col-lg-6">
@@ -306,6 +322,16 @@
     <div class="tab-pane fade" id="additional" role="tabpanel" aria-labelledby="additional-tab" tabindex="0"></div>
 
     <div class="tab-pane fade" id="medical" role="tabpanel" aria-labelledby="medical-tab" tabindex="0">
+        {% if ae_state is defined and (has_permission('edit') or has_permission('icsr_workflow')) and not case.is_locked and case.workflow_status not in ['closed','submitted'] %}
+        <details class="surface mb-3" id="case-ae-edit"><summary class="text-primary">Изменить пациента, контакты, препараты и сведения о НЯ</summary>
+        <form class="mt-3" method="post" action="/cases/{{ case.id }}/ae-card">
+            <input type="hidden" name="csrf" value="{{ csrf_token(request) }}">
+            <input type="hidden" name="expected_version" value="{{ report.version }}">
+            {% include '_ae_card.html' %}
+            <button type="submit" class="btn btn-primary mt-3">Сохранить изменения</button>
+        </form></details>
+        <script src="{{ url_for('static', path='ae_card.js') }}?v=20261113-compact-1"></script>
+        {% endif %}
         <div class="row g-4">
             <div class="col-lg-8">
                 <section class="surface h-100">
@@ -319,7 +345,7 @@
                     <dl class="row compact-dl mb-0">
                         <dt class="col-sm-5">Listedness</dt><dd class="col-sm-7">{{ case.listedness or "" }}</dd>
                         <dt class="col-sm-5">Expectedness</dt><dd class="col-sm-7">{{ case.expectedness or "" }}</dd>
-                        <dt class="col-sm-5">Исход кейса</dt><dd class="col-sm-7">{{ case.case_outcome or "" }}</dd>
+                        <dt class="col-sm-5">Исход ИСНР</dt><dd class="col-sm-7">{{ case.case_outcome or "" }}</dd>
                         <dt class="col-sm-5">{{ _('Seriousness') }}</dt><dd class="col-sm-7">{{ _(case.seriousness) }}</dd>
                     </dl>
                 </section>
@@ -351,13 +377,17 @@
         <div class="row g-4">
             <div class="col-lg-4">
                 <section class="surface h-100">
-                    <h2 class="h6 section-title">Идентифицируемый репортёр</h2>
+                    <h2 class="h6 section-title">Первичный репортёр</h2>
                     {% if case.safety_report %}
                     <dl class="row compact-dl mb-0">
                         <dt class="col-sm-5">Имя репортёра</dt><dd class="col-sm-7">{{ case.safety_report.reporter_name or "" }}</dd>
                         <dt class="col-sm-5">Email репортёра</dt><dd class="col-sm-7">{{ case.safety_report.reporter_email or "" }}</dd>
+                        <dt class="col-sm-5">Телефон репортёра</dt><dd class="col-sm-7">{{ case.safety_report.reporter_phone or "" }}</dd>
                         <dt class="col-sm-5">Страна репортёра</dt><dd class="col-sm-7">{{ case.safety_report.reporter_country_code or "" }}</dd>
                     </dl>
+                    {% if case.safety_report.reporter_unknown %}<div class="small text-secondary mt-2">Первичный репортёр пока неизвестен.</div>{% endif %}
+                    {% if case.safety_report.reporter_same_as_sender %}<div class="small text-secondary mt-2">Тот же контакт, который передал сообщение.</div>{% endif %}
+                    <a class="btn btn-sm btn-outline-primary mt-3" href="/safety-reports/{{ case.safety_report.id }}/intake?step=registration&amp;reporter=1">Сведения о контактах сообщения</a>
                     {% else %}
                     <div class="text-secondary">{{ _('None') }}</div>
                     {% endif %}
@@ -368,7 +398,9 @@
                     <h2 class="h6 section-title">Источник и идентификаторы</h2>
                     <dl class="row compact-dl mb-0">
                         <dt class="col-sm-4">Канал получения</dt><dd class="col-sm-8">{{ _(case.safety_report.source_type) if case.safety_report else "" }}</dd>
-                        <dt class="col-sm-4">{{ _('Safety report') }}</dt><dd class="col-sm-8">{{ case.safety_report.safety_report_number if case.safety_report else "" }}</dd>
+                        <dt class="col-sm-4">{{ _('Safety report') }}</dt><dd class="col-sm-8">{% if case.safety_report %}<a href="/safety-reports/{{ case.safety_report.id }}/intake?step=registration">{{ case.safety_report.safety_report_number }}</a>{% endif %}</dd>
+                        {% if case.safety_report %}<dt class="col-sm-4">Передал сообщение</dt><dd class="col-sm-8">{{ case.safety_report.sender_name or '' }} {{ case.safety_report.sender_email or '' }} {{ case.safety_report.sender_phone or '' }}</dd>
+                        <dt class="col-sm-4">Оригиналы сообщения</dt><dd class="col-sm-8">{% for document in case.safety_report.attachments if not document.is_deleted %}<div><a href="/documents/{{ document.id }}/download">{{ document.file_name }}</a></div>{% else %}<span class="text-secondary">Не приложены</span>{% endfor %}</dd>{% endif %}
                         <dt class="col-sm-4">{{ _('Partner') }}</dt><dd class="col-sm-8">{{ case.partner.partner_name if case.partner else "" }}</dd>
                         <dt class="col-sm-4">{{ _('Worldwide ID') }}</dt><dd class="col-sm-8">{{ case.worldwide_case_id or "" }}</dd>
                         <dt class="col-sm-4">{{ _('Partner case ID') }}</dt><dd class="col-sm-8">{{ case.local_sender_case_id or "" }}</dd>

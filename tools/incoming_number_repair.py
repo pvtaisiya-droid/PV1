@@ -1,6 +1,9 @@
 """Prepare and explicitly apply a reviewed incoming-number repair, offline.
 
-Never imports the application, changes schema, or silently runs on its default DB.
+Never imports the application or silently runs on its default DB.
+Version-2 plans preserve every original duplicate-group number and use suffixes.
+Version-3 plans preserve those numbers and assign current MSG-year registrations.
+Historical-column changes and all audit events are transactional.
 Preparation is read-only. Application needs an explicit database, reviewed plan,
 active actor, reason and --offline; all changes and new audit events are atomic.
 """
@@ -49,7 +52,16 @@ def state_hash(records):
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
-def prepare_plan(database: Path):
+def prepare_plan(database: Path, *, preserve_legacy: bool = False,
+                 numbering_policy: str = "legacy", numbering_year: int | None = None):
+    if numbering_policy not in {"legacy", "current"}:
+        raise ValueError("Choose legacy or current registration numbering.")
+    if numbering_policy == "current":
+        if type(numbering_year) is not int or not 1900 <= numbering_year <= 9999:
+            raise ValueError("Current registration numbering requires an explicit numbering year.")
+        preserve_legacy = True
+    elif numbering_year is not None:
+        raise ValueError("A numbering year applies only to current registration numbering.")
     with closing(connect(database)) as connection:
         records = rows(connection)
         groups = defaultdict(list)
@@ -64,7 +76,7 @@ def prepare_plan(database: Path):
             match = NUMBER.fullmatch(number)
             if match:
                 maxima[match[1]] = max(maxima[match[1]], int(match[2]))
-        changes, retained = [], []
+        changes, retained, originals = [], [], []
         for number, group in sorted(groups.items()):
             if len(group) < 2:
                 continue
@@ -77,10 +89,16 @@ def prepare_plan(database: Path):
             retained.append({"id": ordered[0]["id"], "message_number": number,
                              "received_date": ordered[0]["received_date"]})
             year, width = match[1], len(match[2])
+            originals.extend({"id": row["id"], "message_number": number} for row in ordered)
+            suffix = 1
             for row in ordered[1:]:
                 while True:
-                    maxima[year] += 1
-                    candidate = f"{year}-{maxima[year]:0{width}d}"
+                    if preserve_legacy:
+                        suffix += 1
+                        candidate = f"{number}-{suffix:02d}"
+                    else:
+                        maxima[year] += 1
+                        candidate = f"{year}-{maxima[year]:0{width}d}"
                     if candidate not in used:
                         break
                 used.add(candidate)
@@ -88,10 +106,37 @@ def prepare_plan(database: Path):
                                 "expected_version": row["version"],
                                 "received_date": row["received_date"],
                                 "new_message_number": candidate})
-        return {"format": 1, "revision": revision(connection),
+        if numbering_policy == "current":
+            by_id = {row["id"]: row for row in records}
+            changes.sort(key=lambda change: (
+                by_id[change["id"]]["received_date"] or "9999-12-31",
+                by_id[change["id"]]["received_time"] or "",
+                by_id[change["id"]]["created_at"], change["id"]))
+            stem = f"MSG-{numbering_year}-"
+            # Match create_incoming_request -> crud.generate_number, including
+            # deleted rows, SQLite LIKE semantics, gaps and collision checks.
+            matching_count = connection.execute(
+                "SELECT count(*) FROM tblIncomingRequests WHERE message_number LIKE ?",
+                (stem + "%",)).fetchone()[0]
+            used = {row["message_number"] for row in records if row["message_number"] is not None}
+            for change in changes:
+                sequence = matching_count + 1
+                while f"{stem}{sequence:04d}" in used:
+                    sequence += 1
+                change["new_message_number"] = f"{stem}{sequence:04d}"
+                used.add(change["new_message_number"])
+                matching_count += 1
+        plan = {"format": 3 if numbering_policy == "current" else (2 if preserve_legacy else 1), "revision": revision(connection),
                 "expected_state_sha256": state_hash(records),
                 "selection_rule": "Keep earliest received_date/time, then created_at/id; propose numbers above the year's maximum.",
                 "retained": retained, "changes": changes}
+        if preserve_legacy:
+            plan["legacy_originals"] = originals
+            plan["selection_rule"] = "Keep earliest received_date/time, then created_at/id; use unused suffixes and preserve all original group numbers."
+        if numbering_policy == "current":
+            plan.update(numbering_policy="current", numbering_year=numbering_year)
+            plan["selection_rule"] = "Keep earliest record per duplicate group; preserve original numbers; assign current MSG-year registrations in received_date/time, created_at/id order."
+        return plan
 
 
 def apply_plan(database: Path, plan: dict, *, actor_login: str, reason: str, offline: bool = False):
@@ -99,14 +144,18 @@ def apply_plan(database: Path, plan: dict, *, actor_login: str, reason: str, off
         raise ValueError("Stop all application/import writers and specify --offline.")
     if not isinstance(reason, str) or not reason.strip():
         raise ValueError("A reviewed correction reason is required.")
-    if not isinstance(plan, dict) or plan.get("format") != 1 or not isinstance(plan.get("changes"), list) or not plan["changes"]:
-        raise ValueError("A nonempty version-1 reviewed plan is required.")
+    if not isinstance(plan, dict) or plan.get("format") not in {1, 2, 3} or not isinstance(plan.get("changes"), list) or not plan["changes"]:
+        raise ValueError("A nonempty reviewed version-1, version-2 or version-3 plan is required.")
     with closing(connect(database, writable=True)) as connection:
         try:
             connection.execute("BEGIN IMMEDIATE")
             records = rows(connection)
             if revision(connection) != plan.get("revision") or state_hash(records) != plan.get("expected_state_sha256"):
                 raise ValueError("Database revision or incoming records changed; prepare and review a new plan.")
+            if plan["format"] == 3:
+                expected = prepare_plan(database, numbering_policy="current", numbering_year=plan.get("numbering_year"))
+                if plan != expected:
+                    raise ValueError("The reviewed current-number plan does not match the registration rules.")
             if connection.execute("PRAGMA foreign_key_check").fetchone():
                 raise ValueError("Resolve foreign key violations before number repair.")
             actor = connection.execute("""SELECT id FROM tblUsers WHERE login=?
@@ -151,6 +200,39 @@ def apply_plan(database: Path, plan: dict, *, actor_login: str, reason: str, off
                 raise ValueError("The retained original numbers must agree with the reviewed changes.")
             timestamp = datetime.now(timezone.utc).isoformat()
             correlation = str(uuid4())
+            preserved = 0
+            if plan["format"] in {2, 3}:
+                originals = plan.get("legacy_originals")
+                expected_originals = {row["id"]: row["message_number"] for row in records if counts[row["message_number"]] > 1}
+                if not isinstance(originals, list) or len(originals) != len(expected_originals) or not all(
+                    isinstance(item, dict) and isinstance(item.get("id"), str) and isinstance(item.get("message_number"), str)
+                    for item in originals
+                ) or {item["id"]: item["message_number"] for item in originals} != expected_originals:
+                    raise ValueError("Historical numbers must exactly match every original duplicate-group record.")
+                columns = {row[1]: row for row in connection.execute("PRAGMA table_info(tblIncomingRequests)")}
+                if "legacy_message_number" not in columns:
+                    connection.execute('ALTER TABLE tblIncomingRequests ADD COLUMN legacy_message_number VARCHAR(50)')
+                elif columns["legacy_message_number"][2].upper() != "VARCHAR(50)" or columns["legacy_message_number"][3]:
+                    raise ValueError("Review the existing historical-number column before repair.")
+                for item in originals:
+                    original = by_id[item["id"]]
+                    previous = original["legacy_message_number"] if "legacy_message_number" in original.keys() else None
+                    if previous is not None and previous != item["message_number"]:
+                        raise ValueError("An existing historical number must never be overwritten.")
+                    if previous is not None:
+                        continue
+                    connection.execute("UPDATE tblIncomingRequests SET legacy_message_number=? WHERE id=?",
+                                       (item["message_number"], item["id"]))
+                    connection.execute("""INSERT INTO tblAuditTrail
+                        (id, entity_type, entity_id, action, field_name, old_value, new_value,
+                         change_reason, user_id, changed_by, timestamp, changed_at,
+                         source_module, comment, correlation_id, created_at, updated_at,
+                         is_active, is_deleted, version)
+                        VALUES (?, 'IncomingRequest', ?, 'preserve_legacy_number', 'legacy_message_number',
+                                NULL, ?, ?, ?, ?, ?, ?, 'Incoming Requests', ?, ?, ?, ?, 1, 0, 1)""", (
+                        str(uuid4()), item["id"], item["message_number"], reason.strip(), actor["id"], actor["id"],
+                        timestamp, timestamp, reason.strip(), correlation, timestamp, timestamp))
+                    preserved += 1
             for change in plan["changes"]:
                 result = connection.execute("""UPDATE tblIncomingRequests
                     SET message_number=?, version=version+1, updated_at=?, updated_by=?
@@ -175,7 +257,8 @@ def apply_plan(database: Path, plan: dict, *, actor_login: str, reason: str, off
         except Exception:
             connection.rollback()
             raise
-    return {"changed_records": len(plan["changes"]), "appended_audit_events": len(plan["changes"]),
+    return {"changed_records": len(plan["changes"]), "preserved_original_numbers": preserved,
+            "appended_audit_events": len(plan["changes"]) + preserved,
             "correlation_id": correlation}
 
 
@@ -187,10 +270,15 @@ def main():
     parser.add_argument("--actor-login")
     parser.add_argument("--reason")
     parser.add_argument("--offline", action="store_true")
+    parser.add_argument("--preserve-legacy", action="store_true", help="Prepare a version-2 plan with suffixes and historical numbers.")
+    parser.add_argument("--numbering-policy", choices=["legacy", "current"], default="legacy",
+                        help="Current uses MSG-year numbering and always preserves historical numbers.")
+    parser.add_argument("--numbering-year", type=int, help="Explicit registration year for the current policy.")
     args = parser.parse_args()
     try:
         if args.action == "prepare":
-            plan = prepare_plan(args.database)
+            plan = prepare_plan(args.database, preserve_legacy=args.preserve_legacy,
+                                numbering_policy=args.numbering_policy, numbering_year=args.numbering_year)
             # Refuse to overwrite a previously reviewed proposal.
             with args.plan.open("x", encoding="utf-8") as stream:
                 json.dump(plan, stream, ensure_ascii=False, indent=2)

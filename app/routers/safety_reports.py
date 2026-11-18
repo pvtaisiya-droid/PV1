@@ -16,14 +16,17 @@ from app.database import get_db
 from app.concurrency import require_version
 from app.e2b_import import E2BImportService, E2BPackageService, batch_preview_context
 from app.message_directions import ResolvedMessageDirection
-from app.models import E2BImportBatch, E2BImportIssue
+from app.models import Case, CaseProduct, E2BImportBatch, E2BImportIssue, SafetyReport
 from app.pagination import paginate_query
 from app.config import get_settings
 from app.security import require_csrf
 from app.statuses import status_codes
 from app.templating import templates
 from app.ui_helpers import active_filters, redirect_with_message
+from app.e2b_i18n import E2BDisplay
+from app.i18n import translate
 from app.unit_of_work import atomic_write
+from app.duplicates import DuplicateMessageError, DuplicateContactError
 from app import identity_review, models
 
 
@@ -36,12 +39,27 @@ def current_user_id(request: Request) -> str | None:
     return getattr(current_user, "id", None)
 
 
+def result_product_names(report: SafetyReport) -> list[str]:
+    names = list(report.product_names)
+    if report.case and not report.case.is_deleted:
+        for case_product in report.case.case_products:
+            if case_product.is_deleted:
+                continue
+            name = case_product.reported_product_name or (
+                case_product.product.product_name if case_product.product else None
+            )
+            if name and name not in names:
+                names.append(name)
+    return names
+
+
 @router.get("/safety-reports", response_class=HTMLResponse)
 def safety_reports_page(
     request: Request,
     search: str | None = None,
     status_filter: str | None = None,
     partner_id: str | None = None,
+    product_id: str | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
     page: int = 1,
@@ -51,18 +69,23 @@ def safety_reports_page(
     total_count = crud.safety_reports_query(db).order_by(None).count()
     page_reports, pagination = paginate_query(crud.safety_reports_query(
         db, search=search, status_filter=status_filter, partner_id=partner_id,
-        date_from=date_from, date_to=date_to,
+        product_id=product_id, date_from=date_from, date_to=date_to,
+    ).options(
+        selectinload(SafetyReport.case).selectinload(Case.case_products).joinedload(CaseProduct.product),
+        selectinload(SafetyReport.processing_routes),
     ), page, per_page)
     filters = {
         "search": search or "",
         "status_filter": status_filter or "",
         "partner_id": partner_id or "",
+        "product_id": product_id or "",
         "date_from": date_from or "",
         "date_to": date_to or "",
         "active": active_filters(
             search=search,
             status_filter=status_filter,
             partner_id=partner_id,
+            product_id=product_id,
             date_from=date_from,
             date_to=date_to,
         ),
@@ -73,6 +96,7 @@ def safety_reports_page(
         {
             "request": request,
             "reports": page_reports,
+            "report_product_names": {report.id: result_product_names(report) for report in page_reports},
             "partners": crud.list_partners(db),
             "products": crud.list_products(db),
             "status_options": TRIAGE_STATUS_OPTIONS,
@@ -143,7 +167,7 @@ def update_safety_report_direction_form(
     )
     return redirect_with_message(
         f"/safety-reports/{report_id}",
-        message="Направление сообщения сохранено.",
+        message="Message recipient saved.",
     )
 
 
@@ -154,12 +178,13 @@ def update_safety_report_direction_form(
 def upload_e2b_source_form(
     request: Request,
     file: UploadFile = File(...),
+    origin: str = Form(""),
     db: Session = Depends(get_db),
 ):
     # A synchronous route runs parsing and database work in the worker pool.
     content = file.file.read(get_settings().max_upload_bytes + 1)
     if len(content) > get_settings().max_upload_bytes:
-        raise HTTPException(413, "E2B source file exceeds configured upload size limit.")
+        raise HTTPException(413, translate("E2B source file exceeds configured upload size limit.", request.state.lang))
     try:
         batch = E2BPackageService().prepare_batch(
             db,
@@ -168,7 +193,8 @@ def upload_e2b_source_form(
             uploaded_by_user_id=current_user_id(request),
         )
     except ValueError as exc:
-        return redirect_with_message("/safety-reports", validation=str(exc))
+        target = "/safety-reports/new?method=e2b" if origin == "registration" else "/safety-reports"
+        return redirect_with_message(target, validation=str(exc))
     return redirect_with_message(
         f"/safety-reports/e2b-imports/{batch.id}",
         message="E2B source uploaded. Review before import.",
@@ -195,7 +221,11 @@ def e2b_import_preview_page(
         .first()
     )
     if not batch:
-        raise HTTPException(status_code=404, detail="E2B import batch not found")
+        raise HTTPException(status_code=404, detail=translate("E2B import batch not found", request.state.lang))
+    preview = batch_preview_context(batch)
+    preview["case_groups"] = E2BImportService().preview_groups(db, batch)
+    from app.e2b_review import enrich_groups
+    enrich_groups(db, batch, preview)
     matching_error = None
     try:
         related_case = E2BImportService().preview_case(db, batch)
@@ -208,7 +238,11 @@ def e2b_import_preview_page(
         {
             "request": request,
             "batch": batch,
-            "preview": batch_preview_context(batch),
+            "preview": preview,
+            "group_tokens": {group["token"]: group["expected_case_token"] for group in preview["case_groups"]},
+            "r3_messages": db.query(models.IcsrMessage).filter_by(batch_id=batch.id, is_deleted=False)
+                .order_by(models.IcsrMessage.item_id, models.IcsrMessage.ordinal).all(),
+            "e2b": E2BDisplay(request.state.lang),
             "case_input_snapshot": snapshot_token(db, CASE_INPUTS),
             "expected_case_token": E2BImportService.case_token(related_case),
             "matching_error": matching_error,
@@ -287,7 +321,7 @@ def recheck_e2b_import(
         E2BImportBatch.id == batch_id, E2BImportBatch.is_deleted.is_(False)
     ).first()
     if not batch:
-        raise HTTPException(404, "E2B import batch not found")
+        raise HTTPException(404, translate("E2B import batch not found", request.state.lang))
     require_version(batch, expected_version)
     try:
         E2BPackageService().recheck_batch(db, batch, checked_by_user_id=current_user_id(request))
@@ -299,7 +333,7 @@ def recheck_e2b_import(
 
 @router.post(
     "/safety-reports/e2b-imports/{batch_id}/confirm",
-    dependencies=[Depends(require_any_permission("create", "icsr_workflow"))],
+    dependencies=[Depends(require_any_permission("create", "icsr_workflow")), Depends(require_csrf)],
 )
 def confirm_e2b_import_form(
     batch_id: str,
@@ -307,6 +341,9 @@ def confirm_e2b_import_form(
     expected_version: int = Form(..., gt=0),
     expected_case_token: str = Form(...),
     expected_inputs: str = Form(..., min_length=64, max_length=64),
+    case_group: str | None = Query(None, pattern="^[0-9a-f]{64}$"),
+    document_ids: list[str] | None = Form(None),
+    documents_explicit: bool = Form(False),
     db: Session = Depends(get_db),
 ):
     batch = (
@@ -320,7 +357,7 @@ def confirm_e2b_import_form(
         .first()
     )
     if not batch:
-        raise HTTPException(status_code=404, detail="E2B import batch not found")
+        raise HTTPException(status_code=404, detail=translate("E2B import batch not found", request.state.lang))
     require_version(batch, expected_version)
     if batch.status != "imported":
         protect_snapshot(db, CASE_INPUTS, expected_inputs)
@@ -330,6 +367,8 @@ def confirm_e2b_import_form(
             batch,
             confirmed_by_user_id=current_user_id(request),
             expected_case_token=expected_case_token,
+            case_group=case_group,
+            document_ids=(document_ids or []) if documents_explicit else None,
         )
     except StaleDataError:
         db.rollback()
@@ -340,10 +379,96 @@ def confirm_e2b_import_form(
     except Exception as exc:
         db.rollback()
         return redirect_with_message(f"/safety-reports/e2b-imports/{batch_id}", error=f"Import failed: {exc}")
+    if batch.detected_case_count > 1:
+        return redirect_with_message(f"/safety-reports/e2b-imports/{batch_id}", message="Selected case imported. Other cases remain separate.")
     return redirect_with_message(
-        f"/cases/{summary['case_id']}",
-        message="E2B package imported.",
+        f"/safety-reports/{summary['safety_report_id']}/intake?step=pv",
+        message="E2B import completed. Add other processing directions if needed.",
     )
+
+
+@router.post("/safety-reports/e2b-imports/{batch_id}/confirm-selection",
+             dependencies=[Depends(require_any_permission("create", "icsr_workflow")), Depends(require_csrf)])
+@atomic_write
+def confirm_selected_package_cases(batch_id: str, request: Request,
+        expected_version: int = Form(..., gt=0), expected_inputs: str = Form(..., min_length=64, max_length=64),
+        selected_groups: list[str] = Form([]), case_tokens: str = Form(...), case_documents: str = Form("{}"),
+        db: Session = Depends(get_db)):
+    import json
+    batch = db.query(E2BImportBatch).filter_by(id=batch_id, is_deleted=False).first()
+    if not batch:
+        raise HTTPException(404, translate("E2B import batch not found", request.state.lang))
+    require_version(batch, expected_version)
+    protect_snapshot(db, CASE_INPUTS, expected_inputs)
+    try:
+        tokens = json.loads(case_tokens)
+        documents = json.loads(case_documents)
+        selected = list(dict.fromkeys(selected_groups))
+        groups = {group["token"]: group for group in E2BImportService().preview_groups(db, batch)}
+        if not isinstance(tokens, dict) or not selected or any(token not in groups or not groups[token]["can_import"] for token in selected):
+            raise ValueError("This case requires review before import.")
+        if not isinstance(documents, dict) or any(token not in groups or not isinstance(ids, list)
+                or any(not isinstance(identifier, str) for identifier in ids) for token, ids in documents.items()):
+            raise ValueError("Selected documents do not belong to this case group.")
+        for token in selected:
+            E2BImportService().confirm_batch(db, batch, confirmed_by_user_id=current_user_id(request),
+                expected_case_token=tokens.get(token, ""), case_group=token, document_ids=documents.get(token))
+        db.commit()
+    except (ValueError, TypeError) as exc:
+        db.rollback()
+        return redirect_with_message(f"/safety-reports/e2b-imports/{batch_id}", validation=str(exc))
+    return redirect_with_message(f"/safety-reports/e2b-imports/{batch_id}", message="Selected case imported. Other cases remain separate.")
+
+
+@router.post(
+    "/safety-reports/e2b-imports/{batch_id}/resolve",
+    dependencies=[Depends(require_any_permission("create", "icsr_workflow")), Depends(require_csrf)],
+)
+def resolve_e2b_case_sources(
+    batch_id: str, request: Request,
+    case_group: str = Query(..., pattern="^[0-9a-f]{64}$"),
+    expected_version: int = Form(..., gt=0),
+    choice_paths: list[str] = Form([]),
+    choice_sources: list[str] = Form([]),
+    reason: str = Form(..., min_length=1, max_length=2000),
+    db: Session = Depends(get_db),
+):
+    batch = db.query(E2BImportBatch).filter(E2BImportBatch.id == batch_id, E2BImportBatch.is_deleted.is_(False)).first()
+    if not batch:
+        raise HTTPException(404, translate("E2B import batch not found", request.state.lang))
+    require_version(batch, expected_version)
+    try:
+        if len(choice_paths) != len(choice_sources) or len(set(choice_paths)) != len(choice_paths):
+            raise ValueError("Invalid source choices")
+        choices = {path: value for path, value in zip(choice_paths, choice_sources) if value}
+        E2BImportService().resolve_group(db, batch, case_group, choices, reason, current_user_id(request))
+    except (ValueError, TypeError):
+        db.rollback()
+        return redirect_with_message(f"/safety-reports/e2b-imports/{batch_id}", validation="Select valid source values and provide a reason.")
+    return redirect_with_message(f"/safety-reports/e2b-imports/{batch_id}", message="Case source decisions saved. Review the assembled case before import.")
+
+
+@router.post("/safety-reports/e2b-imports/{batch_id}/resolve-products",
+             dependencies=[Depends(require_any_permission("create", "icsr_workflow")), Depends(require_csrf)])
+def resolve_e2b_products(batch_id: str, request: Request,
+        case_group: str = Query(..., pattern="^[0-9a-f]{64}$"),
+        expected_version: int = Form(..., gt=0), expected_inputs: str = Form(..., min_length=64, max_length=64),
+        product_sources: list[str] = Form([]), product_choices: list[str] = Form([]),
+        reason: str = Form(..., min_length=1, max_length=2000), db: Session = Depends(get_db)):
+    batch = db.query(E2BImportBatch).filter_by(id=batch_id, is_deleted=False).first()
+    if not batch:
+        raise HTTPException(404, translate("E2B import batch not found", request.state.lang))
+    require_version(batch, expected_version)
+    protect_snapshot(db, CASE_INPUTS, expected_inputs)
+    try:
+        if len(product_sources) != len(product_choices) or len(set(product_sources)) != len(product_sources):
+            raise ValueError("Select a product candidate and provide a reason.")
+        E2BImportService().resolve_products(db, batch, case_group, dict(zip(product_sources, product_choices)),
+                                          reason, current_user_id(request))
+    except ValueError as exc:
+        db.rollback()
+        return redirect_with_message(f"/safety-reports/e2b-imports/{batch_id}?case={case_group}&page=overview", validation=str(exc))
+    return redirect_with_message(f"/safety-reports/e2b-imports/{batch_id}?case={case_group}&page=overview", message="Product matching saved. Review the case before import.")
 
 
 @router.post(
@@ -367,7 +492,7 @@ def mark_e2b_import_not_pv_ars_form(
         .first()
     )
     if not batch:
-        raise HTTPException(status_code=404, detail="E2B import batch not found")
+        raise HTTPException(status_code=404, detail=translate("E2B import batch not found", request.state.lang))
     require_version(batch, expected_version)
     try:
         E2BImportService().mark_not_pv_ars(
@@ -403,9 +528,9 @@ def cancel_e2b_import_form(
         E2BImportBatch.id == batch_id, E2BImportBatch.is_deleted.is_(False)
     ).first()
     if not batch:
-        raise HTTPException(status_code=404, detail="E2B import batch not found")
+        raise HTTPException(status_code=404, detail=translate("E2B import batch not found", request.state.lang))
     require_version(batch, expected_version)
-    if batch.status in {"imported", "not_pv_ars"}:
+    if batch.status in {"imported", "not_pv_ars", "partially_imported"}:
         return redirect_with_message(
             f"/safety-reports/e2b-imports/{batch_id}",
             validation="Finalized batch cannot be cancelled from preview. Use reversal workflow.",
@@ -546,8 +671,17 @@ def api_list_safety_reports(page: int = 1, per_page: int | None = None, db: Sess
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_permission("create"))],
 )
+@atomic_write
 def api_create_safety_report(payload: schemas.SafetyReportCreate, db: Session = Depends(get_db)):
-    return crud.create_safety_report(db, payload)
+    try:
+        return crud.create_safety_report(db, payload)
+    except (DuplicateContactError, DuplicateMessageError) as exc:
+        db.rollback()
+        key = "contact" if isinstance(exc, DuplicateContactError) else "report"
+        raise HTTPException(409, detail={"message": str(exc), "candidates": [item[key].id for item in exc.candidates]}) from exc
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(422, detail=str(exc)) from exc
 
 
 @router.get("/api/safety-reports/{report_id}", response_model=schemas.SafetyReportRead)

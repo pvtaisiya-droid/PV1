@@ -20,6 +20,8 @@ def oauth_flow(client, monkeypatch, tmp_path):
     from app.config import get_settings
     from app.database import SessionLocal, engine
     from app.models import User
+    from alembic.script import ScriptDirectory
+    from app.manage import migration_config
 
     # Assert the actual configuration before adding any data or making requests.
     assert engine.url.get_backend_name() == "sqlite"
@@ -28,7 +30,8 @@ def oauth_flow(client, monkeypatch, tmp_path):
     assert get_settings().storage_root.is_relative_to(tmp_path)
     with SessionLocal() as db:
         assert db.connection().exec_driver_sql("PRAGMA foreign_keys").scalar() == 1
-        assert db.connection().exec_driver_sql("SELECT version_num FROM alembic_version").scalar() == "20261002_0028"
+        expected_head = ScriptDirectory.from_config(migration_config()).get_current_head()
+        assert db.connection().exec_driver_sql("SELECT version_num FROM alembic_version").scalar() == expected_head
         first_id = db.query(User).filter_by(login="test-admin").one().id
         second_user = crud.create_user(db, "oauth-second", "Second OAuth user", role="admin")
         second_user.password_hash = hash_password("Synthetic-OAuth-2026!")

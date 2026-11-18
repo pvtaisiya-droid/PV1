@@ -284,7 +284,7 @@
                                     <option value="">{{ _('None') }}</option>
                                     {% for contact in contacts %}
                                     {% if contact.partner_id == request_row.partner_id %}
-                                    <option value="{{ contact.id }}" {% if request_row.contact_person_id == contact.id %}selected{% endif %}>{{ contact.last_name }} {{ contact.first_name }} / {{ contact.email }}</option>
+                                    <option value="{{ contact.id }}" {% if request_row.contact_person_id == contact.id %}selected{% endif %}>{{ contact.full_name }} / {{ contact.email or '' }}</option>
                                     {% endif %}
                                     {% endfor %}
                                 </select>

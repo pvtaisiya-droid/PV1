@@ -21,8 +21,8 @@ router = APIRouter()
 
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
-PRODUCT_STATUS_OPTIONS = ["registration_active", "registration_in_progress", "ma_change"]
-PRODUCT_STATUS_ALIASES = {"authorized": "registration_active"}
+PRODUCT_STATUS_OPTIONS = ["registration_active", "registration_in_progress", "archived", "ma_change"]
+PRODUCT_STATUS_ALIASES = {"authorized": "registration_active", "active": "registration_active", "archive": "archived"}
 REGISTRATION_STATUS_OPTIONS = [
     "active",
     "registration_active",
@@ -49,23 +49,39 @@ def optional_date(value: str | None) -> date | None:
     return date.fromisoformat(value) if value else None
 
 
+def product_return_url(product_id: str, detail_form: bool, *, edit: bool = False) -> str:
+    if not detail_form:
+        return "/products"
+    return f"/products/{product_id}" + ("?edit=1" if edit else "")
+
+
+def prepare_product_row(product):
+    product.partner_link_ids = crud.product_partner_ids(product)
+    product.has_partner_links = bool(product.partner_link_ids)
+    product.registration_certificate_rows = crud.product_registration_certificates(product)
+    product.current_registration = crud.current_product_registration(product)
+    product.display_status = normalize_product_status(product.authorization_status) or (
+        normalize_product_status(product.current_registration.status) if product.current_registration else ""
+    )
+
+
 @router.get("/products", response_class=HTMLResponse)
 def products_page(
     request: Request,
     search: str | None = None,
     status_filter: str | None = None,
     partner_id: str | None = None,
+    created_product_id: str | None = None,
+    open_product_id: str | None = None,
     page: int = 1,
     per_page: int | None = None,
     db: Session = Depends(get_db),
 ):
+    if open_product_id:
+        return redirect_with_message(f"/products/{open_product_id}?edit=1")
     all_products = crud.list_products(db)
-    all_documents = crud.list_attachments(db)
     for product in all_products:
-        product.partner_link_ids = crud.product_partner_ids(product)
-        product.has_partner_links = bool(product.partner_link_ids)
-        product.registration_certificate_rows = crud.product_registration_certificates(product)
-        product.current_registration = crud.current_product_registration(product)
+        prepare_product_row(product)
 
     def matches_text_and_status(product) -> bool:
         registration_numbers = ", ".join(
@@ -87,7 +103,7 @@ def products_page(
             ),
         ) and (
             not status_filter
-            or normalize_product_status(product.authorization_status) == status_filter
+            or normalize_product_status(product.display_status) == status_filter
         )
 
     products = [
@@ -119,25 +135,12 @@ def products_page(
             "request": request,
             "products": page_products,
             "partners": crud.list_partners(db),
-            "contracts": crud.list_contracts(db),
             "substances": crud.list_substances(db),
             "dosage_forms": crud.list_dosage_forms(db),
             "active_dosage_forms": crud.list_active_dosage_forms(db),
             "unlinked_products": unlinked_products,
             "status_options": PRODUCT_STATUS_OPTIONS,
             "registration_status_options": REGISTRATION_STATUS_OPTIONS,
-            "documents_by_product": {
-                product.id: [
-                    document
-                    for document in all_documents
-                    if document.product_id == product.id
-                    or (
-                        document.related_object_type == "Product"
-                        and document.related_object_id == product.id
-                    )
-                ]
-                for product in all_products
-            },
             "filters": filters,
             "total_count": len(all_products),
             "filtered_count": len(products),
@@ -146,6 +149,49 @@ def products_page(
             "error": request.query_params.get("error"),
             "validation": request.query_params.get("validation"),
             "active_page": "products",
+            "created_product": next(
+                (product for product in all_products if product.id == created_product_id), None
+            ),
+        },
+    )
+
+
+@router.get("/products/{product_id}", response_class=HTMLResponse)
+def product_detail_page(
+    product_id: str,
+    request: Request,
+    edit: bool = False,
+    db: Session = Depends(get_db),
+):
+    product = crud.get_product(db, product_id)
+    if not product or product.is_deleted:
+        return redirect_with_message("/products", error="Product not found.")
+    prepare_product_row(product)
+    documents = [
+        document for document in crud.list_attachments(db)
+        if document.product_id == product.id
+        or (document.related_object_type == "Product" and document.related_object_id == product.id)
+    ]
+    return templates.TemplateResponse(
+        request,
+        "product_detail.html",
+        {
+            "request": request,
+            "active_page": "products",
+            "product": product,
+            "edit_mode": edit,
+            "partners": crud.list_partners(db),
+            "contracts": crud.list_contracts(db),
+            "substances": crud.list_substances(db),
+            "dosage_forms": crud.list_dosage_forms(db),
+            "registration_rows": product.registration_certificate_rows,
+            "current_registration": product.current_registration,
+            "registration_status_options": REGISTRATION_STATUS_OPTIONS,
+            "status_options": PRODUCT_STATUS_OPTIONS,
+            "documents_by_product": {product.id: documents},
+            "message": request.query_params.get("message"),
+            "error": request.query_params.get("error"),
+            "validation": request.query_params.get("validation"),
         },
     )
 
@@ -200,7 +246,9 @@ def create_product_form(
     except IntegrityError:
         db.rollback()
         return redirect_with_message("/products", error="Product could not be saved.")
-    return redirect_with_message("/products", message="Product saved.")
+    return redirect_with_message(
+        f"/products?created_product_id={product.id}", message="Product saved."
+    )
 
 
 @router.post(
@@ -219,10 +267,13 @@ def create_product_registration_form(
     dosage_form: str | None = Form(None),
     strength: str | None = Form(None),
     comment: str | None = Form(None),
+    detail_form: bool = Form(False),
     expected_version: int = Form(..., gt=0),
     db: Session = Depends(get_db),
 ):
     protect_record(db, models.Product, product_id, expected_version)
+    target_url = product_return_url(product_id, detail_form, edit=True)
+    error_url = product_return_url(product_id, detail_form, edit=True)
     try:
         crud.create_product_registration_certificate(
             db,
@@ -241,11 +292,11 @@ def create_product_registration_form(
         )
     except ValueError as exc:
         db.rollback()
-        return redirect_with_message("/products", validation=str(exc))
+        return redirect_with_message(error_url, validation=str(exc))
     except IntegrityError:
         db.rollback()
-        return redirect_with_message("/products", error="Registration certificate could not be saved.")
-    return redirect_with_message("/products", message="Registration certificate saved.")
+        return redirect_with_message(error_url, error="Registration certificate could not be saved.")
+    return redirect_with_message(target_url, message="Registration certificate saved.")
 
 
 @router.post(
@@ -263,6 +314,7 @@ def edit_product_registration_form(
     dosage_form: str | None = Form(None),
     strength: str | None = Form(None),
     comment: str | None = Form(None),
+    detail_form: bool = Form(False),
     expected_version: int = Form(..., ge=1),
     db: Session = Depends(get_db),
 ):
@@ -270,6 +322,8 @@ def edit_product_registration_form(
     if not certificate:
         return redirect_with_message("/products", error="Registration certificate not found.")
     require_version(certificate, expected_version)
+    target_url = product_return_url(certificate.product_id, detail_form, edit=True)
+    error_url = product_return_url(certificate.product_id, detail_form, edit=True)
     try:
         crud.update_product_registration_certificate(
             db,
@@ -289,11 +343,11 @@ def edit_product_registration_form(
         )
     except ValueError as exc:
         db.rollback()
-        return redirect_with_message("/products", validation=str(exc))
+        return redirect_with_message(error_url, validation=str(exc))
     except IntegrityError:
         db.rollback()
-        return redirect_with_message("/products", error="Registration certificate could not be saved.")
-    return redirect_with_message("/products", message="Registration certificate saved.")
+        return redirect_with_message(error_url, error="Registration certificate could not be saved.")
+    return redirect_with_message(target_url, message="Registration certificate saved.")
 
 
 @router.post(
@@ -304,6 +358,7 @@ def delete_product_registration_form(
     certificate_id: str,
     request: Request,
     delete_reason: str | None = Form(None),
+    detail_form: bool = Form(False),
     expected_version: int = Form(..., ge=1),
     db: Session = Depends(get_db),
 ):
@@ -311,6 +366,8 @@ def delete_product_registration_form(
     if not certificate:
         return redirect_with_message("/products", error="Registration certificate not found.")
     require_version(certificate, expected_version)
+    target_url = product_return_url(certificate.product_id, detail_form, edit=True)
+    error_url = product_return_url(certificate.product_id, detail_form, edit=True)
     current_user = getattr(request.state, "current_user", None)
     crud.delete_product_registration_certificate(
         db,
@@ -318,7 +375,7 @@ def delete_product_registration_form(
         deleted_by_user_id=current_user.id if current_user else None,
         delete_reason=delete_reason,
     )
-    return redirect_with_message("/products", message="Registration certificate deleted.")
+    return redirect_with_message(target_url, message="Registration certificate deleted.")
 
 
 @router.post(
@@ -335,6 +392,7 @@ def edit_product_form(
     authorization_number: str | None = Form(None),
     authorization_status: str | None = Form(None),
     comment: str | None = Form(None),
+    detail_form: bool = Form(False),
     expected_version: int = Form(..., ge=1),
     db: Session = Depends(get_db),
 ):
@@ -342,8 +400,10 @@ def edit_product_form(
     if not product:
         return redirect_with_message("/products", error="Product not found.")
     require_version(product, expected_version)
+    target_url = product_return_url(product_id, detail_form, edit=False)
+    error_url = product_return_url(product_id, detail_form, edit=True)
     if not product_name.strip():
-        return redirect_with_message("/products", validation="Product name is required.")
+        return redirect_with_message(error_url, validation="Product name is required.")
     try:
         product_payload = {
             "product_name": product_name.strip(),
@@ -353,6 +413,15 @@ def edit_product_form(
             "authorization_status": product.authorization_status,
             "comment": comment,
         }
+        if authorization_status is not None:
+            product_status = normalize_product_status(authorization_status)
+            if (
+                product_status
+                and product_status not in PRODUCT_STATUS_OPTIONS
+                and product_status != normalize_product_status(product.authorization_status)
+            ):
+                raise ValueError("Invalid product status.")
+            product_payload["authorization_status"] = product_status
         if dosage_form_id or product.dosage_form_id:
             product_payload["dosage_form_id"] = optional_int(dosage_form_id)
         else:
@@ -367,11 +436,11 @@ def edit_product_form(
         db.commit()
     except ValueError as exc:
         db.rollback()
-        return redirect_with_message("/products", validation=str(exc))
+        return redirect_with_message(error_url, validation=str(exc))
     except IntegrityError:
         db.rollback()
-        return redirect_with_message("/products", error="Product could not be saved.")
-    return redirect_with_message("/products", message="Product saved.")
+        return redirect_with_message(error_url, error="Product could not be saved.")
+    return redirect_with_message(target_url, message="Product saved.")
 
 
 @router.post(
@@ -381,6 +450,7 @@ def edit_product_form(
 def link_product_contract_form(
     product_id: str,
     contract_id: str = Form(...),
+    detail_form: bool = Form(False),
     expected_version: int = Form(..., ge=1),
     expected_contract_version: int = Form(..., ge=1),
     db: Session = Depends(get_db),
@@ -393,12 +463,14 @@ def link_product_contract_form(
         return redirect_with_message("/products", error="Contract not found.")
     require_version(product, expected_version)
     require_version(contract, expected_contract_version)
+    target_url = product_return_url(product_id, detail_form, edit=True)
+    error_url = product_return_url(product_id, detail_form, edit=True)
     try:
         crud.link_product_to_contract(db, product, contract)
     except ValueError as exc:
         db.rollback()
-        return redirect_with_message("/products", validation=str(exc))
-    return redirect_with_message("/products", message="Product saved.")
+        return redirect_with_message(error_url, validation=str(exc))
+    return redirect_with_message(target_url, message="Product saved.")
 
 
 @router.post(
@@ -449,6 +521,7 @@ def unlink_product_contract_form(
     product_id: str,
     contract_id: str,
     request: Request,
+    detail_form: bool = Form(False),
     expected_version: int = Form(..., ge=1),
     expected_contract_version: int = Form(..., ge=1),
     db: Session = Depends(get_db),
@@ -461,6 +534,8 @@ def unlink_product_contract_form(
         return redirect_with_message("/products", error="Contract not found.")
     require_version(product, expected_version)
     require_version(contract, expected_contract_version)
+    target_url = product_return_url(product_id, detail_form, edit=True)
+    error_url = product_return_url(product_id, detail_form, edit=True)
     current_user = getattr(request.state, "current_user", None)
     try:
         crud.unlink_product_from_contract(
@@ -471,8 +546,8 @@ def unlink_product_contract_form(
         )
     except ValueError as exc:
         db.rollback()
-        return redirect_with_message("/products", validation=str(exc))
-    return redirect_with_message("/products", message="Product saved.")
+        return redirect_with_message(error_url, validation=str(exc))
+    return redirect_with_message(target_url, message="Product saved.")
 
 
 @router.post(

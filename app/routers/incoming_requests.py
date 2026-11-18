@@ -798,6 +798,7 @@ def render_page(
             row.partner.partner_name if row.partner else "",
             *row.product_names,
             row.message_number,
+            row.legacy_message_number,
             row.source_type,
             row.source_name,
             row.channel,

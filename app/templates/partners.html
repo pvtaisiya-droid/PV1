@@ -112,7 +112,7 @@
                     <div class="d-flex flex-wrap gap-1">
                         <a class="btn btn-outline-secondary btn-sm icon-only" href="/partners/{{ partner.id }}" title="{{ _('View') }}"><i data-lucide="eye"></i></a>
                         {% if has_permission('edit') or has_permission('manage_reference_data') %}
-                        <button class="btn btn-outline-primary btn-sm icon-only" type="button" data-bs-toggle="collapse" data-bs-target="#partner-edit-{{ partner.id }}" title="{{ _('Edit') }}"><i data-lucide="pencil"></i></button>
+                        <a class="btn btn-outline-primary btn-sm icon-only" href="/partners/{{ partner.id }}?edit=1" title="{{ _('Edit') }}"><i data-lucide="pencil"></i></a>
                         {% endif %}
                         {% if has_permission('soft_delete') or has_permission('manage_reference_data') %}
                         <form method="post" action="/partners/{{ partner.id }}/delete">
@@ -124,44 +124,6 @@
                     </div>
                 </td>
             </tr>
-            {% if has_permission('edit') or has_permission('manage_reference_data') %}
-            <tr class="collapse" id="partner-edit-{{ partner.id }}">
-                <td colspan="5">
-                    <form class="row g-2 align-items-end" method="post" action="/partners/{{ partner.id }}/edit">
-                        <input type="hidden" name="expected_version" value="{{ partner.version }}">
-                        <input type="hidden" name="return_to" value="{{ current_url }}">
-                        <div class="col-md-2">
-                            <label class="form-label">{{ _('Partner code') }}</label>
-                            <input class="form-control form-control-sm" name="partner_code" value="{{ partner.partner_code }}" placeholder="{{ _('Code') }}" required>
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label">{{ _('Name') }}</label>
-                            <input class="form-control form-control-sm" name="partner_name" value="{{ partner.partner_name }}" placeholder="{{ _('Partner name') }}" required>
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label">{{ _('Status') }}</label>
-                            <select class="form-select form-select-sm" name="partner_type">
-                                {% for status in status_options %}
-                                <option value="{{ status }}" {% if partner.partner_type == status %}selected{% endif %}>{{ _(status) }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        <div class="col-md-2">
-                            <label class="form-label">{{ _('Reconciliation frequency') }}</label>
-                            <select class="form-select form-select-sm" name="reconciliation_frequency">
-                                {% for frequency in ["monthly", "quarterly", "not_conducted"] %}
-                                <option value="{{ frequency }}" {% if partner.reconciliation_frequency == frequency %}selected{% endif %}>{{ _(frequency) }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        <div class="col-md-2 d-flex gap-2">
-                            <button class="btn btn-primary btn-sm icon-button" type="submit"><i data-lucide="save"></i><span>{{ _('Save partner') }}</span></button>
-                            <button class="btn btn-outline-secondary btn-sm icon-button" type="button" data-bs-toggle="collapse" data-bs-target="#partner-edit-{{ partner.id }}"><i data-lucide="x"></i><span>{{ _('Cancel') }}</span></button>
-                        </div>
-                    </form>
-                </td>
-            </tr>
-            {% endif %}
             {% else %}
             <tr><td colspan="5" class="empty-state-cell"><div class="empty-state text-secondary"><i data-lucide="search"></i><span>{% if filters.active and total_count %}{{ _('No records match the filters.') }}{% else %}{{ _('No partners yet.') }}{% endif %}</span></div></td></tr>
             {% endfor %}

@@ -40,6 +40,7 @@
 {%- endmacro %}
 
 {% block content %}
+{% set partner_edit_mode = edit_mode and (has_permission('edit') or has_permission('manage_reference_data')) %}
 {% set partner_quality = pv_partner_quality(partner, contacts, contracts) %}
 {% set partner_warnings = pv_partner_attention(partner, contacts, contracts) %}
 {% set partner_actions = pv_partner_next_actions(partner, contacts, contracts) %}
@@ -135,12 +136,12 @@
     <div class="tab-pane fade show active" id="general" role="tabpanel" tabindex="0">
         <section class="surface">
             {% if has_permission('edit') or has_permission('manage_reference_data') %}
-            <div class="d-flex justify-content-end mb-3" data-partner-view>
-                <button class="btn btn-outline-primary btn-sm icon-button" type="button" data-partner-edit-toggle aria-controls="partner-detail-edit" aria-expanded="false">
+            <div class="text-end mb-3" data-partner-view{% if partner_edit_mode %} hidden{% endif %}>
+                <button class="btn btn-outline-primary btn-sm icon-button" type="button" data-partner-edit-toggle aria-controls="partner-detail-edit" aria-expanded="{{ 'true' if partner_edit_mode else 'false' }}">
                     <i data-lucide="pencil"></i><span>{{ _('Edit') }}</span>
                 </button>
             </div>
-            <div id="partner-detail-edit" hidden>
+            <div id="partner-detail-edit"{% if not partner_edit_mode %} hidden{% endif %}>
                 <form class="row g-3 align-items-end mb-4" method="post" action="/partners/{{ partner.id }}/edit">
                     <input type="hidden" name="expected_version" value="{{ partner.version }}">
                     <input type="hidden" name="return_to" value="/partners/{{ partner.id }}">
@@ -180,10 +181,12 @@
                 </form>
             </div>
             {% endif %}
-            <div class="row g-3" data-partner-view>
-                <div class="col-md-3"><span class="text-secondary small">{{ _('Partner code') }}</span><div class="fw-semibold">{{ partner.partner_code }}</div></div>
-                <div class="col-md-3"><span class="text-secondary small">{{ _('Status') }}</span><div>{{ _(partner.partner_type) }}</div></div>
-                <div class="col-12"><span class="text-secondary small">{{ _('Address') }}</span><div>{{ partner.address or "" }}</div></div>
+            <div data-partner-view{% if partner_edit_mode %} hidden{% endif %}>
+                <div class="row g-3">
+                    <div class="col-md-3"><span class="text-secondary small">{{ _('Partner code') }}</span><div class="fw-semibold">{{ partner.partner_code }}</div></div>
+                    <div class="col-md-3"><span class="text-secondary small">{{ _('Status') }}</span><div>{{ _(partner.partner_type) }}</div></div>
+                    <div class="col-12"><span class="text-secondary small">{{ _('Address') }}</span><div>{{ partner.address or "" }}</div></div>
+                </div>
             </div>
         </section>
         <section class="surface mt-3">
@@ -248,7 +251,7 @@
                     <thead><tr><th>{{ _('Name') }}</th><th>{{ _('Email') }}</th><th>{{ _('Position') }}</th><th>Назначения</th><th>{{ _('Current?') }}</th></tr></thead>
                     <tbody>
                     {% for contact in contacts %}
-                    <tr><td class="fw-medium">{{ contact.last_name }} {{ contact.first_name }} {{ contact.patronymic or "" }}</td><td><a href="mailto:{{ contact.email }}">{{ contact.email }}</a></td><td>{{ contact.position }}</td><td>{% if contact.is_pv_contact %}<span class="badge text-bg-primary">Фармаконадзор</span>{% endif %}{% if contact.is_billing_contact %}<span class="badge text-bg-info ms-1">Бухгалтерия</span>{% endif %}{% if not contact.is_pv_contact and not contact.is_billing_contact %}<span class="text-secondary">{{ contact.contact_type or 'Другой' }}</span>{% endif %}</td><td>{% if contact.is_current %}<span class="badge text-bg-success">{{ _('Yes') }}</span>{% else %}<span class="badge text-bg-secondary">{{ _('No') }}</span>{% endif %}</td></tr>
+                    <tr><td class="fw-medium">{{ contact.full_name }}</td><td><a href="mailto:{{ contact.email }}">{{ contact.email or '' }}</a></td><td>{{ contact.position or '' }}</td><td>{% if contact.is_pv_contact %}<span class="badge text-bg-primary">Фармаконадзор</span>{% endif %}{% if contact.is_billing_contact %}<span class="badge text-bg-info ms-1">Бухгалтерия</span>{% endif %}{% if not contact.is_pv_contact and not contact.is_billing_contact %}<span class="text-secondary">{{ contact.contact_type or 'Другой' }}</span>{% endif %}</td><td>{% if contact.is_current %}<span class="badge text-bg-success">{{ _('Yes') }}</span>{% else %}<span class="badge text-bg-secondary">{{ _('No') }}</span>{% endif %}</td></tr>
                     {% else %}
                     <tr><td colspan="5">{{ empty_state('No contacts yet.', '/contract-contacts?partner_id=' ~ partner.id, 'Add contact') }}</td></tr>
                     {% endfor %}

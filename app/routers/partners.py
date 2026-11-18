@@ -207,6 +207,7 @@ def delete_partner_form(
 def partner_detail_page(
     partner_id: str,
     request: Request,
+    edit: bool = False,
     db: Session = Depends(get_db),
 ):
     partner = crud.get_partner(db, partner_id)
@@ -264,6 +265,7 @@ def partner_detail_page(
             "request": request,
             "active_page": "partners",
             "partner": partner,
+            "edit_mode": edit,
             "contacts": contacts,
             "accounting_contact_versions": {contact.id: contact.version for contact in contacts},
             "products": products,

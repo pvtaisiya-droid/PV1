@@ -2,7 +2,9 @@ from tests.form_helpers import post_current
 import base64
 import io
 import zipfile
+import json
 from pathlib import Path
+import pytest
 from tests.test_concurrent_forms import Forms
 
 
@@ -159,6 +161,105 @@ def seed_product(name: str = "Test Product", *, company: bool = True, code: str 
         return product.id
 
 
+def test_new_registration_offers_manual_and_e2b_without_registering_twice(client):
+    from app.database import SessionLocal
+    from app.models import SafetyReport
+
+    page = client.get("/safety-reports/new")
+    forms = Forms(page.text).forms
+    assert "/safety-reports/intake" in forms and "/safety-reports/e2b-imports" in forms
+    assert forms["/safety-reports/e2b-imports"]["origin"] == "registration"
+    assert 'id="intake-method-manual" value="manual" autocomplete="off" checked' in page.text
+    assert 'action="/safety-reports/e2b-imports"' not in client.get("/safety-reports").text
+    seed_product()
+    uploaded = post_current(client, "/safety-reports/e2b-imports", data=forms["/safety-reports/e2b-imports"],
+        files={"file": ("message.xml", e2b_xml(), "application/xml")}, follow_redirects=False)
+    assert uploaded.status_code == 303 and uploaded.headers["location"].startswith("/safety-reports/e2b-imports/")
+    with SessionLocal() as db:
+        assert db.query(SafetyReport).count() == 0  # A message is created only after confirmation.
+
+
+def test_invalid_e2b_upload_returns_to_selected_registration_method(client):
+    response = post_current(client, "/safety-reports/e2b-imports", data={"origin": "registration"},
+        files={"file": ("unsupported.txt", b"Synthetic unsupported input", "text/plain")}, follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/safety-reports/new?method=e2b&validation=")
+    page = client.get(response.headers["location"])
+    assert page.status_code == 200 and page.context["validation"]
+    assert 'id="intake-method-e2b" value="e2b" autocomplete="off" checked' in page.text
+
+
+@pytest.mark.parametrize("followup", [False, True])
+def test_imported_message_can_add_quality_without_changing_icsr(client, followup):
+    from app import models
+    from app.database import SessionLocal
+    from tests.test_message_intake import form_values
+
+    def clinical_snapshot(db):
+        return {model.__tablename__: {
+            row.id: tuple(getattr(row, column.key) for column in model.__table__.columns)
+            for row in db.query(model).all()
+        } for model in [models.Case, models.Patient, models.CaseProduct, models.Reaction,
+                        models.CaseDrugSubstance, models.CaseNarrative]}
+
+    seed_product()
+    for index in range(2 if followup else 1):
+        uploaded = upload_package(client, make_zip({
+            "message.xml": e2b_xml(message_id=f"QUALITY-{index}", version=str(index + 1)),
+            "original.pdf": b"%PDF-1.4 synthetic original",
+        }))
+        preview_path = uploaded.headers["location"].split("?", 1)[0]
+        confirm = post_current(client, f"{preview_path}/confirm",
+            data=preview_data(client, preview_path, "confirm"), follow_redirects=False)
+        assert confirm.status_code == 303 and "/intake?step=pv" in confirm.headers["location"]
+        directions = client.get(confirm.headers["location"])
+        assert directions.context["values"]["routes"] == ["pv"]
+
+    identifier = directions.context["report"].id
+    with SessionLocal() as db:
+        report = db.get(models.SafetyReport, identifier)
+        number, case_id, batch_id = report.safety_report_number, report.case_id, report.import_batch_id
+        assert report.intake_enabled
+        pv_route_id = next(route.id for route in report.processing_routes if route.route_kind == "pv")
+        originals = {row.id: (row.storage_path, row.checksum_sha256) for row in report.attachments}
+        before = clinical_snapshot(db)
+    values, page = form_values(client, identifier)
+    values.pop("pv_card", None)  # The browser sends the JSON input, not the context dictionary.
+    assert page.context["ae_linked_case"].id == case_id
+    assert page.context["ae_state"]["patient"]["initials"] == "AB"
+    assert page.context["ae_state"]["ae"] is True
+    values.update(routes=["pv", "quality"], current_step="quality", next_step="quality", action="save",
+        pv_card_json=json.dumps(page.context["ae_state"]), pv_card_dirty="false",
+        quality_complaints=[page.context["complaint_groups"][0][1]], quality_batch="SYNTHETIC-QC-42",
+        quality_materials="yes", quality_attachment_ids=[next(iter(originals))])
+    saved = client.post(f"/safety-reports/{identifier}/intake", data=values,
+        files={"quality_files": ("quality.txt", b"Synthetic quality question", "text/plain")}, follow_redirects=False)
+    assert saved.status_code == 303, saved.context["validation"] if saved.context else saved.text[:500]
+    with SessionLocal() as db:
+        report = db.get(models.SafetyReport, identifier)
+        assert report.safety_report_number == number and report.case_id == case_id
+        assert report.import_batch_id == batch_id
+        assert db.query(models.Case).count() == 1
+        assert db.query(models.SafetyReport).count() == (2 if followup else 1)
+        assert clinical_snapshot(db) == before
+        pv, quality = (next(row for row in report.processing_routes if row.route_kind == key) for key in ["pv", "quality"])
+        assert pv.id == pv_route_id and pv.is_active and quality.is_active
+        assert quality.route_number == number + "/КЧ-01" and quality.details["batch"] == "SYNTHETIC-QC-42"
+        assert len(quality.document_links) == 2
+        for row in report.attachments:
+            if row.id in originals:
+                assert (row.storage_path, row.checksum_sha256) == originals[row.id]
+        assert all(row.safety_report_id == identifier for row in db.get(models.E2BImportBatch, batch_id).transmissions)
+    values, page = form_values(client, identifier)
+    values.pop("pv_card", None)
+    values.update(action="handoff", current_step="pv", pv_card_json=json.dumps(page.context["ae_state"]), pv_card_dirty="false")
+    handoff = client.post(f"/safety-reports/{identifier}/intake", data=values, follow_redirects=False)
+    assert handoff.status_code == 303 and handoff.headers["location"].startswith(f"/cases/{case_id}?")
+    with SessionLocal() as db:
+        assert db.query(models.Case).count() == 1
+        assert clinical_snapshot(db) == before
+
+
 def test_e2b_zip_preview_and_confirm_creates_safety_message_and_case(client):
     seed_product()
     package = make_zip(
@@ -175,12 +276,13 @@ def test_e2b_zip_preview_and_confirm_creates_safety_message_and_case(client):
     assert preview.status_code == 200
     assert "MSG-E2B-001" in preview.text
     assert "Headache" in preview.text
-    assert "Company product found" in preview.text
+    assert "ЛП из нашего списка" in preview.text
 
     preview_path = response.headers["location"].split("?", 1)[0]
     confirm = post_current(client, f"{preview_path}/confirm", data=preview_data(client, preview_path, "confirm"), follow_redirects=False)
     assert confirm.status_code == 303
-    assert confirm.headers["location"].startswith("/cases/")
+    assert confirm.headers["location"].startswith("/safety-reports/")
+    assert "/intake?step=pv" in confirm.headers["location"]
 
     from app.database import SessionLocal
     from app.models import Case, E2BImportBatch, E2BTransmission, IncomingRequest, SafetyReport
@@ -208,7 +310,7 @@ def test_e2b_zip_without_company_product_can_be_marked_not_pv_ars(client):
     preview = client.get(response.headers["location"])
     assert preview.status_code == 200
     assert "not_pv_ars_candidate" in preview.text
-    assert "Mark not PV ARS" in preview.text
+    assert "Отметить как «не ФН АРС»" in preview.text
 
     confirm = post_current(client, f"{preview_path}/confirm", data=preview_data(client, preview_path, "confirm"), follow_redirects=False)
     assert confirm.status_code == 303
@@ -290,7 +392,7 @@ def test_nested_zip_is_scanned_and_repeated_nested_package_is_deduplicated(clien
         assert db.query(E2BImportItem).filter(E2BImportItem.status == "duplicate").count() == 1
 
 
-def test_multiple_distinct_cases_are_blocked_before_confirmation(client):
+def test_multiple_unknown_cases_require_separate_scope_review(client):
     package = make_zip(
         {
             "case-a.xml": e2b_xml(message_id="MSG-A", case_id="WW-CASE-A"),
@@ -305,12 +407,16 @@ def test_multiple_distinct_cases_are_blocked_before_confirmation(client):
 
     with SessionLocal() as db:
         batch = db.query(E2BImportBatch).one()
-        assert batch.status == "error"
+        assert batch.status == "requires_review"
         assert batch.detected_case_count == 2
-        issue = db.query(E2BImportIssue).filter(E2BImportIssue.issue_type == "multiple_cases_not_supported").one()
-        assert issue.is_blocking is True
+        assert not db.query(E2BImportIssue).filter(E2BImportIssue.issue_type == "multiple_cases_not_supported").count()
 
-    confirm = post_current(client, f"{response.headers['location'].split('?', 1)[0]}/confirm", data=preview_data(client, response.headers['location'].split('?', 1)[0], "confirm"), follow_redirects=False)
+    path = response.headers['location'].split('?', 1)[0]
+    page = client.get(path)
+    group = page.context['preview']['case_groups'][0]
+    action = f"{path}/confirm?case_group={group['token']}"
+    data = Forms(page.text).forms[action]
+    confirm = post_current(client, action, data=data, follow_redirects=False)
     assert confirm.status_code == 303
     assert confirm.headers["location"].startswith(response.headers["location"].split("?", 1)[0])
     with SessionLocal() as db:
@@ -325,7 +431,8 @@ def test_r3_embedded_base64_document_is_saved_as_attachment(client):
     preview_path = response.headers["location"].split("?", 1)[0]
     confirm = post_current(client, f"{preview_path}/confirm", data=preview_data(client, preview_path, "confirm"), follow_redirects=False)
     assert confirm.status_code == 303
-    assert confirm.headers["location"].startswith("/cases/")
+    assert confirm.headers["location"].startswith("/safety-reports/")
+    assert "/intake?step=pv" in confirm.headers["location"]
 
     from app.database import SessionLocal
     from app.models import Attachment

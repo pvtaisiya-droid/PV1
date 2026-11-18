@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import hmac
+import os
 import re
 import secrets
 import threading
@@ -22,7 +23,9 @@ from app.models import AuthSession, Role, RolePermission, User, UserRole, utcnow
 from app.rbac import permission_codes_for_user, role_names_for_user, user_state
 
 
-SESSION_COOKIE = "pv_session"
+SESSION_COOKIE = os.getenv("PV_AUTH_COOKIE_NAME", "pv_session")
+if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", SESSION_COOKIE):
+    raise ValueError("Invalid PV_AUTH_COOKIE_NAME")
 # Backward-compatible import name used by the development user switch route.
 USER_COOKIE = SESSION_COOKIE
 CURRENT_USER_ID: ContextVar[str | None] = ContextVar("pv_current_user_id", default=None)

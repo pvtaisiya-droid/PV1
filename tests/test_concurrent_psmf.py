@@ -177,25 +177,45 @@ def test_psmf_new_version_late_conflict_does_not_insert_duplicate_or_stale_copy(
     assert state_snapshot() == snapshots[0]
 
 
-def test_psmf_text_version_migration_preserves_business_rows_and_audit(client, tmp_path):
+def historical_psmf_database(path):
+    """Build the actual pre-counter revision without downgrading newer features."""
     from contextlib import closing
     import sqlite3
-    from app.database import engine
     from tests.test_migrations import migrate_test_database
-    import os
-    import subprocess
-    import sys
 
-    psmf_target(client, 'components', 'save')
-    path = tmp_path / 'psmf-migration.db'
-    with closing(sqlite3.connect(engine.url.database)) as source, closing(sqlite3.connect(path)) as copy:
-        source.backup(copy)
-    env = os.environ.copy()
-    env['DATABASE_URL'] = f'sqlite:///{path.as_posix()}'
-    env['PV_STORAGE_ROOT'] = str(tmp_path / 'psmf-migration-storage')
-    result = subprocess.run([sys.executable, '-m', 'alembic', 'downgrade', '20261002_0027'],
-                            env=env, capture_output=True, text=True, timeout=60)
+    result = migrate_test_database(path, '20261002_0027')
     assert result.returncode == 0, result.stderr
+    with closing(sqlite3.connect(path)) as db:
+        db.execute('PRAGMA foreign_keys=ON')
+        db.execute('''INSERT INTO psmf_components
+            (id, code, title, component_type, component_order, scope, is_required,
+             is_optional, include_if_has_content, status, current_version, version,
+             created_at, updated_at, is_active, is_deleted)
+            VALUES ('historical-component', 'HISTORICAL', 'Historical component',
+                    'MAIN_SECTION', 0, 'GLOBAL', 1, 0, 0, 'draft', '2.3', 4,
+                    '2026-10-01', '2026-10-02', 1, 0)''')
+        db.execute('''INSERT INTO psmf_component_versions
+            (id, component_id, version, content, status, created_at, updated_at,
+             is_locked, is_active, is_deleted)
+            VALUES ('historical-text', 'historical-component', '2.3',
+                    'Исходный текст до миграции', 'draft', '2026-10-01', '2026-10-02', 0, 1, 0)''')
+        db.execute("UPDATE psmf_components SET current_version_id='historical-text'")
+        db.execute('''INSERT INTO tblAuditTrail
+            (id, entity_type, entity_id, action, new_value, timestamp, created_at, updated_at,
+             is_active, is_deleted, version)
+            VALUES ('historical-audit', 'PSMFComponent', 'historical-component',
+                    'create', 'Original history', '2026-10-01', '2026-10-01', '2026-10-01', 1, 0, 1)''')
+        db.commit()
+        assert db.execute('PRAGMA foreign_key_check').fetchall() == []
+
+
+def test_psmf_text_version_migration_preserves_business_rows_and_audit(tmp_path):
+    from contextlib import closing
+    import sqlite3
+    from tests.test_migrations import migrate_test_database
+
+    path = tmp_path / 'psmf-migration.db'
+    historical_psmf_database(path)
     with closing(sqlite3.connect(path)) as db:
         columns = [r[1] for r in db.execute('PRAGMA table_info(psmf_component_versions)')]
         assert 'row_version' not in columns
@@ -203,7 +223,7 @@ def test_psmf_text_version_migration_preserves_business_rows_and_audit(client, t
         parents = db.execute('SELECT * FROM psmf_components ORDER BY id').fetchall()
         audit = db.execute('SELECT * FROM tblAuditTrail ORDER BY id').fetchall()
     for _ in range(2):
-        result = migrate_test_database(path)
+        result = migrate_test_database(path, '20261002_0028')
         assert result.returncode == 0, result.stderr
         with closing(sqlite3.connect(path)) as db:
             selection = ','.join(f'"{c}"' for c in columns)
@@ -221,10 +241,10 @@ def test_contact_delete_validates_both_rendered_forms_and_current_token(client):
     from app.database import SessionLocal
     from app.models import AuditTrail
 
-    model, row_id, page, edit_url, _, _ = target('contact')
+    model, row_id, _, edit_url, _, _ = target('contact')
     url = edit_url.removesuffix('edit') + 'delete'
     fragments = re.findall(r'<form\b[^>]*action="' + re.escape(url) + r'"[^>]*>.*?</form>',
-                           client.get(page).text, flags=re.S)
+                           client.get('/contract-contacts').text, flags=re.S)
     assert len(fragments) == 2  # partner preview and main contact table
     tokens = [Forms(fragment).forms[url]['expected_version'] for fragment in fragments]
     assert tokens[0] == tokens[1]
@@ -250,31 +270,19 @@ def test_contact_delete_validates_both_rendered_forms_and_current_token(client):
 @pytest.mark.parametrize('column,expected_success', [('INTEGER NOT NULL DEFAULT 7', True),
                                                     ('INTEGER NOT NULL DEFAULT 0', False),
                                                     ('TEXT NOT NULL DEFAULT 7', False)])
-def test_psmf_migration_adoption_validates_existing_counter(client, tmp_path, column, expected_success):
+def test_psmf_migration_adoption_validates_existing_counter(tmp_path, column, expected_success):
     from contextlib import closing
     import sqlite3
-    import os
-    import subprocess
-    import sys
-    from app.database import engine
     from tests.test_migrations import migrate_test_database
 
-    psmf_target(client, 'components', 'save')
     path = tmp_path / 'adopt-counter.db'
-    with closing(sqlite3.connect(engine.url.database)) as source, closing(sqlite3.connect(path)) as copy:
-        source.backup(copy)
-    env = os.environ.copy()
-    env['DATABASE_URL'] = f'sqlite:///{path.as_posix()}'
-    env['PV_STORAGE_ROOT'] = str(tmp_path / 'adopt-counter-storage')
-    result = subprocess.run([sys.executable, '-m', 'alembic', 'downgrade', '20261002_0027'],
-                            env=env, capture_output=True, text=True, timeout=60)
-    assert result.returncode == 0, result.stderr
+    historical_psmf_database(path)
     with closing(sqlite3.connect(path)) as db:
         db.execute(f'ALTER TABLE psmf_component_versions ADD COLUMN row_version {column}')
         db.commit()
         before = db.execute('SELECT * FROM psmf_component_versions ORDER BY id').fetchall()
         audit = db.execute('SELECT * FROM tblAuditTrail ORDER BY id').fetchall()
-    result = migrate_test_database(path)
+    result = migrate_test_database(path, '20261002_0028')
     assert (result.returncode == 0) is expected_success, result.stderr
     if not expected_success:
         assert 'row_version must be a non-null integer' in result.stderr or 'invalid row versions' in result.stderr

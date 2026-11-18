@@ -1064,11 +1064,7 @@ def find_partner_contact(
 def contact_label(contact: ContractContact | None) -> str:
     if not contact:
         return ""
-    return " ".join(
-        part
-        for part in [contact.last_name, contact.first_name, contact.patronymic]
-        if part
-    )
+    return contact.full_name
 
 
 def available_partner_code(db: Session, inn: Any) -> str:
@@ -1962,7 +1958,7 @@ def candidate_contract(contract: Contract, reason: str) -> dict[str, Any]:
 
 
 def candidate_contact(contact: ContractContact, reason: str) -> dict[str, Any]:
-    name = " ".join(part for part in [contact.last_name, contact.first_name, contact.patronymic] if part)
+    name = contact.full_name
     return {
         "id": contact.id,
         "label": f"{name} / {contact.email or '-'}",

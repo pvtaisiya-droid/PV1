@@ -1,0 +1,71 @@
+<link rel="stylesheet" href="{{ url_for('static', path='ae_card.css') }}?v=20261113-compact-1">
+<div id="pv-v2" aria-label="НЯ и особые ситуации">
+<input type="hidden" id="pv-card-data" name="pv_card_json" value="{{ ae_state|tojson|forceescape }}">
+<input type="hidden" id="pv-card-dirty" name="pv_card_dirty" value="{{ values.get('pv_card_dirty', 'false') if values is defined else 'false' }}">
+{% set card_case = ae_linked_case|default(report.case if report else none) %}
+{% if card_case %}<input type="hidden" name="expected_case_version" value="{{ card_case.version }}">{% endif %}
+<script type="application/json" id="pv-initial-state">{{ ae_state|tojson }}</script>
+<script type="application/json" id="pv-directory-data">{{ ae_contacts|tojson }}</script>
+<script type="application/json" id="pv-product-data">{{ ae_products|tojson }}</script>
+<div class="pv-context"><div class="pv-title-group"><strong>НЯ и особые ситуации · {{ route_numbers.get('pv', 'Номер будет присвоен после сохранения') }}</strong><button type="button" id="pv-validity-open" class="pv-button pv-small" data-open="validity">Оценка валидности · 0/4</button></div>{% if report %}<a class="pv-link pv-small" href="/safety-reports/{{ report.id }}/intake?step=registration" {% if not ae_case_mode %}data-source-message{% endif %}>Исходное сообщение {{ report.safety_report_number }} ↗</a>{% endif %}</div>
+<main class="pv-work">
+    <div class="pv-col">
+      <section id="pv-section-patient" class="pv-section" aria-labelledby="pv-patient-title" data-state="empty">
+        <div class="pv-heading"><h3 id="pv-patient-title">Пациент <span id="pv-mark-patient" class="pv-state" aria-label="Не заполнено">—</span></h3><label class="pv-check"><input id="pv-unknown-patient" type="checkbox" data-unknown="patient">Неизвестно</label></div>
+        <div class="pv-three">
+          <div><label class="pv-label" for="pv-patient-initials">Ф.И.О.</label><input id="pv-patient-initials" class="pv-field" autocomplete="off" placeholder="Ф.И.О."></div>
+          <div><label class="pv-label" for="pv-patient-age">Возраст</label><input id="pv-patient-age" class="pv-field" autocomplete="off" placeholder="35 лет"></div>
+          <div><label class="pv-label" for="pv-patient-sex">Пол</label><select id="pv-patient-sex" class="pv-field"><option value="">Не указан</option><option value="female">Женский</option><option value="male">Мужской</option></select></div>
+        </div>
+        <div class="pv-two"><div><label class="pv-label" for="pv-patient-phone">Телефон</label><input id="pv-patient-phone" class="pv-field" type="tel" autocomplete="off"></div><div><label class="pv-label" for="pv-patient-email">Email</label><input id="pv-patient-email" class="pv-field" type="text" inputmode="email" autocomplete="off"></div></div>
+        <div class="pv-actions"><button type="button" id="pv-patient-other" class="pv-link pv-small" data-open="patient">Подробнее</button></div>
+      </section>
+      <section id="pv-section-reporter" class="pv-section" aria-labelledby="pv-reporter-title" data-state="empty">
+        <div class="pv-heading"><h3 id="pv-reporter-title">Репортёр <span id="pv-mark-reporter" class="pv-state" aria-label="Не заполнено">—</span></h3><label class="pv-check"><input id="pv-unknown-reporter" type="checkbox" data-unknown="reporter">Неизвестно</label></div>
+        <div class="pv-contact-row"><div class="pv-contact-copy"><p class="pv-contact-role">От кого получено сообщение</p><p id="pv-sender-summary" class="pv-contact-summary"></p></div><button type="button" class="pv-link pv-small" data-contact="sender">Заполнить</button></div>
+        <div class="pv-contact-row"><div class="pv-contact-copy"><p class="pv-contact-role">Первичный источник</p><p id="pv-primary-summary" class="pv-contact-summary"></p></div><button type="button" class="pv-link pv-small" data-contact="primary">Заполнить</button></div>
+        <div class="pv-extra"><button type="button" id="pv-extra-open" class="pv-link pv-small" hidden>Ещё контакты: 0</button><button type="button" id="pv-contact-add" class="pv-button pv-small">+ Добавить контакт</button></div>
+      </section>
+    </div>
+    <div class="pv-col">
+      <section id="pv-section-drug" class="pv-section" aria-labelledby="pv-drug-title" data-state="empty">
+        <div class="pv-heading"><div class="pv-title-group"><h3 id="pv-drug-title">Препарат <span id="pv-mark-drug" class="pv-state" aria-label="Не заполнено">—</span></h3><button type="button" id="pv-drug-add" class="pv-link pv-small">+ Добавить препарат</button></div><div class="pv-heading-tools"><button type="button" class="pv-link pv-small" data-open="drugtip" title="Сведения о подозреваемых, сопутствующих и других препаратах можно дополнить позже — в карточке ИСНР ↗.">О других ЛП ⓘ</button><label class="pv-check"><input id="pv-unknown-drug" type="checkbox" data-unknown="drug">Неизвестно</label></div></div>
+        <div class="pv-med-heads" aria-hidden="true"><span>Препарат компании</span><span>Как указан в сообщении</span><span></span></div>
+        <div id="pv-med-scroll" class="pv-med-scroll" role="region" aria-label="Препараты сообщения"><div id="pv-med-rows" class="pv-med-rows"></div></div>
+      </section>
+      <section id="pv-section-reaction" class="pv-section" aria-labelledby="pv-event-title" data-state="empty">
+        <div class="pv-heading"><h3 id="pv-event-title">НЯ и особые ситуации <span id="pv-mark-reaction" class="pv-state" aria-label="Не заполнено">—</span></h3><label class="pv-check"><input id="pv-unknown-reaction" type="checkbox" data-unknown="reaction">Неизвестно</label></div>
+        <label class="pv-label">Какая информация поступила?</label>
+        <div class="pv-type"><div id="pv-special-wrap" class="pv-special-wrap"><button type="button" id="pv-special-button" class="pv-button pv-small" data-open="special" aria-haspopup="dialog"><span id="pv-special-summary">Выбрать ситуации</span></button></div><label class="pv-check"><input id="pv-ae" type="checkbox">Нежелательное явление</label><label class="pv-check"><input id="pv-special" type="checkbox">Особая ситуация</label></div>
+        <div class="pv-description-title"><label class="pv-label" for="pv-description">Описание</label><button type="button" class="pv-link pv-small" data-open="description">Развернуть ↗</button></div>
+        <textarea id="pv-description" class="pv-field" rows="2" placeholder="Что произошло и когда — известные сведения"></textarea>
+        <div class="pv-assessment"><div class="pv-serious"><label for="pv-seriousness">Серьезное?</label><select id="pv-seriousness" class="pv-field"><option value="no">Нет</option><option value="yes">Да</option></select></div><div id="pv-criteria-wrap" class="pv-criteria-wrap"><button type="button" id="pv-criteria-button" class="pv-select-button" data-open="criteria"><span id="pv-criteria-summary">Критерии серьёзности · Выбрать…</span><span aria-hidden="true">⌄</span></button></div></div>
+      </section>
+    </div>
+  </main>
+<div id="pv-overlay" class="pv-shade" hidden>
+    <section class="pv-dialog" role="dialog" aria-modal="true" aria-labelledby="pv-dialog-title">
+      <div class="pv-dialog-head"><h3 id="pv-dialog-title"></h3><button type="button" id="pv-close" class="pv-button" aria-label="Закрыть окно">×</button></div>
+      <div id="pv-panel-special" hidden><div id="pv-special-options" class="pv-options"></div><div id="pv-other-wrap" class="pv-gap" hidden><label class="pv-label" for="pv-other">Другая особая ситуация</label><input id="pv-other" class="pv-field"></div></div>
+      <div id="pv-panel-drugs" hidden><div id="pv-med-picker-wrap"><label class="pv-label" for="pv-med-picker">Препараты сообщения</label><select id="pv-med-picker" class="pv-field"></select></div><div class="pv-gap"><label class="pv-label" for="pv-med-company">Препарат компании</label><select id="pv-med-company" class="pv-field"><option value="">Не выбран</option></select></div><div class="pv-gap"><label class="pv-label" for="pv-med-reported">Как указан в сообщении</label><textarea id="pv-med-reported" class="pv-field" rows="3"></textarea></div><button type="button" class="pv-link pv-small pv-gap" data-open="safety">Информация по безопасности ↗</button></div>
+      <div id="pv-panel-text" hidden><label id="pv-text-label" class="pv-label" for="pv-expanded-text"></label><textarea id="pv-expanded-text" class="pv-field" rows="6"></textarea></div>
+      <div id="pv-panel-criteria" hidden><p class="pv-note">Можно выбрать несколько критериев.</p><div id="pv-criteria-options" class="pv-options pv-gap"></div></div>
+      <div id="pv-panel-contact" hidden>
+        <div id="pv-contact-picker-wrap" hidden><label class="pv-label" for="pv-contact-picker">Дополнительные контакты</label><select id="pv-contact-picker" class="pv-field"></select></div>
+        <div class="pv-gap"><label class="pv-label" for="pv-contact-mode">Как заполнить контакт?</label><select id="pv-contact-mode" class="pv-field"></select></div>
+        <div id="pv-contact-existing-wrap" class="pv-gap" hidden><label class="pv-label" for="pv-contact-existing">Контактное лицо из справочника</label><select id="pv-contact-existing" class="pv-field"><option value="">Выберите контакт</option></select></div>
+        <div id="pv-contact-linked" class="pv-helper" hidden><p id="pv-contact-linked-summary"></p><button type="button" id="pv-contact-linked-edit" class="pv-link pv-small pv-gap">Перейти к данным</button></div>
+        <div id="pv-contact-fields" class="pv-dialog-fields"><div><label class="pv-label" for="pv-contact-name">Имя</label><input id="pv-contact-name" class="pv-field" autocomplete="off"></div><div><label class="pv-label" for="pv-contact-country">Страна</label><input id="pv-contact-country" class="pv-field" autocomplete="off"></div><div><label class="pv-label" for="pv-contact-phone">Телефон</label><input id="pv-contact-phone" class="pv-field" type="tel" autocomplete="off"></div><div><label class="pv-label" for="pv-contact-email">Email</label><input id="pv-contact-email" class="pv-field" type="text" inputmode="email" autocomplete="off"></div></div>
+        <div id="pv-contact-role-wrap" class="pv-gap" hidden><label class="pv-label" for="pv-contact-role">Роль / связь с сообщением</label><input id="pv-contact-role" class="pv-field" placeholder="Например, лечащий врач или родственник"></div>
+        <label id="pv-save-contact-wrap" class="pv-check pv-gap"><input id="pv-save-contact" type="checkbox">Сохранить в контактных лицах для дальнейшего использования</label>
+        <p id="pv-contact-error" class="pv-dialog-error" role="alert" hidden></p>
+      </div>
+      <div id="pv-panel-source" hidden></div>
+      <div id="pv-panel-drugtip" hidden><p>Сведения о подозреваемых, сопутствующих и других препаратах можно дополнить позже — в карточке ИСНР ↗.</p><button type="button" class="pv-link pv-gap" data-open="icsr">Подробнее — карточка ИСНР ↗</button></div>
+      <div id="pv-panel-safety" hidden><p>Информация по безопасности выбранного препарата.</p><p class="pv-note pv-gap">Раздел в разработке.</p></div>
+      <div id="pv-panel-icsr" hidden></div>
+      <div id="pv-panel-validity" hidden><p id="pv-validity-total" role="status" aria-live="polite"></p><div id="pv-validity-rows"></div></div>
+      <div class="pv-dialog-footer"><button type="button" id="pv-contact-remove" class="pv-link pv-small" hidden>Убрать контакт</button><button type="button" id="pv-med-remove" class="pv-link pv-small" hidden>Убрать препарат</button><div><button type="button" id="pv-cancel" class="pv-button">Отмена</button><button type="button" id="pv-apply" class="pv-button pv-primary">Применить</button></div></div>
+    </section>
+  </div>
+</div>

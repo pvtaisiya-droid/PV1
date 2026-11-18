@@ -12,6 +12,8 @@ from app.concurrency import require_version
 from app.database import get_db
 from app.templating import templates
 from app.ui_helpers import active_filters, contains_search, redirect_with_message
+from app.security import require_csrf
+from app.duplicates import contact_candidates, blocked_contact_candidates
 
 
 router = APIRouter()
@@ -68,6 +70,7 @@ def contract_contacts_page(
         if contains_search(
             search,
             contact.last_name,
+            contact.display_name,
             contact.first_name,
             contact.patronymic,
             contact.email,
@@ -86,7 +89,6 @@ def contract_contacts_page(
             or (status_filter == "inactive" and not contact.is_current)
         )
     ]
-    all_documents = crud.list_attachments(db)
     filters = {
         "search": search or "",
         "partner_id": partner_id or "",
@@ -116,15 +118,42 @@ def contract_contacts_page(
             "contact_type_options": CONTACT_TYPE_OPTIONS,
             "reconciliation_participation_options": RECONCILIATION_PARTICIPATION_OPTIONS,
             "contact_type_labels": dict(CONTACT_TYPE_OPTIONS),
-            "documents_by_contact": {
-                contact.id: [
-                    document
-                    for document in all_documents
-                    if document.related_object_type == "PartnerResponsiblePerson"
-                    and document.related_object_id == contact.id
-                ]
-                for contact in contacts
-            },
+        },
+    )
+
+
+@router.get("/contract-contacts/{contact_id}", response_class=HTMLResponse)
+def contract_contact_detail_page(
+    contact_id: str,
+    request: Request,
+    edit: bool = False,
+    db: Session = Depends(get_db),
+):
+    contact = crud.get_contract_contact(db, contact_id)
+    if not contact:
+        return redirect_with_message("/contract-contacts", error="Contact not found.")
+    documents = [
+        document
+        for document in crud.list_attachments(db)
+        if document.related_object_type == "PartnerResponsiblePerson"
+        and document.related_object_id == contact.id
+    ]
+    return templates.TemplateResponse(
+        request,
+        "contract_contact_detail.html",
+        {
+            "request": request,
+            "active_page": "contract_contacts",
+            "contact": contact,
+            "edit_mode": edit,
+            "partners": crud.list_partners(db),
+            "contact_type_options": CONTACT_TYPE_OPTIONS,
+            "contact_type_labels": dict(CONTACT_TYPE_OPTIONS),
+            "reconciliation_participation_options": RECONCILIATION_PARTICIPATION_OPTIONS,
+            "documents": documents,
+            "message": request.query_params.get("message"),
+            "error": request.query_params.get("error"),
+            "validation": request.query_params.get("validation"),
         },
     )
 
@@ -135,12 +164,15 @@ def contract_contacts_page(
 )
 @atomic_write
 def create_contract_contact_form(
-    partner_id: str = Form(...),
-    last_name: str = Form(...),
-    first_name: str = Form(...),
+    partner_id: str | None = Form(None),
+    display_name: str | None = Form(None),
+    country: str | None = Form(None),
+    allow_duplicate_contact: bool = Form(False),
+    last_name: str | None = Form(None),
+    first_name: str | None = Form(None),
     patronymic: str | None = Form(None),
     email: str | None = Form(None),
-    position: str = Form(...),
+    position: str | None = Form(None),
     mobile_phone: str | None = Form(None),
     work_phone: str | None = Form(None),
     extension_phone: str | None = Form(None),
@@ -151,16 +183,22 @@ def create_contract_contact_form(
     contact_type: str | None = Form("pv"),
     is_billing_contact: str | None = Form(None),
     comments: str | None = Form(None),
-    expected_partner_version: int = Form(..., gt=0),
+    expected_partner_version: int | None = Form(None, gt=0),
     db: Session = Depends(get_db),
 ):
-    protect_record(db, models.Partner, partner_id, expected_partner_version)
+    if partner_id:
+        if expected_partner_version is None:
+            raise HTTPException(422, "Expected partner version is required")
+        protect_record(db, models.Partner, partner_id, expected_partner_version)
     try:
         validate_partner(db, partner_id)
         crud.create_contract_contact(
             db,
             build_contract_contact_payload(
                 partner_id=partner_id,
+                display_name=display_name,
+                country=country,
+                allow_duplicate_contact=allow_duplicate_contact,
                 last_name=last_name,
                 first_name=first_name,
                 patronymic=patronymic,
@@ -193,12 +231,15 @@ def create_contract_contact_form(
 )
 def edit_contract_contact_form(
     contact_id: str,
-    partner_id: str = Form(...),
-    last_name: str = Form(...),
-    first_name: str = Form(...),
+    partner_id: str | None = Form(None),
+    display_name: str | None = Form(None),
+    country: str | None = Form(None),
+    allow_duplicate_contact: bool = Form(False),
+    last_name: str | None = Form(None),
+    first_name: str | None = Form(None),
     patronymic: str | None = Form(None),
     email: str | None = Form(None),
-    position: str = Form(...),
+    position: str | None = Form(None),
     mobile_phone: str | None = Form(None),
     work_phone: str | None = Form(None),
     extension_phone: str | None = Form(None),
@@ -209,6 +250,7 @@ def edit_contract_contact_form(
     contact_type: str | None = Form("pv"),
     is_billing_contact: str | None = Form(None),
     comments: str | None = Form(None),
+    detail_form: bool = Form(False),
     expected_version: int = Form(..., ge=1),
     db: Session = Depends(get_db),
 ):
@@ -216,6 +258,8 @@ def edit_contract_contact_form(
     if not contact:
         return redirect_with_message("/contract-contacts", error="Contact not found.")
     require_version(contact, expected_version)
+    target_url = f"/contract-contacts/{contact_id}" if detail_form else "/contract-contacts"
+    error_url = f"{target_url}?edit=1" if detail_form else target_url
     try:
         validate_partner(db, partner_id)
         crud.update_contract_contact(
@@ -223,6 +267,9 @@ def edit_contract_contact_form(
             contact,
             build_contract_contact_payload(
                 partner_id=partner_id,
+                display_name=display_name,
+                country=country,
+                allow_duplicate_contact=allow_duplicate_contact,
                 last_name=last_name,
                 first_name=first_name,
                 patronymic=patronymic,
@@ -242,11 +289,11 @@ def edit_contract_contact_form(
         )
     except ValueError as exc:
         db.rollback()
-        return redirect_with_message("/contract-contacts", validation=str(exc))
+        return redirect_with_message(error_url, validation=str(exc))
     except IntegrityError:
         db.rollback()
-        return redirect_with_message("/contract-contacts", error="Contact could not be saved.")
-    return redirect_with_message("/contract-contacts", message="Contact saved.")
+        return redirect_with_message(error_url, error="Contact could not be saved.")
+    return redirect_with_message(target_url, message="Contact saved.")
 
 
 @router.post(
@@ -291,10 +338,13 @@ def api_list_contract_contacts(db: Session = Depends(get_db)):
 @atomic_write
 def api_create_contract_contact(
     payload: schemas.ContractContactCreate,
-    expected_partner_version: int = Query(..., gt=0),
+    expected_partner_version: int | None = Query(None, gt=0),
     db: Session = Depends(get_db),
 ):
-    protect_record(db, models.Partner, payload.partner_id, expected_partner_version)
+    if payload.partner_id:
+        if expected_partner_version is None:
+            raise HTTPException(422, "Expected partner version is required")
+        protect_record(db, models.Partner, payload.partner_id, expected_partner_version)
     validate_partner(db, payload.partner_id)
     try:
         return crud.create_contract_contact(db, payload)
@@ -313,9 +363,24 @@ def api_get_contract_contact(contact_id: str, db: Session = Depends(get_db)):
     return contact
 
 
-def validate_partner(db: Session, partner_id: str) -> None:
-    if not crud.get_partner(db, partner_id):
+def validate_partner(db: Session, partner_id: str | None) -> None:
+    if partner_id and not crud.get_partner(db, partner_id):
         raise HTTPException(status_code=404, detail="Partner not found")
+
+
+async def duplicate_form_data(request: Request):
+    return await request.form()
+
+
+@router.post("/contract-contacts/check-duplicates", dependencies=[Depends(require_any_permission("create", "edit", "manage_reference_data")), Depends(require_csrf)])
+def check_contact_duplicates(form=Depends(duplicate_form_data), db: Session = Depends(get_db)):
+    name = str(form.get("display_name") or "").strip() or " ".join(str(form.get(key) or "").strip() for key in ["last_name", "first_name", "patronymic"]).strip()
+    matches = contact_candidates(db, name=name, email=form.get("email"),
+                                 phones=[form.get("mobile_phone"), form.get("work_phone")],
+                                 partner_id=form.get("partner_id") or None, exclude_id=form.get("contact_id") or None)
+    blocked = blocked_contact_candidates(matches, allowed=True, partner_id=form.get("partner_id") or None, email=form.get("email"))
+    return {"can_create_separate": not blocked, "contacts": [
+        {"id": item["contact"].id, "name": item["contact"].full_name, "reasons": item["reasons"]} for item in matches]}
 
 
 def optional_text(value: str | None) -> str | None:
@@ -327,12 +392,12 @@ def optional_text(value: str | None) -> str | None:
 
 def build_contract_contact_payload(
     *,
-    partner_id: str,
-    last_name: str,
-    first_name: str,
+    partner_id: str | None,
+    last_name: str | None,
+    first_name: str | None,
     patronymic: str | None,
     email: str | None,
-    position: str,
+    position: str | None,
     mobile_phone: str | None,
     work_phone: str | None,
     extension_phone: str | None,
@@ -343,14 +408,15 @@ def build_contract_contact_payload(
     contact_type: str | None,
     is_billing_contact: bool,
     comments: str | None,
+    display_name: str | None = None,
+    country: str | None = None,
+    allow_duplicate_contact: bool = False,
 ) -> schemas.ContractContactCreate:
-    last_name_value = last_name.strip()
-    first_name_value = first_name.strip()
-    position_value = position.strip()
-    if not last_name_value or not first_name_value:
-        raise ValueError("Last name and first name are required.")
-    if not position_value:
-        raise ValueError("Position is required.")
+    last_name_value = optional_text(last_name)
+    first_name_value = optional_text(first_name)
+    position_value = optional_text(position)
+    if not any(optional_text(value) for value in [display_name, last_name, first_name, email, mobile_phone, work_phone]):
+        raise ValueError("Укажите известное имя, email или телефон контакта.")
 
     contact_type_value = optional_text(contact_type) or "pv"
     if contact_type_value not in CONTACT_TYPE_VALUES:
@@ -364,7 +430,10 @@ def build_contract_contact_payload(
     participation = reconciliation_participation if is_current else "none"
 
     return schemas.ContractContactCreate(
-        partner_id=partner_id,
+        partner_id=optional_text(partner_id),
+        display_name=optional_text(display_name),
+        country=optional_text(country),
+        allow_duplicate_contact=allow_duplicate_contact,
         last_name=last_name_value,
         first_name=first_name_value,
         patronymic=optional_text(patronymic),

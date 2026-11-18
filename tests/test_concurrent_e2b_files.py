@@ -1,18 +1,27 @@
 from pathlib import Path
+import base64
 
 import pytest
 
 from tests.test_concurrent_e2b import form, send, setup, snapshot
-from tests.test_e2b_import import (e2b_r3_xml_with_attachment, latest_batch,
+from tests.test_e2b_import import (latest_batch,
                                    e2b_xml, make_zip, seed_product, upload_package, upload_xml)
+
+
+def legacy_xml_with_attachment():
+    # These hooks exercise the legacy writer. R3 now uses clinical_messages,
+    # so an R3 fixture would bypass the audit/version hooks being tested.
+    document = b'%PDF-1.4 embedded E2B document'
+    encoded = base64.b64encode(document).decode('ascii')
+    return e2b_xml(extra=f'<attachment filename="source.pdf" mediaType="application/pdf">{encoded}</attachment>'), document
 
 
 @pytest.mark.parametrize('failure', ('audit', 'commit', 'write'))
 def test_embedded_file_rollback_preserves_previous_bytes(client, monkeypatch, failure):
     from app import e2b_import
     from sqlalchemy.orm import Session
-    seed_product(name='PACLITAXEL', code='PACLITAXEL-001')
-    xml, document = e2b_r3_xml_with_attachment()
+    seed_product()
+    xml, document = legacy_xml_with_attachment()
     assert upload_xml(client, xml).status_code == 303
     batch = latest_batch()
     legacy = Path(batch.storage_dir) / 'embedded' / 'previous.pdf'
@@ -169,8 +178,8 @@ def test_late_embedded_import_conflict_preserves_previous_files(client, monkeypa
     from app.database import SessionLocal
     from app.models import E2BImportBatch
     from app.routers import safety_reports
-    seed_product(name='PACLITAXEL', code='PACLITAXEL-001')
-    xml, document = e2b_r3_xml_with_attachment()
+    seed_product()
+    xml, document = legacy_xml_with_attachment()
     assert upload_xml(client, xml).status_code == 303
     batch_id = latest_batch().id
     url, data = form(client, batch_id, 'confirm')
